@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+<h2>오늘 출석</h2>
+<h2 th:if="${message}" th:text="${message}" style="color : green;"></h2>
+<h2 th:if="${error}" th:text="${error}" style="color : red;"></h2>
+<table border="1">
+    <tr>
+        <th>회원ID</th>
+        <th>출석날짜</th>
+        <th>상태</th>
+        <th>비고</th>
+    </tr>
+
+    <tr th:each="att : ${list}">
+        <td th:text="${att.memberId}"></td>
+        <td th:text="${att.attendDate}"></td>
+        <td th:text="${att.status}"></td>
+        <td th:text="${att.note}"></td>
+    </tr>
+</table>
+</body>
+</html>

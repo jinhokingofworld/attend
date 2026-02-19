@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.attend.repository.AttendMapper">
+    <insert id="insert">
+            INSERT INTO attendance (member_id, attend_time, attend_date, status)
+            values (#{memberId}, #{attendTime}, #{attendDate}, #{status}::attend_status)
+    </insert>
+
+    <update id="updateNote">
+        UPDATE attendance SET note = #{note}
+        WHERE attend_id = #{id}
+    </update>
+
+    <resultMap id="attendanceMap" type="com.example.attend.entity.Attendance">
+        <id property="id" column="attend_id"/>
+        <result property="attendDate" column="attend_date"/>
+        <result property="memberId" column="member_id"/>
+        <result property="status" column="status"/>
+        <result property="note" column="note"/>
+    </resultMap>
+
+    <select id="selectDayList" resultMap="attendanceMap">
+        SELECT member_id, attend_date, status, note from attendance
+        WHERE attend_date = #{today}
+    </select>
+
+    <select id="selectStatByMemberId" resultType="com.example.attend.entity.AttendanceStatRaw">
+        select Count(*) AS totalCnt,
+        SUM(CASE WHEN status = 'TIME_OUT' THEN 1 ELSE 0 END) AS lateCnt,
+        SUM(CASE WHEN status = 'MISS' THEN 1 ELSE 0 END) AS absentCnt
+        from attendance WHERE member_id = #{id}
+    </select>
+
+    <select id="selectMemberWithUID" resultType="com.example.attend.entity.Member">
+        SELECT * FROM member
+        WHERE card_uid = #{uid}
+    </select>
+</mapper>

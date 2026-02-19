@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>회원 수정</title>
+</head>
+<body>
+    <h2>회원 정보 수정</h2>
+    <form th:action="@{/member/update}"
+          th:object="${memberForm}" method="post">
+        <input type="hidden" th:field="*{id}">
+        <table>
+            <tr>
+                <th>이름</th>
+                <td>
+                    <input type="text" th:field="*{name}">
+                    <p th:if="${#fields.hasErrors('name')}"
+                       th:errors="*{name}" style="color: red">오류가 있으면 표시</p>
+                </td>
+            </tr>
+            <tr>
+                <th>나이</th>
+                <td>
+                    <input type="number" th:field="*{age}">
+                    <p th:if="${#fields.hasErrors('age')}"
+                       th:errors="*{age}" style="color: red">오류 표시</p>
+                </td>
+            </tr>
+            <tr>
+                <th>전화번호</th>
+                <td>
+                    <input type="text" th:field="*{phone}">
+                    <p th:if="${#fields.hasErrors('phone')}"
+                       th:errors="*{phone}" style="color: red">오류 표시</p>
+                </td>
+            </tr>
+            <tr>
+                <th>생일</th>
+                <td><input type="date" th:field="*{birth}"></td>
+            </tr>
+            <tr>
+                <th>출석카드</th>
+                <td><input type="text" th:field="*{cardUid}"></td>
+            </tr>
+        </table>
+        <input type="submit" value="수정">
+    </form>
+    <a th:href="@{/member}">회원 목록</a>
+</body>
+</html>

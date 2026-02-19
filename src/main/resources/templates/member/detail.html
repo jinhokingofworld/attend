@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>회원 상세 보기</title>
+</head>
+<body>
+    <h2>회원 상세 정보</h2>
+    <table border="1" width="300">
+        <tr>
+            <th>ID</th>
+            <td th:text="${member.id}"></td>
+        </tr>
+        <tr>
+            <th>이름</th>
+            <td th:text="${member.name}"></td>
+        </tr>
+        <tr>
+            <th>나이</th>
+            <td th:text="${member.age}"></td>
+        </tr>
+        <tr>
+            <th>전화번호</th>
+            <td th:text="${member.phone}"></td>
+        </tr>
+        <tr>
+            <th>생일</th>
+            <td th:text="${member.birth}"></td>
+        </tr>
+        <tr>
+            <th>등록일자</th>
+            <td th:text="${member.createdAt}"></td>
+        </tr>
+    </table>
+    <br>
+
+    <table border="1" width="300">
+        <thead>
+            <tr>
+                <th>지각 횟수</th>
+                <th>지각률</th>
+                <th>결석 횟수</th>
+                <th>결석률</th>
+            </tr>
+            <tr>
+                <td th:text="${result.late}"></td>
+                <td th:text="${result.lateRatio}"></td>
+                <td th:text="${result.absent}"></td>
+                <td th:text="${result.absentRatio}"></td>
+            </tr>
+        </thead>
+    </table>
+    <br>
+
+    <a th:href="@{/member/edit/{id}(id=${member.id})}">회원 정보 수정</a>
+    <a th:href="@{/member}">회원 목록</a>
+
+    <hr>
+
+    <form th:action="@{/member/delete/{id}(id=${member.id})}" method="post">
+        <input type="submit" value="회원삭제">
+    </form>
+</body>
+</html>
