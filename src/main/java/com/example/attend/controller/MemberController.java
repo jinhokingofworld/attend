@@ -4,6 +4,7 @@ import com.example.attend.entity.AttendanceResult;
 import com.example.attend.entity.Member;
 import com.example.attend.form.MemberForm;
 import com.example.attend.helper.MemberHelper;
+import com.example.attend.service.AttenanceLogService;
 import com.example.attend.service.AttendanceService;
 import com.example.attend.service.MemberService;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +21,7 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 public class MemberController {
     private final MemberService memberService;
     private final AttendanceService attendanceService;
+    private final AttenanceLogService attenanceLogService;
 
     //멤버 리스트 화면
     @GetMapping
@@ -32,12 +34,14 @@ public class MemberController {
     @GetMapping("/{id}")
     public String detail(@PathVariable Long id, Model model,
                          RedirectAttributes attributes) {
+        String lastUid = attenanceLogService.getLastFailedUid();
         Member member = memberService.getMem(id);
         AttendanceResult result = attendanceService.findMemberStat(id);
 
         if (member != null) {
             model.addAttribute("member", member);
             model.addAttribute("result", result);
+            model.addAttribute("lastUid", lastUid);
             return "/member/detail";
         } else {
             attributes.addFlashAttribute("errorMessage", "대상 데이터가 없습니다.");

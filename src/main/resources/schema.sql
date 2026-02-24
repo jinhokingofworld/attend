@@ -1,6 +1,8 @@
 DROP TABLE IF EXISTS attendance;
+DROP TABLE IF EXISTS attendance_log;
 DROP TABLE IF EXISTS authentications;
 DROP TABLE IF EXISTS member;
+
 
 -- 2. 타입은 테이블 다 지운 뒤
 DROP TYPE IF EXISTS role;
@@ -39,4 +41,17 @@ CREATE TABLE IF NOT EXISTS attendance (
             FOREIGN KEY (member_id) REFERENCES member(id)
             ON DELETE CASCADE,
             UNIQUE (member_id, attend_date)
+);
+
+CREATE TABLE attendance_log (
+    id BigSerial PRIMARY KEY,
+    created_at TIMESTAMP DEFAULT NOW(),
+    member_id BigInt,
+    uid VARCHAR(20) NOT NULL,
+    result VARCHAR(20) NOT NULL,
+    fail_type VARCHAR(50),
+    message TEXT,
+    CONSTRAINT fk_attendance_log_member
+                FOREIGN KEY (member_id) REFERENCES member(id)
+                ON DELETE CASCADE
 );

@@ -35,4 +35,18 @@
         SELECT * FROM member
         WHERE card_uid = #{uid}
     </select>
+
+    <insert id="insertAttendanceLog">
+        INSERT INTO attendance_log (uid, member_id, result, fail_type, message)
+        VALUES (#{uid}, #{memberId}, #{result}, #{failType}, #{message})
+    </insert>
+
+    <select id="selectRecentFailedUids" resultType="com.example.attend.entity.AttendanceLog">
+        SELECT uid, created_at, fail_type
+        FROM (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY uid ORDER BY created_at DESC) rn
+        FROM attendance_log WHERE fail_type = 'MemberNotFoundException'
+        ) t WHERE rn = 1
+        ORDER BY created_at DESC LIMIT 100
+    </select>
 </mapper>

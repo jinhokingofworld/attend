@@ -28,6 +28,10 @@
             <td th:text="${member.birth}"></td>
         </tr>
         <tr>
+            <th>카드번호</th>
+            <td th:text="${member.cardUid}"></td>
+        </tr>
+        <tr>
             <th>등록일자</th>
             <td th:text="${member.createdAt}"></td>
         </tr>
@@ -50,9 +54,10 @@
             </tr>
         </thead>
     </table>
-    <br>
 
-    <a th:href="@{/member/edit/{id}(id=${member.id})}">회원 정보 수정</a>
+    <p>최근 시도한 등록되지 않은 uid : <span th:text="${lastUid}"></span></p>
+    <br>
+    <a th:href="@{/member/edit/{id}(id=${member.id})}">회원 정보 수정</a> |
     <a th:href="@{/member}">회원 목록</a>
 
     <hr>

@@ -5,11 +5,11 @@ import com.example.attend.entity.*;
 import com.example.attend.exception.AlreadyAttendedException;
 import com.example.attend.exception.MemberNotFoundException;
 import com.example.attend.repository.AttendMapper;
+import com.example.attend.service.AttenanceLogService;
 import com.example.attend.service.AttendanceService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.cglib.core.Local;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 
+@Slf4j
 @Service
 @Transactional
 @RequiredArgsConstructor
@@ -25,6 +26,7 @@ public class AttendanceServiceImpl implements AttendanceService {
 
     public final AttendMapper attendMapper;
     public final AttendanceProperties attendanceProperties;
+    public final AttenanceLogService attenanceLogService;
 
 //    @Override
 //    public void attend(Long memberId) throws AlreadyAttendedException {
@@ -81,9 +83,13 @@ public class AttendanceServiceImpl implements AttendanceService {
 
     public void attendWithJson(String uid) throws AlreadyAttendedException, MemberNotFoundException {
         Member m = attendMapper.selectMemberWithUID(uid);
-
         //UID에 해당하는 Member를 찾지 못함
         if (m == null) {
+            attenanceLogService.save(AttendanceLog.fail(uid, null, "MemberNotFoundException",
+                    "UID에 해당하는 멤버를 찾을 수 없습니다."));
+//            attendMapper.insertAttendanceLog(
+//                AttendanceLog.fail(uid, null, "MemberNotFoundException",
+//                        "UID에 해당하는 멤버를 찾을 수 없습니다."));
             throw new MemberNotFoundException();
         }
 
@@ -101,11 +107,19 @@ public class AttendanceServiceImpl implements AttendanceService {
         }
 
         //매퍼에게 전달해줄 객체 생성
-        //중복 불가 처리
         Attendance attendance = new Attendance(m.getId(), status, now, today);
+
+        //출석과 로깅
         try {
             attendMapper.insert(attendance);
+            attenanceLogService.save(AttendanceLog.success(uid, m.getId()));
+//            attendMapper.insertAttendanceLog(AttendanceLog.success(uid, m.getId()));
         } catch (DuplicateKeyException e) {
+            attenanceLogService.save(AttendanceLog.fail(uid, m.getId(), "DuplicateKeyException",
+                    "오늘 이미 출석된 UID입니다."));
+//            attendMapper.insertAttendanceLog(
+//                    AttendanceLog.fail(uid, m.getId(), "DuplicateKeyException",
+//                            "오늘 이미 출석된 UID입니다."));
             throw new AlreadyAttendedException();
         }
     }

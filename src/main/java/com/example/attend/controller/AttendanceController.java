@@ -63,10 +63,10 @@ public class AttendanceController {
             return ResponseEntity.ok(new ApiResponse("Success"));
         } catch (AlreadyAttendedException e) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(new ApiResponse("ALREADY_ATTENDED"));
+                    .body(new ApiResponse("AlreadyAttended"));
         } catch (MemberNotFoundException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(new ApiResponse("ALREADY_ATTENDED"));
+                    .body(new ApiResponse("MemberNotFound"));
         }
     }
 

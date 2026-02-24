@@ -1,12 +1,35 @@
 <!DOCTYPE html>
-<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>form</title>
 </head>
 <body>
-    <form th:action="@{/attendance/{memberId}(memberId=1)}" method="post">
-        <button type="submit">출석하기</button>
-    </form>
+
+<button onclick="sendAttendance()">출석하기</button>
+
+<p id="result"></p>
+
+<script>
+    function sendAttendance() {
+        fetch("/attendance/api", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                uid: "06EA3L"
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById("result").innerText = data.message || "출석 완료";
+        })
+        .catch(error => {
+            document.getElementById("result").innerText = error.message;
+        });
+    }
+</script>
+
 </body>
 </html>
