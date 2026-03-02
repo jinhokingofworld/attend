@@ -10,8 +10,13 @@ VALUES ('박정호', 29, '010-1234-1234', '1998-10-29', '1BQ274');
 INSERT INTO member (name, age, phone, birth, card_uid)
 VALUES ('최종호', 30, '010-1234-1234', '1997-11-29', 'O72H3L');
 
-
 ---- password: adminpass
+INSERT INTO authentications (username, password, authority)
+VALUES ('admin', '$2a$10$xrQiadbHq5UUR8GAy33.s.0/wD8skOmZNg7VUaOIxI6Y.ocFVZfl2', 'ADMIN');
+---- password: userpass
+INSERT INTO authentications (username, password, authority)
+VALUES ('user', '$2a$10$BE6pXn.93R5XfYqrTmDyxuZhvflnKwVbLtVkmSSjXpFdOBoquFAVq', 'USER');
+
 --INSERT INTO authentications (username, password, authority, displayname)
 --VALUES ('admin', '$2a$10$xrQiadbHq5UUR8GAy33.s.0/wD8skOmZNg7VUaOIxI6Y.ocFVZfl2', 'ADMIN', '관리자');
 --

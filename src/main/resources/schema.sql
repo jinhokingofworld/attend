@@ -24,8 +24,7 @@ CREATE TYPE role AS ENUM ('ADMIN', 'USER');
 CREATE TABLE IF NOT EXISTS authentications (
     username VARCHAR(50) PRIMARY KEY,
     password VARCHAR(255) NOT NULL,
-    authority role NOT NULL,
-    displayname VARCHAR(50) NOT NULL
+    authority role NOT NULL
 );
 
 CREATE TYPE attend_status AS ENUM('IN_TIME', 'TIME_OUT', 'MISS');

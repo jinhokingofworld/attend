@@ -8,8 +8,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class Authentication {
+    //회원가입 DTO
     private String username;
     private String password;
     private Role authority;
-    private String displayname;
 }

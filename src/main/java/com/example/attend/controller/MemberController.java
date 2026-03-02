@@ -30,6 +30,7 @@ public class MemberController {
         return "/member/list"; //리스트 html페이지를 띄움
     }
 
+    //member가 null이면 에러 띄우기
     //멤버 세부 보기
     @GetMapping("/{id}")
     public String detail(@PathVariable Long id, Model model,
@@ -38,16 +39,12 @@ public class MemberController {
         Member member = memberService.getMem(id);
         AttendanceResult result = attendanceService.findMemberStat(id);
 
-        if (member != null) {
-            model.addAttribute("member", member);
-            model.addAttribute("result", result);
-            model.addAttribute("lastUid", lastUid);
-            return "/member/detail";
-        } else {
-            attributes.addFlashAttribute("errorMessage", "대상 데이터가 없습니다.");
-            return "/member/list";
-        }
+        model.addAttribute("member", member);
+        model.addAttribute("result", result);
+        model.addAttribute("lastUid", lastUid);
+        return "/member/detail";
     }
+
 
     //멤버 등록 화면
     @GetMapping("/insert")
@@ -77,14 +74,9 @@ public class MemberController {
     public String edit(@PathVariable Long id, Model model,
                             RedirectAttributes attributes) {
         Member m = memberService.getMem(id);
-        if (m != null) {
-            MemberForm form = MemberHelper.convertMemberForm(m);
-            model.addAttribute("memberForm", form);
-            return "member/edit";
-        } else {
-            attributes.addFlashAttribute("errorMessage", "대상 데이터가 없습니다.");
-            return "redirect:/member";
-        }
+        MemberForm form = MemberHelper.convertMemberForm(m);
+        model.addAttribute("memberForm", form);
+        return "member/edit";
     }
 
     //멤버 수정

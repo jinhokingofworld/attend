@@ -2,6 +2,6 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.example.attend.repository.AuthenticationMapper">
     <select id="selectByUsername" resultType="com.example.attend.entity.Authentication">
-        SELECT username, password, authority, displayname FROM authentications WHERE username = #{username}
+        SELECT username, password, authority FROM authentications WHERE username = #{username}
     </select>
 </mapper>

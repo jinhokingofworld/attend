@@ -26,6 +26,10 @@ public class AttendanceLogServiceImpl implements AttenanceLogService {
 
     public String getLastFailedUid(){
         AttendanceLog attendanceLog = attendMapper.selectRecentFailedUids();
-        return attendanceLog.getUid();
+        if (attendanceLog != null) {
+            return attendanceLog.getUid();
+        } else {
+            return "";
+        }
     }
 }

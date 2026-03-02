@@ -11,7 +11,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration
-@Profile("prod")
 @EnableWebSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
@@ -31,13 +30,18 @@ public class SecurityConfig {
                 .formLogin(form -> form
                     //커스텀 로그인 페이지 설정
                     .loginPage("/login")
+                        //로그인 요청 Post 주소
                         .loginProcessingUrl("/authentication")
+                        //ID와 PassWord 매핑
                         .usernameParameter("usernameInput")
                         .passwordParameter("passwordInput")
-                        .defaultSuccessUrl("/")
+                        //로그인 성공, 실패 후 보낼 페이지
+                        .defaultSuccessUrl("/member")
                         .failureUrl("/login?error"))
                     .logout(logout -> logout
+                            //로그아웃 요청 POST 주소
                             .logoutUrl("/logout")
+                            //성공 위치
                             .logoutSuccessUrl("/login?logout")
                             //HTTP 세션 무효화
                             .invalidateHttpSession(true)

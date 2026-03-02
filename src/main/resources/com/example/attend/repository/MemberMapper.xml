@@ -6,6 +6,7 @@
 <mapper namespace="com.example.attend.repository.MemberMapper">
     <select id="findAll" resultType="com.example.attend.entity.Member">
         SELECT * FROM member
+        ORDER BY id ASC
     </select>
 
     <select id="findById" resultType="com.example.attend.entity.Member">

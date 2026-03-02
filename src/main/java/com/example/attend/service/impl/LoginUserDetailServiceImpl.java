@@ -35,8 +35,7 @@ public class LoginUserDetailServiceImpl implements UserDetailsService {
             //UserDetails의 구현 클래스를 반환
             return new LoginUser(authentication.getUsername(),
                     authentication.getPassword(),
-                    getAuthorityList(authentication.getAuthority()),
-                    authentication.getDisplayname()
+                    getAuthorityList(authentication.getAuthority())
             );
         } else {
             throw new UsernameNotFoundException(
