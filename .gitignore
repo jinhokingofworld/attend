@@ -40,3 +40,7 @@ out/
 .DS_Store
 Thumbs.db
 
+# Local environment secrets
+.env
+.env.*
+!.env.example
