@@ -1,0 +1,1003 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: Attend NFC Device API
+  version: 1.0.0-mvp
+  description: |
+    교회 교육부서 NFC 단말기와 Attend 서버 사이의 MVP HTTP 계약이다.
+    `PROJECT_DEFINITION.md`, `ARCHITECTURE.md`, `DATABASE_DESIGN.md`를 상위 기준으로 한다.
+
+    ## 인증과 범위
+
+    모든 operation은 `X-Device-Code`와 `X-Device-Key`를 함께 요구한다.
+    `X-Device-Code`는 DB 숫자 PK가 아니라 시스템 관리자가 발급한 공개 장치 코드
+    `device.device_code`다. 숫자 `device.id`와 부서 ID는 외부에 노출하거나 요청으로
+    받지 않는다. 서버는 인증 결과에서 장치의 고정 부서를 결정한다.
+
+    운영 전송은 서버 인증서를 검증하는 HTTPS를 사용해야 한다. 장치 키는 URL, JSON,
+    응답, access log 또는 오류 log에 기록하지 않는다. 브라우저 session과 CSRF는 이
+    stateless 장치 API의 인증 수단이 아니다.
+
+    ## 요청 수신과 시간
+
+    check-in body의 한도는 HTTP transfer decoding 후 실제 읽은 UTF-8 octet 기준
+    1 KiB(1024 bytes)다. `Content-Length`가 없거나 잘못되어도 streaming read를
+    1024 bytes에서 중단하고 초과 요청을 `413`으로 거부한다. 크기 검사, JSON
+    역직렬화와 전체 schema 검증이 끝난 직후 service 호출 직전에 서버 `Clock`으로
+    `receivedAt`을 한 번 캡처한다. 출석 날짜, 정책 구간, `checkedInAt`,
+    `serverTime`은 모두 이 시각과 `Asia/Seoul` 업무 시간대를 기준으로 한다.
+
+    JSON member 이름은 대소문자를 구분한다. 중복 member, 알 수 없는 member, trailing
+    token을 허용하지 않는다. check-in은 `Content-Type: application/json`과 UTF-8만
+    허용하고 압축된 request body를 허용하지 않는다.
+
+    ## 멱등성과 재시도
+
+    `(인증된 device, requestId)`가 멱등성 범위다. 형식이 유효한 새 check-in은
+    `tag_event_log` 한 행을 선점한다. 같은 requestId와 같은 UID의 재전송에는 최초의
+    HTTP status와 JSON body를 그대로 재현한다. 따라서 재현된 body의 `serverTime`도
+    최초 값이다. 같은 requestId에 다른 UID를 보내면 기존 event를 변경하지 않고
+    `409 REQUEST_ID_CONFLICT`를 반환한다.
+
+    응답을 받지 못했거나 `429`, `500`, `503`을 받았을 때만 자동 재시도한다.
+    check-in 재시도는 반드시 원래의 requestId와 UID를 그대로 사용한다. 최초 전송
+    이후 자동 재전송은 최대 3회다. `429`와 `503`은 `Retry-After` 초 단위 값을
+    지키고, `500` 또는 응답 없는 전송은 2초, 5초, 15초 간격을 사용한다.
+    성공, 결정적 업무 실패, `400`, `401`, `404`, `409`, `413`, `415`, `422`는
+    자동 재시도하지 않는다. 수정 후의 새 태깅은 새 requestId를 사용한다.
+
+    requestId는 물리 태깅 한 번에만 배정한다. 펌웨어 재부팅 뒤에도 충돌하지 않도록
+    부팅별 충분한 무작위 값과 단조 증가 counter를 조합한다.
+
+    ## 저장 경계
+
+    `CHECKED_IN`, `LATE`, `ALREADY_CHECKED_IN`, `UNKNOWN_UID`, `INACTIVE_CARD`,
+    `NOT_DEPARTMENT_MEMBER`, `NO_ATTENDANCE_DAY`, `NOT_ATTENDANCE_TARGET`,
+    `CHECK_IN_NOT_OPEN`, `CHECK_IN_CLOSED`는 최초 응답과 함께 `tag_event_log`에
+    확정 저장되는 결과다.
+    인증·형식 오류, rate limit, request ID 충돌, 장치 상태 경합과 인프라 오류는 새
+    tag event로 저장하지 않는다. `500` 또는 dependency 관련 `503`에서는 check-in
+    transaction을 rollback하므로 같은 requestId가 복구 뒤 성공할 수 있다.
+
+    ## 개인정보 최소화
+
+    응답은 장치 동작에 필요한 code, 서버 시각, 출석 상태와 정책 구간만 포함한다.
+    교사 이름·연락처·member ID, 카드 소유자, 요청 UID, 부서 ID 또는 다른 부서의
+    존재 여부를 반환하지 않는다. `message`는 사람의 진단을 돕는 비계약 문구이며,
+    펌웨어는 HTTP status와 `code`로만 분기해야 한다. 모든 응답은 cache하지 않는다.
+
+servers:
+  - url: https://attendance.example.org
+    description: 운영 예시. 실제 hostname으로 교체하고 장치는 인증서를 검증한다.
+  - url: http://localhost:8080
+    description: 로컬 통합 시험 전용. 운영 장치에서 사용하지 않는다.
+tags:
+  - name: Device check-in
+    description: ACTIVE 장치의 NFC 출석 처리
+  - name: Device credential
+    description: INACTIVE 장치의 무상태 credential 연결 시험
+
+paths:
+  /api/v1/device/check-ins:
+    post:
+      tags:
+        - Device check-in
+      operationId: createDeviceCheckIn
+      summary: NFC 태깅 결과를 출석에 반영한다
+      description: |
+        유효한 key를 가진 현재 `ACTIVE` 장치만 호출할 수 있다. 인증과 schema 검증
+        뒤 캡처한 서버 시각으로 카드, 활성 부서 소속, 당일 출석 대상 날짜, 고정된
+        날짜 상태, 활성 출석 대상자, 정책 구간과 기존 출석을 순서대로 검사한다.
+        `CANCELED`·`FINALIZED` 날짜는 `CHECK_IN_CLOSED`, 날짜가 존재하지만
+        `attendance_target.is_target = TRUE`가 아니면 `NOT_ATTENDANCE_TARGET`이다.
+
+        최초 유효 태깅만 출석 시각을 결정한다. 동일 교사의 새 requestId 재태깅은
+        `200 ALREADY_CHECKED_IN`이며 최초 출석을 변경하지 않는다. 동일 requestId
+        재전송은 `ALREADY_CHECKED_IN`으로 바꾸지 않고 최초 status와 body를 재현한다.
+
+        미등록 UID도 `404 UNKNOWN_UID` event로 장치 부서의 카드 등록함에 남지만
+        응답에는 UID나 소유자 정보를 되돌려주지 않는다.
+      security:
+        - DeviceCodeHeader: []
+          DeviceKeyHeader: []
+      requestBody:
+        required: true
+        description: |
+          실제 body가 1024 bytes를 넘으면 JSON parsing 전에 거부한다. schema에 없는
+          member와 중복 JSON key를 허용하지 않는다.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckInRequest'
+            examples:
+              fourByteUid:
+                summary: 4-byte ISO/IEC 14443A UID
+                value:
+                  uid: 04A1B2C3
+                  requestId: A7F3C921-000001
+              sevenByteUid:
+                summary: 7-byte ISO/IEC 14443A UID
+                value:
+                  uid: 04A1B2C3D4E5F6
+                  requestId: boot_B9f2-42
+      responses:
+        '200':
+          $ref: '#/components/responses/AlreadyCheckedIn'
+        '201':
+          $ref: '#/components/responses/CheckInRecorded'
+        '400':
+          $ref: '#/components/responses/MalformedRequest'
+        '401':
+          $ref: '#/components/responses/DeviceUnauthorized'
+        '404':
+          $ref: '#/components/responses/UnknownUid'
+        '409':
+          $ref: '#/components/responses/CheckInConflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/device/credential-tests:
+    post:
+      tags:
+        - Device credential
+      operationId: testDeviceCredential
+      summary: INACTIVE 장치에 주입한 credential을 시험한다
+      description: |
+        새 장치 또는 즉시 교체된 key가 서버에서 검증되는지만 시험한다. 현재 상태가
+        `INACTIVE`이고 header 두 개가 유효할 때만 `200 CREDENTIAL_VALID`이다.
+        key가 유효해도 `ACTIVE` 또는 종결 상태 `REVOKED`이면
+        `409 CREDENTIAL_TEST_NOT_ALLOWED`를 반환한다.
+
+        request body를 보내지 않는다. body가 있으면 `400 UNEXPECTED_BODY`다.
+        성공한 시험은 장치 행을 잠그고 상태가 여전히 `INACTIVE`이며 인증 principal의
+        credential version이 현재 version과 같은지 다시 확인한 뒤
+        `credential_tested_version`과 `credential_tested_at`을 원자적으로 기록한다.
+        둘 중 하나라도 바뀌었으면 `409 CREDENTIAL_TEST_NOT_ALLOWED`이고 시험 증거를
+        갱신하지 않는다. `last_seen_at` telemetry는 선행 인증에서 갱신될 수 있지만
+        출석, `tag_event_log`, 교사·카드 데이터 또는 audit log를 만들거나 읽어
+        반환하지 않는다. 시험 성공이 장치를 자동으로 `ACTIVE`로 전환하지도 않는다.
+      security:
+        - DeviceCodeHeader: []
+          DeviceKeyHeader: []
+      responses:
+        '200':
+          $ref: '#/components/responses/CredentialValid'
+        '400':
+          $ref: '#/components/responses/UnexpectedBody'
+        '401':
+          $ref: '#/components/responses/DeviceUnauthorized'
+        '409':
+          $ref: '#/components/responses/CredentialTestConflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+components:
+  securitySchemes:
+    DeviceCodeHeader:
+      type: apiKey
+      in: header
+      name: X-Device-Code
+      description: |
+        시스템 관리자가 발급한 `device.device_code`. DB 숫자 ID가 아니다.
+        header는 정확히 한 번만 보내며 빈 값은 허용하지 않는다.
+    DeviceKeyHeader:
+      type: apiKey
+      in: header
+      name: X-Device-Key
+      description: |
+        장치별 불투명 비밀키 원문. 서버에는 검증 가능한 hash만 저장한다.
+        header는 정확히 한 번만 보내며 log와 오류 응답에서 반드시 마스킹한다.
+
+  schemas:
+    RequestId:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: '^[A-Za-z0-9_-]{1,64}$'
+      description: |
+        장치별 물리 태깅 식별자. 같은 물리 태깅의 전송 재시도에서 변경하지 않는다.
+      examples:
+        - A7F3C921-000001
+
+    NfcUid:
+      type: string
+      pattern: '^(?:[0-9A-F]{8}|[0-9A-F]{14}|[0-9A-F]{20})$'
+      description: |
+        구분자 없는 대문자 hexadecimal ISO/IEC 14443A UID다. MVP MFRC522에서
+        지원하는 4, 7, 10-byte UID만 허용한다. 소문자, 공백, `:`, `-`, `0x`
+        prefix와 그 밖의 byte 길이는 `422 INVALID_REQUEST`다.
+      examples:
+        - 04A1B2C3
+        - 04A1B2C3D4E5F6
+        - 04A1B2C3D4E5F6071829
+
+    CheckInRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 2
+      maxProperties: 2
+      required:
+        - uid
+        - requestId
+      properties:
+        uid:
+          $ref: '#/components/schemas/NfcUid'
+        requestId:
+          $ref: '#/components/schemas/RequestId'
+
+    AttendanceStatus:
+      type: string
+      enum:
+        - PRESENT
+        - LATE
+
+    AttendanceBand:
+      type: object
+      additionalProperties: false
+      required:
+        - order
+        - label
+      properties:
+        order:
+          type: integer
+          minimum: 1
+          description: 해당 날짜에 고정된 정책 구간 순서
+        label:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: 정책 구간 표시명이며 교사 개인정보가 아니다.
+
+    CheckInData:
+      type: object
+      additionalProperties: false
+      required:
+        - attendanceStatus
+        - attendanceBand
+        - checkedInAt
+      properties:
+        attendanceStatus:
+          $ref: '#/components/schemas/AttendanceStatus'
+        attendanceBand:
+          $ref: '#/components/schemas/AttendanceBand'
+        checkedInAt:
+          type: string
+          format: date-time
+          description: 서버가 수신한 offset 포함 최초 출석 시각
+
+    CredentialTestData:
+      type: object
+      additionalProperties: false
+      required:
+        - deviceStatus
+        - credentialVersion
+      properties:
+        deviceStatus:
+          type: string
+          const: INACTIVE
+          description: 시험이 허용되는 유일한 장치 상태
+        credentialVersion:
+          type: integer
+          minimum: 1
+          description: 장치에 주입한 key 세대를 운영자가 대조하기 위한 비민감 값
+
+    NullableRequestId:
+      oneOf:
+        - $ref: '#/components/schemas/RequestId'
+        - type: 'null'
+
+    NullableData:
+      oneOf:
+        - type: object
+        - type: 'null'
+
+    DeviceResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - success
+        - code
+        - message
+        - requestId
+        - serverTime
+        - data
+      properties:
+        success:
+          type: boolean
+        code:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[A-Z][A-Z0-9_]*$'
+          description: 펌웨어 분기의 안정적인 기계 판독 값
+        message:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: 진단용 비계약 문구. 펌웨어 분기에는 사용하지 않는다.
+        requestId:
+          $ref: '#/components/schemas/NullableRequestId'
+        serverTime:
+          type: string
+          format: date-time
+          description: 서버가 확정한 offset 포함 시각
+        data:
+          $ref: '#/components/schemas/NullableData'
+
+    CheckInRecordedResponse:
+      allOf:
+        - $ref: '#/components/schemas/DeviceResponse'
+        - type: object
+          properties:
+            success:
+              const: true
+            code:
+              type: string
+              enum:
+                - CHECKED_IN
+                - LATE
+            requestId:
+              $ref: '#/components/schemas/RequestId'
+            data:
+              $ref: '#/components/schemas/CheckInData'
+
+    AlreadyCheckedInResponse:
+      allOf:
+        - $ref: '#/components/schemas/DeviceResponse'
+        - type: object
+          properties:
+            success:
+              const: true
+            code:
+              const: ALREADY_CHECKED_IN
+            requestId:
+              $ref: '#/components/schemas/RequestId'
+            data:
+              type: 'null'
+
+    UnknownUidResponse:
+      allOf:
+        - $ref: '#/components/schemas/DeviceResponse'
+        - type: object
+          properties:
+            success:
+              const: false
+            code:
+              const: UNKNOWN_UID
+            requestId:
+              $ref: '#/components/schemas/RequestId'
+            data:
+              type: 'null'
+
+    CheckInConflictResponse:
+      oneOf:
+        - allOf:
+            - $ref: '#/components/schemas/DeviceResponse'
+            - type: object
+              properties:
+                success:
+                  const: false
+                code:
+                  type: string
+                  enum:
+                    - INACTIVE_CARD
+                    - NOT_DEPARTMENT_MEMBER
+                    - NO_ATTENDANCE_DAY
+                    - NOT_ATTENDANCE_TARGET
+                    - CHECK_IN_NOT_OPEN
+                    - CHECK_IN_CLOSED
+                    - REQUEST_ID_CONFLICT
+                    - DEVICE_STATE_CHANGED
+                requestId:
+                  $ref: '#/components/schemas/RequestId'
+                data:
+                  type: 'null'
+        - allOf:
+            - $ref: '#/components/schemas/DeviceResponse'
+            - type: object
+              properties:
+                success:
+                  const: false
+                code:
+                  const: DEVICE_NOT_ACTIVE
+                requestId:
+                  type: 'null'
+                data:
+                  type: 'null'
+
+    CredentialValidResponse:
+      allOf:
+        - $ref: '#/components/schemas/DeviceResponse'
+        - type: object
+          properties:
+            success:
+              const: true
+            code:
+              const: CREDENTIAL_VALID
+            requestId:
+              type: 'null'
+            data:
+              $ref: '#/components/schemas/CredentialTestData'
+
+    CredentialTestConflictResponse:
+      allOf:
+        - $ref: '#/components/schemas/DeviceResponse'
+        - type: object
+          properties:
+            success:
+              const: false
+            code:
+              const: CREDENTIAL_TEST_NOT_ALLOWED
+            requestId:
+              type: 'null'
+            data:
+              type: 'null'
+
+    MalformedRequestResponse:
+      allOf:
+        - $ref: '#/components/schemas/DeviceResponse'
+        - type: object
+          properties:
+            success:
+              const: false
+            code:
+              const: MALFORMED_REQUEST
+            requestId:
+              type: 'null'
+            data:
+              type: 'null'
+
+    UnexpectedBodyResponse:
+      allOf:
+        - $ref: '#/components/schemas/DeviceResponse'
+        - type: object
+          properties:
+            success:
+              const: false
+            code:
+              const: UNEXPECTED_BODY
+            requestId:
+              type: 'null'
+            data:
+              type: 'null'
+
+    DeviceUnauthorizedResponse:
+      allOf:
+        - $ref: '#/components/schemas/DeviceResponse'
+        - type: object
+          properties:
+            success:
+              const: false
+            code:
+              const: DEVICE_UNAUTHORIZED
+            requestId:
+              type: 'null'
+            data:
+              type: 'null'
+
+    PayloadTooLargeResponse:
+      allOf:
+        - $ref: '#/components/schemas/DeviceResponse'
+        - type: object
+          properties:
+            success:
+              const: false
+            code:
+              const: PAYLOAD_TOO_LARGE
+            requestId:
+              type: 'null'
+            data:
+              type: 'null'
+
+    UnsupportedMediaTypeResponse:
+      allOf:
+        - $ref: '#/components/schemas/DeviceResponse'
+        - type: object
+          properties:
+            success:
+              const: false
+            code:
+              const: UNSUPPORTED_MEDIA_TYPE
+            requestId:
+              type: 'null'
+            data:
+              type: 'null'
+
+    InvalidRequestResponse:
+      allOf:
+        - $ref: '#/components/schemas/DeviceResponse'
+        - type: object
+          properties:
+            success:
+              const: false
+            code:
+              const: INVALID_REQUEST
+            requestId:
+              type: 'null'
+            data:
+              type: 'null'
+
+    RateLimitedResponse:
+      allOf:
+        - $ref: '#/components/schemas/DeviceResponse'
+        - type: object
+          properties:
+            success:
+              const: false
+            code:
+              const: RATE_LIMITED
+            requestId:
+              type: 'null'
+            data:
+              type: 'null'
+
+    ServerErrorResponse:
+      allOf:
+        - $ref: '#/components/schemas/DeviceResponse'
+        - type: object
+          properties:
+            success:
+              const: false
+            code:
+              const: SERVER_ERROR
+            data:
+              type: 'null'
+
+    ServiceUnavailableResponse:
+      allOf:
+        - $ref: '#/components/schemas/DeviceResponse'
+        - type: object
+          properties:
+            success:
+              const: false
+            code:
+              const: SERVICE_UNAVAILABLE
+            data:
+              type: 'null'
+
+  headers:
+    NoStore:
+      description: 장치 응답을 중간 장치나 client가 cache하지 않게 한다.
+      schema:
+        type: string
+        const: no-store
+    RetryAfter:
+      description: |
+        다음 전송 전에 기다려야 하는 초. HTTP-date 형식은 사용하지 않는다.
+        장치는 이 값 이상 기다리며 최초 전송 이후 자동 재전송 최대 3회 제한을 함께
+        적용한다.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 300
+      example: 5
+
+  responses:
+    AlreadyCheckedIn:
+      description: |
+        새 물리 태깅이지만 해당 날짜의 최초 출석이 이미 존재한다. 최초 출석 시각과
+        기록을 바꾸지 않는다. 같은 requestId 재전송이라면 이 응답으로 변환하지 않고
+        최초 `201` 또는 최초 업무 결과를 그대로 재현한다.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AlreadyCheckedInResponse'
+          example:
+            success: true
+            code: ALREADY_CHECKED_IN
+            message: 이미 출석이 처리되었습니다.
+            requestId: A7F3C921-000002
+            serverTime: '2026-07-31T08:52:10+09:00'
+            data: null
+
+    CheckInRecorded:
+      description: |
+        출석 기록과 tag event가 같은 transaction에서 commit되었다. `CHECKED_IN`은
+        정상 출석, `LATE`는 정책의 구체적 지각 구간이다.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CheckInRecordedResponse'
+          examples:
+            checkedIn:
+              value:
+                success: true
+                code: CHECKED_IN
+                message: 정상 출석이 기록되었습니다.
+                requestId: A7F3C921-000001
+                serverTime: '2026-07-31T08:39:14+09:00'
+                data:
+                  attendanceStatus: PRESENT
+                  attendanceBand:
+                    order: 1
+                    label: 정상 출석
+                  checkedInAt: '2026-07-31T08:39:14+09:00'
+            late:
+              value:
+                success: true
+                code: LATE
+                message: 지각이 기록되었습니다.
+                requestId: A7F3C921-000001
+                serverTime: '2026-07-31T08:51:14+09:00'
+                data:
+                  attendanceStatus: LATE
+                  attendanceBand:
+                    order: 2
+                    label: 1차 지각
+                  checkedInAt: '2026-07-31T08:51:14+09:00'
+
+    MalformedRequest:
+      description: |
+        `400 MALFORMED_REQUEST`. 빈 body, 깨진 JSON, 중복 JSON member, trailing token
+        등 JSON 문서 자체를 하나의 object로 안전하게 해석할 수 없다. event를 만들지
+        않고 `requestId`는 `null`이다. 동일 payload를 자동 재시도하지 않는다.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/MalformedRequestResponse'
+          example:
+            success: false
+            code: MALFORMED_REQUEST
+            message: 요청 JSON을 해석할 수 없습니다.
+            requestId: null
+            serverTime: '2026-07-31T08:51:14+09:00'
+            data: null
+
+    UnexpectedBody:
+      description: |
+        `400 UNEXPECTED_BODY`. credential test에는 body를 보내면 안 된다. 시험 성공
+        필드와 출석·tag event를 만들지 않으며 body를 제거하기 전에는 재시도하지
+        않는다. 선행 장치 인증이 성공했다면 `last_seen_at` telemetry만 갱신될 수 있다.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/UnexpectedBodyResponse'
+          example:
+            success: false
+            code: UNEXPECTED_BODY
+            message: 이 요청에는 body를 보낼 수 없습니다.
+            requestId: null
+            serverTime: '2026-07-31T08:51:14+09:00'
+            data: null
+
+    DeviceUnauthorized:
+      description: |
+        장치 code/key가 없거나 중복되었거나 일치하지 않는다. 장치 존재 여부나 어느
+        header가 틀렸는지 구분하지 않는다. event와 `last_seen_at`을 만들지 않는다.
+        credential을 수정하기 전에는 자동 재시도하지 않는다.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/DeviceUnauthorizedResponse'
+          example:
+            success: false
+            code: DEVICE_UNAUTHORIZED
+            message: 장치 인증에 실패했습니다.
+            requestId: null
+            serverTime: '2026-07-31T08:51:14+09:00'
+            data: null
+
+    UnknownUid:
+      description: |
+        형식은 유효하지만 등록되지 않은 UID다. 출석은 만들지 않고 장치 부서의
+        `UNKNOWN_UID` event를 확정 저장한다. 응답에는 UID나 소유자 후보가 없다.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/UnknownUidResponse'
+          example:
+            success: false
+            code: UNKNOWN_UID
+            message: 등록되지 않은 카드입니다.
+            requestId: A7F3C921-000001
+            serverTime: '2026-07-31T08:51:14+09:00'
+            data: null
+
+    CheckInConflict:
+      description: |
+        현재 상태에서 결정적으로 처리할 수 없는 check-in이다.
+
+        `INACTIVE_CARD`, `NOT_DEPARTMENT_MEMBER`, `NO_ATTENDANCE_DAY`,
+        `NOT_ATTENDANCE_TARGET`, `CHECK_IN_NOT_OPEN`, `CHECK_IN_CLOSED`는 event에
+        최초 응답을 저장한다.
+        `REQUEST_ID_CONFLICT`는 기존 event를 보존하고 새 event를 만들지 않는다.
+        `DEVICE_NOT_ACTIVE`는 최초 인증 시 key는 맞지만 장치가 `ACTIVE`가 아닌 경우다.
+        `DEVICE_STATE_CHANGED`는 인증 뒤 transaction 잠금 전 장치 상태 또는 credential
+        version이 바뀐 경합이며 선점 event를 rollback한다. 형식 검증 전에 상태가
+        거부되는 `DEVICE_NOT_ACTIVE`만 `requestId`가 `null`이고,
+        `REQUEST_ID_CONFLICT`와 `DEVICE_STATE_CHANGED`는 검증한 request ID를 반환한다.
+
+        어느 코드도 자동 재시도하지 않는다. 장치·운영 상태를 바로잡고 새로
+        태깅해야 한다.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CheckInConflictResponse'
+          examples:
+            inactiveCard:
+              value:
+                success: false
+                code: INACTIVE_CARD
+                message: 사용할 수 없는 카드입니다.
+                requestId: A7F3C921-000001
+                serverTime: '2026-07-31T08:51:14+09:00'
+                data: null
+            notDepartmentMember:
+              value:
+                success: false
+                code: NOT_DEPARTMENT_MEMBER
+                message: 이 부서에 유효한 소속이 없습니다.
+                requestId: A7F3C921-000001
+                serverTime: '2026-07-31T08:51:14+09:00'
+                data: null
+            noAttendanceDay:
+              value:
+                success: false
+                code: NO_ATTENDANCE_DAY
+                message: 오늘 등록된 출석 대상 날짜가 없습니다.
+                requestId: A7F3C921-000001
+                serverTime: '2026-07-31T08:51:14+09:00'
+                data: null
+            notAttendanceTarget:
+              value:
+                success: false
+                code: NOT_ATTENDANCE_TARGET
+                message: 오늘 출석 대상자로 등록되어 있지 않습니다.
+                requestId: A7F3C921-000001
+                serverTime: '2026-07-31T08:51:14+09:00'
+                data: null
+            checkInNotOpen:
+              value:
+                success: false
+                code: CHECK_IN_NOT_OPEN
+                message: 아직 출석 가능 시간이 아닙니다.
+                requestId: A7F3C921-000001
+                serverTime: '2026-07-31T07:59:59+09:00'
+                data: null
+            checkInClosed:
+              value:
+                success: false
+                code: CHECK_IN_CLOSED
+                message: 출석 가능 시간이 종료되었습니다.
+                requestId: A7F3C921-000001
+                serverTime: '2026-07-31T10:00:01+09:00'
+                data: null
+            requestIdConflict:
+              value:
+                success: false
+                code: REQUEST_ID_CONFLICT
+                message: 요청 식별자가 이미 다른 태깅에 사용되었습니다.
+                requestId: A7F3C921-000001
+                serverTime: '2026-07-31T08:51:14+09:00'
+                data: null
+            deviceNotActive:
+              value:
+                success: false
+                code: DEVICE_NOT_ACTIVE
+                message: 출석에 사용할 수 없는 장치 상태입니다.
+                requestId: null
+                serverTime: '2026-07-31T08:51:14+09:00'
+                data: null
+            deviceStateChanged:
+              value:
+                success: false
+                code: DEVICE_STATE_CHANGED
+                message: 처리 중 장치 상태가 변경되었습니다.
+                requestId: A7F3C921-000001
+                serverTime: '2026-07-31T08:51:14+09:00'
+                data: null
+
+    PayloadTooLarge:
+      description: |
+        실제 check-in body가 1024 bytes를 초과했다. body parsing과 event 생성을 하지
+        않으며 `requestId`는 `null`이다. body를 줄이기 전에는 재시도하지 않는다.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PayloadTooLargeResponse'
+          example:
+            success: false
+            code: PAYLOAD_TOO_LARGE
+            message: 요청 본문은 1024 bytes를 넘을 수 없습니다.
+            requestId: null
+            serverTime: '2026-07-31T08:51:14+09:00'
+            data: null
+
+    UnsupportedMediaType:
+      description: |
+        `application/json` UTF-8이 아니거나 `Content-Encoding`이 `identity`가 아니다.
+        event를 만들지 않으며 전송 형식을 고치기 전에는 재시도하지 않는다.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/UnsupportedMediaTypeResponse'
+          example:
+            success: false
+            code: UNSUPPORTED_MEDIA_TYPE
+            message: 지원하지 않는 요청 본문 형식입니다.
+            requestId: null
+            serverTime: '2026-07-31T08:51:14+09:00'
+            data: null
+
+    InvalidRequest:
+      description: |
+        JSON은 해석했지만 required member, member type, 추가 member, requestId 또는 UID
+        제약을 만족하지 않는다. 어떤 field가 틀렸는지나 제출값은 응답하지 않는다.
+        event를 만들지 않고 `requestId`는 `null`이다. payload를 수정한 뒤 새 물리
+        태깅과 새 requestId를 사용한다.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/InvalidRequestResponse'
+          example:
+            success: false
+            code: INVALID_REQUEST
+            message: 요청 값이 허용된 형식이 아닙니다.
+            requestId: null
+            serverTime: '2026-07-31T08:51:14+09:00'
+            data: null
+
+    CredentialValid:
+      description: |
+        현재 `INACTIVE` 장치의 code/key가 일치한다. 제한된 장치 상태와 credential
+        version만 반환한다. 응답을 확정하는 transaction은 현재 version의 시험 성공
+        증거를 원자적으로 기록한다. 출석이나 tag event를 만들지 않고 장치를
+        활성화하지 않는다.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CredentialValidResponse'
+          example:
+            success: true
+            code: CREDENTIAL_VALID
+            message: 장치 인증정보가 유효합니다.
+            requestId: null
+            serverTime: '2026-07-31T08:51:14+09:00'
+            data:
+              deviceStatus: INACTIVE
+              credentialVersion: 2
+
+    CredentialTestConflict:
+      description: |
+        key는 유효하지만 장치가 `INACTIVE`가 아니다. `ACTIVE` 장치의 시험 경로 오용과
+        `REVOKED` 장치의 재사용을 막는다. 인증 뒤 transaction 잠금 전 상태 또는
+        credential version이 바뀐 경합에도 이 응답을 사용한다. 상태를 구체적으로
+        구분해 반환하지 않고 시험 성공 필드·출석·tag event·교사 데이터를 만들거나
+        반환하지 않는다.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CredentialTestConflictResponse'
+          example:
+            success: false
+            code: CREDENTIAL_TEST_NOT_ALLOWED
+            message: 현재 장치 상태에서는 인증 시험을 할 수 없습니다.
+            requestId: null
+            serverTime: '2026-07-31T08:51:14+09:00'
+            data: null
+
+    RateLimited:
+      description: |
+        `429 RATE_LIMITED`. 새 event를 만들지 않는다. 서버는 다음 token까지의 초를
+        `Retry-After`로 보낸다. check-in 장치는 같은 UID/requestId로 그 시간 이상
+        기다린 뒤 재시도한다.
+
+        MVP token bucket은 인증 전 effective source별 capacity 20, 초당 1 token
+        보충, 인증된 check-in 장치별 capacity 10, 초당 1 token 보충이다.
+        credential test는 인증된 장치별 capacity 2, 20초당 1 token 보충이다.
+        trusted reverse proxy 목록 밖의 forwarded address는 source 계산에 사용하지
+        않는다. 이 값은 1초 간격 50회 인수 시험을 차단하지 않으면서 오작동 장치를
+        격리하기 위한 초기 운영값이다.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/RateLimitedResponse'
+          example:
+            success: false
+            code: RATE_LIMITED
+            message: 요청이 너무 많습니다. 잠시 후 다시 시도하세요.
+            requestId: null
+            serverTime: '2026-07-31T08:51:14+09:00'
+            data: null
+
+    ServerError:
+      description: |
+        예상하지 못한 application 또는 저장 오류다. check-in transaction과 미완성
+        event를 rollback하며 내부 예외·SQL·credential을 노출하지 않는다. 유효한
+        requestId를 이미 읽었다면 응답에 포함할 수 있고, 아니면 `null`이다.
+        check-in 장치는 같은 UID/requestId로 2초, 5초, 15초 간격의 최대 3회
+        자동 재전송을 할 수 있다.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ServerErrorResponse'
+          example:
+            success: false
+            code: SERVER_ERROR
+            message: 요청을 처리하지 못했습니다.
+            requestId: A7F3C921-000001
+            serverTime: '2026-07-31T08:51:14+09:00'
+            data: null
+
+    ServiceUnavailable:
+      description: |
+        `device-api.enabled=false`, overload 또는 필수 dependency의 일시 장애다.
+        availability flag는 장치 인증과 `last_seen_at`보다 먼저 검사하므로 flag가
+        꺼진 경우 DB write와 event가 없다. dependency 장애 중 시작한 check-in도
+        transaction을 rollback한다. 내부 원인은 구분해 노출하지 않는다.
+        `Retry-After` 뒤 같은 UID/requestId로 재시도할 수 있다.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ServiceUnavailableResponse'
+          example:
+            success: false
+            code: SERVICE_UNAVAILABLE
+            message: 장치 API를 일시적으로 사용할 수 없습니다.
+            requestId: null
+            serverTime: '2026-07-31T08:51:14+09:00'
+            data: null
