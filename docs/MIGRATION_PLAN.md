@@ -641,6 +641,10 @@ cluster-global 역할 백업에는 비밀번호 해시가 포함될 수 있으�
 | `cutover_writer` | bootstrap·importer용 신규 15개 테이블 DML, 신규 identity sequence와 `member_id_seq`의 `USAGE`, 승인 이관에 필요한 `member` 최소 SELECT 및 `active` UPDATE. 레거시 출석·로그 DML과 DDL 금지, 컷오버 후 회수 |
 | `app_runtime` | 신규 15개 테이블의 최소 DML, 신규 identity sequence와 `member_id_seq`의 `USAGE`, `member` 허용 컬럼의 최소 SELECT·INSERT·UPDATE, schema 호환성 확인용 `flyway_schema_history` SELECT. DDL, history 변경, `member` DELETE와 세 레거시 테이블 DML 금지 |
 
+재현 가능한 역할 생성·migration 준비·runtime grant SQL과 실행 순서는
+[`ops/db/roles`](../ops/db/roles/README.md)에 둔다. SQL에는 비밀번호를 넣지 않으며
+실제 credential 발급과 운영 적용은 최종 배포 단계에서 수행한다.
+
 - `PUBLIC`에 불필요한 테이블·sequence·함수 실행 권한을 주지 않는다.
 - DB/schema 소유자가 baseline 전에 `REVOKE CREATE ON SCHEMA public FROM PUBLIC`을 실행하고 `migration_owner`에만 필요한 schema 권한을 부여한다.
 - V008은 함수 생성 직후 `attend_set_updated_at()`의 `PUBLIC EXECUTE` 권한을 회수한다.

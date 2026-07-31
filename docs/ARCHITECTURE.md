@@ -160,7 +160,10 @@ POST /api/attendance
 
 - 실제 운영 DB의 성격과 기존 데이터는 아직 확인하지 않았다.
 - 운영 복제본의 백업 복원, migration 반복과 앱 연속 재시작 검증이 남아 있다.
-- `migration_owner`, `app_runtime`, `cutover_writer`, `legacy_writer` 권한 스크립트가 아직 없다.
+- `migration_owner`, `app_runtime`, `cutover_writer`, `legacy_writer` 역할·최소권한
+  스크립트와 PostgreSQL 통합 검증을 추가했다. 운영 환경에는 아직 적용하지 않았다.
+- 운영 runtime은 시작 시 실제 DB 권한을 검사해 schema DDL, 임시 테이블,
+  Flyway history 변경, 교사 삭제와 레거시 DML 권한이 있으면 기동을 거부한다.
 - 현재 guarded runner는 Gradle `dbMigrate` 작업으로 제공되며, 운영에서 이를 실행할 고정 컨테이너·배포 job은 아직 없다.
 - 기존 인증·출석 Mapper를 신규 계정·출석 도메인으로 교체하지 않았다.
 
