@@ -33,6 +33,8 @@ services:
       DB_PASSWORD: local-demo-db-password
       FLYWAY_ENABLED: "true"
       ADMIN_WRITE_ENABLED: "true"
+      # 운영 웹에서는 숨기고 하드웨어 없는 로컬 데모에서만 태깅 결과를 보여준다.
+      ADMIN_SHOW_TAG_LOGS: "true"
       ACCOUNT_TOKEN_PEPPER: local-demo-account-pepper-not-for-production-2026
       PUBLIC_BASE_URL: http://127.0.0.1:8080
       DEVICE_API_ENABLED: "true"

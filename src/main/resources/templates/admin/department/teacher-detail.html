@@ -9,7 +9,19 @@
 <body>
 <header th:replace="~{fragments/admin-shell :: header}"></header>
 <main>
-    <h1 th:text="|${department.name} · ${teacher.name}|">교사 상세</h1>
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow" th:text="${department.name}">부서</p>
+            <h1 th:text="${teacher.name}">교사 상세</h1>
+            <p>교사 정보, NFC 카드와 출석 이력을 한 곳에서 관리합니다.</p>
+        </div>
+        <div class="button-group">
+            <a class="button-link button-link--secondary"
+               th:href="@{/admin/departments/{id}/teachers(id=${department.id})}">멤버 목록</a>
+            <a th:if="${writeEnabled and !editMode}" class="button-link"
+               th:href="@{/admin/departments/{departmentId}/teachers/{memberId}(departmentId=${department.id},memberId=${teacher.id},edit=true)}">수정</a>
+        </div>
+    </div>
     <p th:if="${message}" class="message message--success" th:text="${message}"></p>
     <p th:if="${error}" class="message message--error" th:text="${error}" role="alert"></p>
     <p th:unless="${writeEnabled}">읽기 전용 모드</p>
@@ -26,14 +38,70 @@
             <div><dt>부서 등록일</dt><dd th:text="${teacher.joined_at}">-</dd></div>
         </dl>
 
-        <form th:if="${writeEnabled}" method="post"
+        <p>나이는 매년 수정하는 값이 아니라 생년월일을 기준으로 자동 계산합니다.</p>
+    </section>
+
+    <section th:if="${editMode}" class="edit-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">수정 모드</p>
+                <h2>교사 및 카드 정보 수정</h2>
+            </div>
+            <a class="button-link button-link--secondary"
+               th:href="@{/admin/departments/{departmentId}/teachers/{memberId}(departmentId=${department.id},memberId=${teacher.id})}">수정 취소</a>
+        </div>
+
+        <h3>기본정보</h3>
+        <form method="post"
               th:action="@{/admin/departments/{departmentId}/teachers/{memberId}/update(departmentId=${department.id},memberId=${teacher.id})}">
             <label>이름 <input name="name" maxlength="255" th:value="${teacher.name}" required></label>
             <label>연락처 <input name="phone" maxlength="255" th:value="${teacher['phone']}"></label>
             <label>생년월일 <input type="date" name="birth" th:value="${teacher['birth']}"></label>
-            <button type="submit">기본정보 수정</button>
+            <button type="submit">기본정보 저장</button>
         </form>
-        <p>나이는 매년 수정하는 값이 아니라 생년월일을 기준으로 자동 계산합니다.</p>
+
+        <h3>NFC 카드</h3>
+        <p th:text="|현재 카드: ${teacher['masked_uid'] ?: '미등록'}|">현재 카드</p>
+        <form th:if="${teacher['card_id'] == null}" method="post"
+              th:action="@{/admin/departments/{departmentId}/teachers/{memberId}/card/connect(departmentId=${department.id},memberId=${teacher.id})}">
+            <label>새 NFC UID <input name="cardUid" placeholder="A1B2C3D4" required></label>
+            <button type="submit">카드 연결</button>
+        </form>
+
+        <form th:if="${teacher['card_id'] != null}" method="post"
+              th:action="@{/admin/departments/{departmentId}/teachers/{memberId}/card/replace(departmentId=${department.id},memberId=${teacher.id})}">
+            <label>교체 NFC UID <input name="cardUid" required></label>
+            <label>교체 사유 <input name="reason" maxlength="500" required></label>
+            <button type="submit">카드 교체</button>
+        </form>
+
+        <form th:if="${teacher['card_id'] != null}" method="post"
+              th:action="@{/admin/departments/{departmentId}/teachers/{memberId}/card/disconnect(departmentId=${department.id},memberId=${teacher.id})}">
+            <label>카드 처리
+                <select name="disposition">
+                    <option value="AVAILABLE">회수·재사용 가능</option>
+                    <option value="LOST">분실</option>
+                    <option value="RETIRED">폐기</option>
+                </select>
+            </label>
+            <label>연결 종료 사유 <input name="reason" maxlength="500" required></label>
+            <button type="submit">카드 연결 종료</button>
+        </form>
+        <p><a th:href="@{/admin/departments/{id}/cards/inbox(id=${department.id})}">방금 태깅한 카드 등록함에서 연결하기</a></p>
+
+        <h3>부서 소속</h3>
+        <form method="post"
+              th:action="@{/admin/departments/{departmentId}/teachers/{memberId}/exclude(departmentId=${department.id},memberId=${teacher.id})}">
+            <label>활성 카드 처리
+                <select name="cardDisposition">
+                    <option value="AVAILABLE">회수</option>
+                    <option value="LOST">분실</option>
+                    <option value="RETIRED">폐기</option>
+                </select>
+            </label>
+            <label>제외 사유 <input name="reason" maxlength="500" required></label>
+            <button type="submit">부서에서 제외</button>
+        </form>
     </section>
 
     <section>
@@ -77,8 +145,6 @@
         </table>
         <p th:if="${#lists.isEmpty(attendanceHistory)}">출석 대상 이력이 없습니다.</p>
     </section>
-
-    <a th:href="@{/admin/departments/{id}/teachers(id=${department.id})}">교사 목록</a>
 </main>
 </body>
 </html>

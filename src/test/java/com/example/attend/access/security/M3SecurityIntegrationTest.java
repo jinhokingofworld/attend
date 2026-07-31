@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
@@ -247,6 +248,9 @@ class M3SecurityIntegrationTest {
 			mockMvc.perform(get(path).with(user(departmentPrincipal)))
 					.andExpect(status().isOk());
 		}
+		mockMvc.perform(get("/admin/departments/" + departmentId + "/history")
+						.with(user(departmentPrincipal)))
+				.andExpect(content().string(not(containsString("태깅 이력"))));
 
 		var departmentActor =
 				new com.example.attend.access.api.AccountActor(departmentAccountId);
@@ -277,6 +281,24 @@ class M3SecurityIntegrationTest {
 				departmentId,
 				LocalDate.now().plusDays(1),
 				policyId);
+		jdbcTemplate.update("""
+				UPDATE public.attendance_day
+				SET attendance_date = CURRENT_DATE
+				WHERE id = ?
+				""", dayId);
+		mockMvc.perform(get("/admin/departments/" + departmentId
+						+ "/dashboard-data")
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.summary.attendance_day_id")
+						.value(dayId))
+				.andExpect(jsonPath("$.summary.pending_count").value(0))
+				.andExpect(jsonPath("$.rows").isArray());
+		mockMvc.perform(get("/admin/departments/" + departmentId)
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(content().string(
+						containsString("data-attendance-filter")));
 		mockMvc.perform(get("/admin/departments/" + departmentId
 						+ "/attendance-days/" + dayId)
 						.with(user(departmentPrincipal)))
@@ -332,6 +354,25 @@ class M3SecurityIntegrationTest {
 				        404, '{"code":"UNKNOWN_UID"}'::jsonb, 'UNKNOWN_UID')
 				RETURNING id
 				""", deviceId, departmentId);
+
+		mockMvc.perform(get("/admin/departments/" + departmentId
+						+ "/teachers")
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(content().string(containsString("현재 멤버")))
+				.andExpect(content().string(containsString("data-row-href")));
+		mockMvc.perform(get("/admin/departments/" + departmentId
+						+ "/teachers/" + memberId)
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(content().string(containsString(">수정</a>")))
+				.andExpect(content().string(not(containsString("기본정보 저장"))));
+		mockMvc.perform(get("/admin/departments/" + departmentId
+						+ "/teachers/" + memberId + "?edit=true")
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(content().string(containsString("수정 모드")))
+				.andExpect(content().string(containsString("카드 연결")));
 
 		mockMvc.perform(get("/admin/departments/" + departmentId
 						+ "/cards/inbox")

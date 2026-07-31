@@ -113,10 +113,73 @@ h2 {
     font-size: 1.2rem;
 }
 
+.page-heading,
+.section-heading,
+.button-group {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.page-heading h1,
+.section-heading h2,
+.section-heading h3,
+.page-heading p,
+.section-heading p {
+    margin-top: 0;
+}
+
+.page-heading p:last-child,
+.section-heading p:last-child {
+    margin-bottom: 0;
+}
+
+.eyebrow {
+    margin-bottom: 6px;
+    color: var(--primary);
+    font-size: 0.82rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.section-heading--compact {
+    margin-top: 26px;
+}
+
 a {
     color: var(--primary);
     font-weight: 650;
     text-underline-offset: 3px;
+}
+
+.button-link {
+    display: inline-flex;
+    min-height: 42px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--primary);
+    border-radius: 9px;
+    padding: 8px 14px;
+    background: var(--primary);
+    color: #fff;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.button-link:hover {
+    background: var(--primary-dark);
+}
+
+.button-link--secondary {
+    border-color: var(--border);
+    background: #fff;
+    color: var(--text);
+}
+
+.button-link--secondary:hover {
+    background: #f2f5fa;
 }
 
 nav,
@@ -145,6 +208,25 @@ article {
     border: 1px solid var(--border);
     border-radius: 14px;
     background: #fbfcfe;
+}
+
+.disclosure {
+    margin: 20px 0;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+    background: #fbfcfe;
+}
+
+.disclosure summary {
+    color: var(--primary);
+    cursor: pointer;
+    font-weight: 750;
+}
+
+.edit-panel {
+    border-color: #9bb7df;
+    background: #f6f9fe;
 }
 
 form {
@@ -229,6 +311,21 @@ table {
     border-collapse: collapse;
 }
 
+.table-scroll {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.clickable-row {
+    cursor: pointer;
+}
+
+.clickable-row:hover,
+.clickable-row:focus {
+    outline: none;
+    background: #edf3fc;
+}
+
 caption {
     margin-bottom: 10px;
     text-align: left;
@@ -282,7 +379,7 @@ th {
 
 .metric-list {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 12px;
     padding: 0;
     list-style: none;
@@ -294,6 +391,105 @@ th {
     border-radius: 12px;
     background: #fff;
     font-weight: 700;
+}
+
+.metric-list--interactive li {
+    padding: 0;
+    overflow: hidden;
+}
+
+.metric-list--interactive button {
+    width: 100%;
+    min-height: 92px;
+    display: grid;
+    align-content: center;
+    justify-items: start;
+    gap: 4px;
+    border: 0;
+    border-radius: 0;
+    background: #fff;
+    color: var(--text);
+}
+
+.metric-list--interactive button:hover {
+    background: #edf3fc;
+}
+
+.metric-list--interactive button[aria-pressed="true"] {
+    box-shadow: inset 0 0 0 2px var(--primary);
+    background: #edf3fc;
+    color: var(--primary-dark);
+}
+
+.metric-list--interactive button span {
+    color: var(--muted);
+    font-size: 0.86rem;
+}
+
+.metric-list--interactive button strong {
+    font-size: 1.3rem;
+}
+
+.live-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--muted);
+    font-size: 0.85rem;
+}
+
+.live-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.live-controls button {
+    min-height: 34px;
+    padding: 5px 9px;
+    font-size: 0.82rem;
+}
+
+.live-status > span:first-child {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--success);
+}
+
+.count-badge,
+.status-chip {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 4px 9px;
+    background: #edf3fc;
+    color: var(--primary-dark);
+    font-size: 0.82rem;
+    font-weight: 750;
+}
+
+.status-chip--success {
+    background: #ecfdf3;
+    color: var(--success);
+}
+
+.status-chip--muted {
+    background: #f2f4f7;
+    color: var(--muted);
+}
+
+.empty-state {
+    padding: 18px;
+    border-radius: 10px;
+    background: #f2f5fa;
+    color: var(--muted);
+    text-align: center;
+}
+
+.table-help {
+    color: var(--muted);
+    font-size: 0.88rem;
 }
 
 .detail-grid {
@@ -353,6 +549,21 @@ th {
         width: min(100% - 20px, 1120px);
         margin: 10px auto;
         padding: 20px;
+    }
+
+    .page-heading,
+    .section-heading {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .button-group {
+        width: 100%;
+        flex-direction: column;
+    }
+
+    .button-link {
+        width: 100%;
     }
 
     form,

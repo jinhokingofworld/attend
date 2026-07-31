@@ -34,7 +34,7 @@
    적용한다. 이 컨테이너에만 Neon direct URL과 migration 계정을 주입한다.
 5. runtime 계정에 DDL, `TEMP`, 레거시 DML 권한이 없는지 기존 DB 권한 검사를
    다시 수행한다.
-6. `ADMIN_WRITE_ENABLED=false`, `DEVICE_API_ENABLED=false`,
+6. `ADMIN_WRITE_ENABLED=false`, `ADMIN_SHOW_TAG_LOGS=false`, `DEVICE_API_ENABLED=false`,
    `ATTENDANCE_SCHEDULER_ENABLED=false`로 최초 기동한다.
 7. host 내부에서 `127.0.0.1:8081/actuator/health`가 `UP`, 공개 hostname의
    `/actuator/health`는 도달 불가인지 확인한다.

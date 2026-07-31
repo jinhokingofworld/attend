@@ -19,11 +19,17 @@
 		       count(target.member_id)
 		           FILTER (WHERE target.is_target) AS target_count,
 		       count(record.id)
-		           FILTER (WHERE record.status = 'PRESENT') AS present_count,
+		           FILTER (WHERE target.is_target
+		                     AND record.status = 'PRESENT') AS present_count,
 		       count(record.id)
-		           FILTER (WHERE record.status = 'LATE') AS late_count,
+		           FILTER (WHERE target.is_target
+		                     AND record.status = 'LATE') AS late_count,
 		       count(record.id)
-		           FILTER (WHERE record.status = 'ABSENT') AS absent_count
+		           FILTER (WHERE target.is_target
+		                     AND record.status = 'ABSENT') AS absent_count,
+		       count(target.member_id)
+		           FILTER (WHERE target.is_target
+		                     AND record.id IS NULL) AS pending_count
 		FROM public.attendance_day AS day
 		JOIN public.attendance_policy_version AS policy
 		  ON policy.id = day.policy_version_id

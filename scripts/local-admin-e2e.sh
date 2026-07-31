@@ -129,8 +129,15 @@ curl --fail --silent --show-error --cookie "${department_cookie}" \
   --output "${department_home}" \
   "${base_url}/admin/departments/${department_id}"
 assert_contains "${department_home}" "오늘의 출석"
-assert_contains "${department_home}" "정상 1명"
+assert_contains "${department_home}" 'data-count="present_count"'
+assert_contains "${department_home}" '>1명</strong>'
 assert_contains "${department_home}" "metric-list"
+
+curl --fail --silent --show-error --cookie "${department_cookie}" \
+  --output "${page}" \
+  "${base_url}/admin/departments/${department_id}/dashboard-data"
+assert_contains "${page}" '"present_count":1'
+assert_contains "${page}" '"rows"'
 
 for route_and_text in \
   "teachers|교사 추가" \
@@ -154,6 +161,8 @@ done
 curl --fail --silent --show-error --cookie "${department_cookie}" \
   --output "${page}" \
   "${base_url}/admin/departments/${department_id}/teachers"
+assert_contains "${page}" "현재 멤버"
+assert_contains "${page}" "data-row-href"
 member_id="$(sed -n 's#.*href="/admin/departments/[0-9][0-9]*/teachers/\([0-9][0-9]*\)".*#\1#p' \
   "${page}" | head -n 1)"
 if [[ -z "${member_id}" ]]; then
@@ -168,5 +177,19 @@ assert_contains "${page}" "기본정보"
 assert_contains "${page}" "출석 통계"
 assert_contains "${page}" "최근 출석 이력"
 assert_contains "${page}" "생년월일"
+assert_contains "${page}" ">수정</a>"
+assert_not_contains "${page}" "기본정보 저장"
+
+curl --fail --silent --show-error --cookie "${department_cookie}" \
+  --output "${page}" \
+  "${base_url}/admin/departments/${department_id}/teachers/${member_id}?edit=true"
+assert_contains "${page}" "수정 모드"
+assert_contains "${page}" "기본정보 저장"
+assert_contains "${page}" "NFC 카드"
+
+curl --fail --silent --show-error --cookie "${department_cookie}" \
+  --output "${page}" \
+  "${base_url}/admin/departments/${department_id}/history"
+assert_contains "${page}" "태깅 이력"
 
 echo "Local admin frontend E2E passed."
