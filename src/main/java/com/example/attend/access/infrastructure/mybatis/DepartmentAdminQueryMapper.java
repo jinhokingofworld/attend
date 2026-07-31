@@ -22,9 +22,40 @@ public interface DepartmentAdminQueryMapper {
 			@Param("departmentId") long departmentId,
 			@Param("today") LocalDate today);
 
-	/** 활성 교사와 현재 카드 요약을 조회한다. */
+	/**
+	 * 활성 교사와 현재 카드 요약을 조회한다.
+	 *
+	 * @param departmentId 부서 식별자
+	 * @param today 나이 계산 기준일
+	 * @return 이름순 교사 화면 행
+	 */
 	List<Map<String, Object>> selectTeachers(
-			@Param("departmentId") long departmentId);
+			@Param("departmentId") long departmentId,
+			@Param("today") LocalDate today);
+
+	/**
+	 * 활성 소속으로 범위를 제한한 교사 상세정보를 조회한다.
+	 *
+	 * @param departmentId 부서 식별자
+	 * @param memberId 교사 식별자
+	 * @param today 나이 계산 기준일
+	 * @return 교사 상세 행, 없으면 {@code null}
+	 */
+	Map<String, Object> selectTeacher(
+			@Param("departmentId") long departmentId,
+			@Param("memberId") long memberId,
+			@Param("today") LocalDate today);
+
+	/**
+	 * 교사의 최근 출석 대상·판정 이력을 조회한다.
+	 *
+	 * @param departmentId 부서 식별자
+	 * @param memberId 교사 식별자
+	 * @return 최신순 출석 이력
+	 */
+	List<Map<String, Object>> selectTeacherAttendanceHistory(
+			@Param("departmentId") long departmentId,
+			@Param("memberId") long memberId);
 
 	/** 정책 버전 목록을 조회한다. */
 	List<Map<String, Object>> selectPolicies(

@@ -3,6 +3,7 @@
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>오늘의 출석</title>    <link rel="stylesheet" th:href="@{/css/admin.css}">
 </head>
 <body>
+<header th:replace="~{fragments/admin-shell :: header}"></header>
 <main>
     <h1 th:text="|${department.name} · 오늘의 출석|">오늘의 출석</h1>
     <p th:unless="${writeEnabled}">읽기 전용 모드</p>
@@ -17,7 +18,7 @@
     <section th:if="${dashboard}">
         <h2 th:text="${dashboard.attendance_date}">날짜</h2>
         <p th:text="|정책 ${dashboard.policy_name} · 상태 ${dashboard.status}|">정책</p>
-        <ul>
+        <ul class="metric-list">
             <li th:text="|대상 ${dashboard.target_count}명|">대상</li>
             <li th:text="|정상 ${dashboard.present_count}명|">정상</li>
             <li th:text="|지각 ${dashboard.late_count}명|">지각</li>

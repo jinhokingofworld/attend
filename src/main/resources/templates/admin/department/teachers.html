@@ -3,6 +3,7 @@
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>교사 관리</title>    <link rel="stylesheet" th:href="@{/css/admin.css}">
 </head>
 <body>
+<header th:replace="~{fragments/admin-shell :: header}"></header>
 <main>
     <h1 th:text="|${department.name} · 교사|">교사</h1>
     <p th:if="${message}" th:text="${message}"></p>
@@ -14,13 +15,16 @@
         <form th:action="@{/admin/departments/{id}/teachers(id=${department.id})}" method="post">
             <label>이름 <input name="name" maxlength="255" required></label>
             <label>연락처 <input name="phone" maxlength="255"></label>
+            <label>생년월일 <input type="date" name="birth"></label>
             <label>NFC UID(선택) <input name="cardUid" placeholder="A1B2C3D4"></label>
             <button type="submit">추가</button>
         </form>
     </section>
 
     <article th:each="teacher : ${teachers}">
-        <h2 th:text="${teacher.name}">교사</h2>
+        <h2><a th:href="@{/admin/departments/{departmentId}/teachers/{memberId}(departmentId=${department.id},memberId=${teacher.id})}"
+               th:text="${teacher.name}">교사</a></h2>
+        <p th:text="|나이: ${teacher['display_age'] ?: '-'} · 생년월일: ${teacher['birth'] ?: '-'}|">나이</p>
         <p th:text="|연락처: ${teacher['phone'] ?: '-'}|">연락처</p>
         <p th:text="|카드: ${teacher['masked_uid'] ?: '미등록'}|">카드</p>
 
@@ -28,6 +32,7 @@
               th:action="@{/admin/departments/{departmentId}/teachers/{memberId}/update(departmentId=${department.id},memberId=${teacher.id})}">
             <label>이름 <input name="name" th:value="${teacher.name}" required></label>
             <label>연락처 <input name="phone" th:value="${teacher['phone']}"></label>
+            <label>생년월일 <input type="date" name="birth" th:value="${teacher['birth']}"></label>
             <button type="submit">정보 수정</button>
         </form>
 

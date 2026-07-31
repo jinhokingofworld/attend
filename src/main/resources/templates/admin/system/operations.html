@@ -3,6 +3,7 @@
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>운영 상태</title>    <link rel="stylesheet" th:href="@{/css/admin.css}">
 </head>
 <body>
+<header th:replace="~{fragments/admin-shell :: header}"></header>
 <main>
     <h1>운영 상태</h1>
     <p th:unless="${writeEnabled}">관리자 쓰기가 중지된 읽기 전용 모드입니다.</p>

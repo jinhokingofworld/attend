@@ -54,6 +54,8 @@ services:
 
   seed:
     image: postgres:15-alpine
+    # one-shot 서비스는 start/demo 스크립트가 명시적으로 동기 실행한다.
+    profiles: ["setup"]
     depends_on:
       app:
         condition: service_healthy
@@ -63,6 +65,7 @@ services:
       - --username=attend_local
       - --dbname=attend_local
       - --set=ON_ERROR_STOP=1
+      - --set=local_attendance_date=${LOCAL_DEMO_ATTENDANCE_DATE:-}
       - --file=/seed/seed.sql
     environment:
       PGPASSWORD: local-demo-db-password

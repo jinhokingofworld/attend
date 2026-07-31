@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<body>
+<header class="app-header" th:fragment="header">
+    <div class="app-header__inner">
+        <a class="app-brand" th:href="@{/admin}" aria-label="Attend 관리자 홈">
+            <span class="app-brand__mark" aria-hidden="true">A</span>
+            <span>Attend</span>
+        </a>
+        <nav class="app-header__nav" aria-label="공통 관리자 메뉴">
+            <a th:href="@{/admin}">홈</a>
+            <a th:href="@{/admin/workspaces}">작업 공간</a>
+            <a th:href="@{/admin/account/password}">내 계정</a>
+            <form class="inline-form" th:action="@{/logout}" method="post">
+                <button class="button-secondary" type="submit">로그아웃</button>
+            </form>
+        </nav>
+    </div>
+    <script defer th:src="@{/js/admin.js}"></script>
+</header>
+</body>
+</html>

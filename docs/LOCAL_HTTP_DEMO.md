@@ -8,7 +8,7 @@
 Docker Desktop을 실행한 뒤 저장소 루트에서 다음 명령을 실행한다.
 
 ```bash
-docker compose --env-file /dev/null -f compose.local.yaml up --build -d
+./scripts/local-demo-start.sh
 docker compose --env-file /dev/null -f compose.local.yaml ps
 ```
 
@@ -16,6 +16,10 @@ docker compose --env-file /dev/null -f compose.local.yaml ps
 제외한다. 앱과 DB는 로컬 데모 전용이다. 웹 API와 health는 각각
 `http://127.0.0.1:8080`, `http://127.0.0.1:8081/actuator/health`에서만 접근할 수
 있다. 운영 `.env`는 읽지 않으며 로컬 DB 포트는 host에 공개하지 않는다.
+
+시작 스크립트는 앱 health 통과 후 seed SQL이 끝날 때까지 기다린다. seed는 고정
+계정·장치를 중복 생성하지 않고 실행 당일의 출석 날짜와 대상자를 별도로 upsert한다.
+따라서 날짜가 바뀌어도 volume을 지울 필요가 없다.
 
 ## 2. 자동 HTTP 시험
 
@@ -31,7 +35,7 @@ docker compose --env-file /dev/null -f compose.local.yaml ps
 
 ```bash
 docker compose --env-file /dev/null -f compose.local.yaml down --volumes
-docker compose --env-file /dev/null -f compose.local.yaml up --build -d
+./scripts/local-demo-start.sh
 ```
 
 `down --volumes`는 `attend-local-demo`의 합성 로컬 DB만 삭제한다. 다른 Compose
@@ -50,6 +54,22 @@ docker compose --env-file /dev/null -f compose.local.yaml up --build -d
 관리자 쓰기는 로컬 Compose에서만 활성화되어 교사·카드·정책·출석 날짜 form을
 시험할 수 있다. 시스템 관리자는 부서 업무 권한을 자동으로 갖지 않으며, 부서
 관리자는 시스템 관리 URL에 접근할 수 없다.
+
+이 화면은 데모 전용 프런트가 아니라 운영 애플리케이션과 동일한 Thymeleaf 관리자
+화면이다. `compose.local.yaml`만 합성 계정과 데이터를 주입한다. 운영에서는 시스템
+관리자가 실제 부서와 관리자 계정을 생성하고 회원가입 초대 링크를 전달해야 한다.
+
+두 역할의 로그인, 권한 분리, 핵심 관리자 페이지 렌더링을 브라우저 없이 실제 HTTP
+세션으로 재검증하려면 다음 명령을 사용한다.
+
+```bash
+./scripts/local-admin-e2e.sh
+```
+
+레거시 화면의 교사 목록·등록·수정·상세, 생년월일 기반 나이, 지각·결석 통계,
+오늘 출석과 최근 출석 이력은 부서 관리자 화면에 통합했다. 미등록 카드의 원본 UID는
+화면에 표시하지 않고 카드 등록함의 이벤트에서 선택한 교사로 서버가 직접 연결한다.
+레거시의 하드코딩 UID 출석 버튼은 운영 기능이 아니므로 이관하지 않는다.
 
 장치 태깅을 관리자 화면의 버튼으로 흉내 내지 않는다. 장치 key를 브라우저에
 노출하지 않기 위해 `local-http-demo.sh` 또는 Postman으로 태깅한 뒤 부서 대시보드와

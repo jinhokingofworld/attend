@@ -13,8 +13,8 @@
 	</select>
 
 	<select id="insertMember" resultType="long" affectData="true">
-		INSERT INTO public.member (name, phone, active)
-		VALUES (#{name}, #{phone}, TRUE)
+		INSERT INTO public.member (name, phone, birth, active)
+		VALUES (#{name}, #{phone}, #{birth}, TRUE)
 		RETURNING id
 	</select>
 
@@ -37,7 +37,8 @@
 	<update id="updateTeacher">
 		UPDATE public.member AS member
 		SET name = #{name},
-			phone = #{phone}
+			phone = #{phone},
+			birth = #{birth}
 		WHERE member.id = #{memberId}
 		  AND EXISTS (
 			SELECT 1
@@ -85,6 +86,17 @@
 		FROM public.nfc_card
 		WHERE uid = #{uid}
 		FOR UPDATE
+	</select>
+
+	<select id="selectAssignableTagEventUid" resultType="string">
+		SELECT event.uid
+		FROM public.tag_event_log AS event
+		LEFT JOIN public.nfc_card AS card
+		  ON card.uid = event.uid
+		WHERE event.department_id = #{departmentId}
+		  AND event.id = #{eventId}
+		  AND event.result_code IN ('UNKNOWN_UID', 'INACTIVE_CARD')
+		  AND (card.id IS NULL OR card.status = 'AVAILABLE')
 	</select>
 
 	<update id="updateCardStatus">

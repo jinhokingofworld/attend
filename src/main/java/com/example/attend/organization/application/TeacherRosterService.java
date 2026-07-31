@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -66,9 +67,11 @@ public class TeacherRosterService {
 		writeAuthorization.requireEnabled();
 		authorization.requireDepartmentAdmin(actor, departmentId);
 		departmentLock.lockActive(departmentId);
+		requireBirthNotFuture(command.birth());
 		Instant occurredAt = clock.instant();
 
-		long memberId = mapper.insertMember(command.name(), command.phone());
+		long memberId = mapper.insertMember(
+				command.name(), command.phone(), command.birth());
 		long membershipId = mapper.insertMembership(
 				departmentId,
 				memberId,
@@ -123,7 +126,7 @@ public class TeacherRosterService {
 	}
 
 	/**
-	 * 활성 소속으로 부서 범위를 증명한 교사의 이름과 연락처만 수정한다.
+	 * 활성 소속으로 부서 범위를 증명한 교사의 이름·연락처·생년월일만 수정한다.
 	 */
 	@Transactional
 	public void updateTeacher(
@@ -135,12 +138,14 @@ public class TeacherRosterService {
 		writeAuthorization.requireEnabled();
 		authorization.requireDepartmentAdmin(actor, departmentId);
 		departmentLock.lockActive(departmentId);
+		requireBirthNotFuture(command.birth());
 		if (mapper.lockActiveMembership(departmentId, memberId) == null
 				|| mapper.updateTeacher(
 						departmentId,
 						memberId,
 						command.name(),
-						command.phone()) != 1) {
+						command.phone(),
+						command.birth()) != 1) {
 			throw new BusinessRuleException("active teacher could not be updated");
 		}
 		auditLogWriter.writeAccount(
@@ -151,8 +156,18 @@ public class TeacherRosterService {
 				"MEMBER",
 				Long.toString(memberId),
 				null,
-				Map.of("nameChanged", true, "phoneChanged", true),
+				Map.of(
+						"nameChanged", true,
+						"phoneChanged", true,
+						"birthChanged", true),
 				null);
+	}
+
+	/** 서버 업무 시계 기준 미래 생년월일 입력을 거부한다. */
+	private void requireBirthNotFuture(LocalDate birth) {
+		if (birth != null && birth.isAfter(LocalDate.now(clock))) {
+			throw new IllegalArgumentException("birth date must not be in the future");
+		}
 	}
 
 	/**

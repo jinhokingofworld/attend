@@ -3,6 +3,7 @@
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>시스템 관리</title>    <link rel="stylesheet" th:href="@{/css/admin.css}">
 </head>
 <body>
+<header th:replace="~{fragments/admin-shell :: header}"></header>
 <main>
     <h1>시스템 관리</h1>
     <p th:unless="${writeEnabled}">현재 관리자 쓰기가 중지된 읽기 전용 모드입니다.</p>
@@ -19,7 +20,6 @@
         <p th:text="|부서 ${#lists.size(departments)}개 · 계정 ${#lists.size(accounts)}개|">요약</p>
         <p><a th:href="@{/admin/system/devices}">장치 수명주기 관리</a></p>
     </section>
-    <form th:action="@{/logout}" method="post"><button type="submit">로그아웃</button></form>
 </main>
 </body>
 </html>

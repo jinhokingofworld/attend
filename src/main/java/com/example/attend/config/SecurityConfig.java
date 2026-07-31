@@ -100,15 +100,16 @@ public class SecurityConfig {
         http
                 .authorizeHttpRequests(authz -> authz
                         .requestMatchers(
-								"/",
+                                "/",
                                 "/login",
                                 "/authentication",
                                 "/account/setup",
                                 "/account/password-reset",
-								"/css/**",
+                                "/css/**",
+                                "/js/**",
                                 "/error",
-								"/actuator/health",
-								"/actuator/health/**").permitAll()
+                                "/actuator/health",
+                                "/actuator/health/**").permitAll()
 						.requestMatchers("/actuator/**").denyAll()
                         .requestMatchers("/admin/system/**")
                                 .hasRole("SYSTEM_ADMIN")

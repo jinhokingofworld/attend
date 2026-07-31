@@ -6,6 +6,7 @@ set -euo pipefail
 umask 077
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+repository_dir="$(cd -- "${script_dir}/.." && pwd)"
 temporary_dir="$(mktemp -d)"
 cleanup() {
   rm -rf "${temporary_dir}"
@@ -15,6 +16,31 @@ trap cleanup EXIT
 base_url="${LOCAL_DEMO_BASE_URL:-http://127.0.0.1:8080}"
 department_a_env="${temporary_dir}/department-a.env"
 department_b_env="${temporary_dir}/department-b.env"
+
+# 오늘 날짜 fixture를 동기 실행해 Compose 최초 기동 경쟁과 날짜 변경을 제거한다.
+# 외부 서버를 대상으로 실행할 때만 명시적으로 건너뛸 수 있다.
+if [[ "${LOCAL_DEMO_REFRESH_SEED:-true}" == "true" ]]; then
+  docker compose --env-file /dev/null \
+    -f "${repository_dir}/compose.local.yaml" run --rm seed
+fi
+
+health_url="${LOCAL_DEMO_HEALTH_URL:-${base_url}/}"
+if [[ -z "${LOCAL_DEMO_HEALTH_URL:-}" \
+  && "${base_url}" == "http://127.0.0.1:8080" ]]; then
+  health_url="http://127.0.0.1:8081/actuator/health"
+fi
+
+for _ in {1..30}; do
+  if curl --fail --silent --show-error "${health_url}" >/dev/null; then
+    break
+  fi
+  sleep 1
+done
+
+if ! curl --fail --silent --show-error "${health_url}" >/dev/null; then
+  echo "Local demo health check did not become ready: ${health_url}" >&2
+  exit 1
+fi
 
 printf '%s\n' \
   "DEVICE_BASE_URL=${base_url}" \

@@ -54,7 +54,42 @@ public class DepartmentAdminQueryService {
 	@Transactional(readOnly = true)
 	public List<Map<String, Object>> teachers(AccountActor actor, long departmentId) {
 		authorize(actor, departmentId);
-		return mapper.selectTeachers(departmentId);
+		return mapper.selectTeachers(departmentId, LocalDate.now(clock));
+	}
+
+	/**
+	 * 활성 소속 교사의 개인정보와 카드 요약을 부서 범위로 조회한다.
+	 *
+	 * @param actor 인증 관리자
+	 * @param departmentId 부서 식별자
+	 * @param memberId 교사 식별자
+	 * @return 교사 상세 화면 데이터
+	 */
+	@Transactional(readOnly = true)
+	public Map<String, Object> teacher(
+			AccountActor actor, long departmentId, long memberId) {
+		authorize(actor, departmentId);
+		Map<String, Object> result = mapper.selectTeacher(
+				departmentId, memberId, LocalDate.now(clock));
+		if (result == null) {
+			throw new ResourceNotFoundException("teacher");
+		}
+		return result;
+	}
+
+	/**
+	 * 교사의 최근 출석 이력을 부서 범위로 제한해 조회한다.
+	 *
+	 * @param actor 인증 관리자
+	 * @param departmentId 부서 식별자
+	 * @param memberId 교사 식별자
+	 * @return 최신순 출석 이력
+	 */
+	@Transactional(readOnly = true)
+	public List<Map<String, Object>> teacherAttendanceHistory(
+			AccountActor actor, long departmentId, long memberId) {
+		teacher(actor, departmentId, memberId);
+		return mapper.selectTeacherAttendanceHistory(departmentId, memberId);
 	}
 
 	/** 부서의 정책 버전 목록을 조회한다. */

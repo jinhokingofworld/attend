@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>교사 상세</title>
+    <link rel="stylesheet" th:href="@{/css/admin.css}">
+</head>
+<body>
+<header th:replace="~{fragments/admin-shell :: header}"></header>
+<main>
+    <h1 th:text="|${department.name} · ${teacher.name}|">교사 상세</h1>
+    <p th:if="${message}" class="message message--success" th:text="${message}"></p>
+    <p th:if="${error}" class="message message--error" th:text="${error}" role="alert"></p>
+    <p th:unless="${writeEnabled}">읽기 전용 모드</p>
+
+    <section>
+        <h2>기본정보</h2>
+        <dl class="detail-grid">
+            <div><dt>교사 ID</dt><dd th:text="${teacher.id}">1</dd></div>
+            <div><dt>나이</dt><dd th:text="${teacher['display_age'] ?: '-'}">-</dd></div>
+            <div><dt>생년월일</dt><dd th:text="${teacher['birth'] ?: '-'}">-</dd></div>
+            <div><dt>연락처</dt><dd th:text="${teacher['phone'] ?: '-'}">-</dd></div>
+            <div><dt>NFC 카드</dt><dd th:text="${teacher['masked_uid'] ?: '미등록'}">미등록</dd></div>
+            <div><dt>최초 등록일</dt><dd th:text="${teacher.created_at}">-</dd></div>
+            <div><dt>부서 등록일</dt><dd th:text="${teacher.joined_at}">-</dd></div>
+        </dl>
+
+        <form th:if="${writeEnabled}" method="post"
+              th:action="@{/admin/departments/{departmentId}/teachers/{memberId}/update(departmentId=${department.id},memberId=${teacher.id})}">
+            <label>이름 <input name="name" maxlength="255" th:value="${teacher.name}" required></label>
+            <label>연락처 <input name="phone" maxlength="255" th:value="${teacher['phone']}"></label>
+            <label>생년월일 <input type="date" name="birth" th:value="${teacher['birth']}"></label>
+            <button type="submit">기본정보 수정</button>
+        </form>
+        <p>나이는 매년 수정하는 값이 아니라 생년월일을 기준으로 자동 계산합니다.</p>
+    </section>
+
+    <section>
+        <h2>출석 통계</h2>
+        <form method="get"
+              th:action="@{/admin/departments/{departmentId}/teachers/{memberId}(departmentId=${department.id},memberId=${teacher.id})}">
+            <label>시작일 <input type="date" name="fromDate" th:value="${fromDate}" required></label>
+            <label>종료일 <input type="date" name="toDate" th:value="${toDate}" required></label>
+            <button type="submit">기간 적용</button>
+        </form>
+        <p>공식 종료된 출석 날짜만 통계 분모에 포함합니다.</p>
+        <ul class="metric-list">
+            <li th:text="|대상 ${statistics.totalCount}회|">대상</li>
+            <li th:text="|정상 ${statistics.presentCount}회 (${#numbers.formatDecimal(statistics.presentRate(), 1, 1)}%)|">정상</li>
+            <li th:text="|지각 ${statistics.lateCount}회 (${#numbers.formatDecimal(statistics.lateRate(), 1, 1)}%)|">지각</li>
+            <li th:text="|결석 ${statistics.absentCount}회 (${#numbers.formatDecimal(statistics.absentRate(), 1, 1)}%)|">결석</li>
+        </ul>
+        <h3>지각 단계별</h3>
+        <ul>
+            <li th:each="band : ${statistics.lateBands}"
+                th:text="|${band.label} ${band.count}회|">지각 단계</li>
+        </ul>
+        <p th:if="${#lists.isEmpty(statistics.lateBands)}">선택 기간의 지각 기록이 없습니다.</p>
+    </section>
+
+    <section>
+        <h2>최근 출석 이력</h2>
+        <table>
+            <thead><tr><th>날짜</th><th>날짜 상태</th><th>출석 결과</th><th>단계</th><th>시각</th><th>비고</th></tr></thead>
+            <tbody>
+            <tr th:each="item : ${attendanceHistory}">
+                <td><a th:href="@{/admin/departments/{departmentId}/attendance-days/{dayId}(departmentId=${department.id},dayId=${item.attendance_day_id})}"
+                       th:text="${item.attendance_date}">날짜</a></td>
+                <td th:text="${item.day_status}">상태</td>
+                <td th:text="${item['status'] ?: '미기록'}">결과</td>
+                <td th:text="${item['band_label_snapshot'] ?: '-'}">단계</td>
+                <td th:text="${item['checked_in_at'] ?: '-'}">시각</td>
+                <td th:text="${item['note'] ?: '-'}">비고</td>
+            </tr>
+            </tbody>
+        </table>
+        <p th:if="${#lists.isEmpty(attendanceHistory)}">출석 대상 이력이 없습니다.</p>
+    </section>
+
+    <a th:href="@{/admin/departments/{id}/teachers(id=${department.id})}">교사 목록</a>
+</main>
+</body>
+</html>

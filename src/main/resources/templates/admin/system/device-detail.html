@@ -7,6 +7,7 @@
     <link rel="stylesheet" th:href="@{/css/admin.css}">
 </head>
 <body>
+<header th:replace="~{fragments/admin-shell :: header}"></header>
 <main>
     <h1 th:text="${device.name}">장치 상세</h1>
     <p><a th:href="@{/admin/system/devices}">장치 목록</a></p>

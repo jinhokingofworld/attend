@@ -3,6 +3,7 @@
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>장치 키 교체</title>    <link rel="stylesheet" th:href="@{/css/admin.css}">
 </head>
 <body>
+<header th:replace="~{fragments/admin-shell :: header}"></header>
 <main>
     <h1>장치 키 교체</h1>
     <p>장치는 즉시 INACTIVE가 되고 기존 키는 바로 무효가 됩니다. 새 키 시험과 재활성화 전까지 출석할 수 없습니다.</p>
