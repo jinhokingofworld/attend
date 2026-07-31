@@ -575,7 +575,7 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 |---|---|
 | `SEC-CHAIN-01~06` | 두 filter chain의 순서·stateless 경계·CSRF 범위·상호 인증 차단 |
 | `SEC-WEB-01~12` | 미인증·CSRF·GET command·역할 분리·권한 회수·정렬 주입·write flag |
-| `SEC-AUTH-01~13` | 동일 로그인 실패·두 rate bucket·session fixation·logout·두 만료 경계와 안전한 bootstrap·최초 설정·reset gate |
+| `SEC-AUTH-01~13` | 동일 로그인 실패·두 rate bucket·session fixation·logout·두 만료 경계와 안전한 bootstrap·회원가입 초대·reset gate |
 | `SEC-IDOR-DEPARTMENT-01` | 다른 부서 namespace와 목록 진입 |
 | `SEC-IDOR-TEACHER-01`, `SEC-IDOR-CARD-01`, `SEC-IDOR-INBOX-01` | 교사·카드·등록함의 실제 다른 부서 ID |
 | `SEC-IDOR-POLICY-01`, `SEC-IDOR-DAY-01`, `SEC-IDOR-RECORD-01` | 정책·날짜·대상자·기록 조회와 command |

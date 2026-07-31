@@ -10,7 +10,7 @@
 
 확정된 추가 결정:
 
-- 일반 계정은 30분·1회용 SETUP/RESET 토큰으로 설정한다.
+- 일반 계정은 시스템 관리자가 발급하는 30분·1회용 회원가입 초대 토큰과 비밀번호 재설정 토큰으로 관리한다. 공개 회원가입은 제공하지 않는다.
 - 운영 형태는 단일 HTTPS 애플리케이션 + Neon PostgreSQL이다.
 - 현재 Arduino가 없으므로 장치 API는 실제 HTTP 요청과 자동 계약 테스트로 검증한다.
 - 실제 펌웨어 단계에서는 빨강·초록 LED만 사용한다.
@@ -21,7 +21,7 @@
 
 - 현재 문서·설정 변경을 별도 기준 커밋으로 보존하고 기존 사용자 변경을 덮어쓰지 않는다.
 - JDK 21을 설치하고 Docker 기반 PostgreSQL 15 Testcontainers를 사용한다.
-- 선택한 계정 토큰 모델과 HTTP 장치 시험 방식을 DB·보안·UI·테스트 문서에 먼저 반영한다.
+- 선택한 회원가입 초대·비밀번호 재설정 토큰 모델과 HTTP 장치 시험 방식을 DB·보안·UI·테스트 문서에 먼저 반영한다.
 - `Clock`, `Asia/Seoul`, correlation ID와 시작 시 고정되는 `admin-write`, `device-api`, `scheduler` feature flag 계약을 만든다.
 - `schema.sql`, `data.sql`, 물리 교사 삭제 경로는 신규 기능 작업보다 먼저 운영 artifact에서 차단한다.
 
@@ -29,9 +29,9 @@
 
 - Flyway V001~V008을 문서 순서대로 구현한다.
   - V001은 빈 DB와 정확한 레거시 DB만 허용하고 `member` 행·PK를 보존한다.
-  - V002에는 부서·계정·부서 권한과 계정 토큰 모델을 함께 넣는다.
+  - V002에는 부서·계정·부서 권한과 회원가입 초대·비밀번호 재설정 토큰 모델을 함께 넣는다.
   - V003~V008은 카드·장치, 정책, 출석, event·audit, 복합 FK·인덱스, trigger를 생성한다.
-- 아직 적용된 Flyway 이력이 없으면 토큰 모델을 V002에 포함한다. 외부 DB에 V002가 이미 성공 적용된 사실이 확인되면 기존 파일을 수정하지 않고 V009로 추가한다.
+- 아직 적용된 Flyway 이력이 없으면 회원가입 초대·비밀번호 재설정 토큰 모델을 V002에 포함한다. 외부 DB에 V002가 이미 성공 적용된 사실이 확인되면 기존 파일을 수정하지 않고 V009로 추가한다.
 - 운영 migration은 동일 커밋의 migration을 포함한 고정 Flyway 컨테이너가 Neon direct URL로 실행한다. 웹 애플리케이션에서는 Flyway를 끄고 요구 schema version만 검사한다.
 - `migration_owner`, `app_runtime`, `cutover_writer` 권한을 분리하고 웹 계정에는 DDL·Flyway history·레거시 DML 권한을 주지 않는다.
 - DB를 `NEW_OR_SAMPLE`, `LEGACY_OPERATIONAL`, `UNKNOWN`으로 자동 분류하고 `UNKNOWN`에서는 아무것도 변경하지 않는다.
@@ -53,12 +53,12 @@
 - `AccountPrincipal(accountId, systemRole)`과 활성 부서 권한 조회를 Spring Security에 연결한다.
 - 최초 `SYSTEM_ADMIN`은 interactive CLI에서 한 번만 bootstrap하고 기본 계정·공개 비밀번호는 만들지 않는다.
 - 계정 상태는 `PENDING_SETUP`, `ACTIVE`, `DISABLED`로 구성한다.
-  - 신규 계정은 비밀번호 없이 `PENDING_SETUP`으로 생성한다.
-  - 설정 성공 시 BCrypt cost 12 비밀번호 hash를 저장하고 `ACTIVE`로 전환한다.
+  - 신규 계정은 비밀번호 없이 `PENDING_SETUP`으로 생성하고 화면에는 `초대 대기`로 표시한다.
+  - 초대받은 사용자가 회원가입을 완료하면 BCrypt cost 12 비밀번호 hash를 저장하고 `ACTIVE`로 전환한다.
   - 로그인은 `ACTIVE`이면서 hash가 존재하는 계정만 허용한다.
-- `account_credential_token`은 SETUP/RESET 목적, 256-bit 원문, HMAC-SHA-256 hash, 발급자·발급·만료·사용·무효 시각을 저장한다. 새 발급은 기존 미사용 토큰을 무효화한다.
-- 시스템 관리자는 토큰 링크와 QR을 한 번만 볼 수 있다. QR 링크는 token을 URL fragment로 전달하고 공개 페이지가 즉시 fragment를 제거한 뒤 POST body로만 제출한다. query/path/access log에는 token을 넣지 않는다.
-- 공개 설정·재설정 URL은 `/account/setup`, `/account/password-reset`으로 고정하고 `Cache-Control: no-store`, generic 오류와 rate limit을 적용한다.
+- `account_credential_token`은 `INVITATION`/`RESET` 목적, 256-bit 원문, HMAC-SHA-256 hash, 발급자·발급·만료·사용·무효 시각을 저장한다. 새 발급은 기존 미사용 토큰을 무효화한다.
+- 시스템 관리자는 회원가입 초대 링크와 QR을 한 번만 볼 수 있다. QR 링크는 token을 URL fragment로 전달하고 공개 페이지가 즉시 fragment를 제거한 뒤 POST body로만 제출한다. query/path/access log에는 token을 넣지 않는다.
+- 회원가입 초대 수락·비밀번호 재설정 URL은 `/account/setup`, `/account/password-reset`으로 고정하고 `Cache-Control: no-store`, generic 오류와 rate limit을 적용한다.
 - 관리자 웹과 `/api/v1/device/**`는 별도 Security filter chain으로 구성한다. 웹은 세션·CSRF, 장치는 stateless header 인증을 사용한다.
 - 구현 화면 순서는 시스템 부서·계정·권한 → 부서 대시보드 → 교사·카드 → 정책 → 출석 날짜 → 수동 등록·정정 → 감사·운영 화면이다.
 - 각 화면은 Controller만 만들지 않고 application transaction, scoped Mapper, audit, validation, PRG와 IDOR 테스트까지 한 묶음으로 완료한다.

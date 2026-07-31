@@ -358,7 +358,7 @@ department_key,department_name,department_admin_username,approved_by
 ```
 
 - 최초 시스템 관리자는 공개 기본 비밀번호 없이 일회성 bootstrap 절차로 생성한다.
-- 최초 비밀번호나 reset token은 CSV와 Git 저장소에 기록하지 않는다.
+- 회원가입 초대 token, 최초 비밀번호나 reset token은 CSV와 Git 저장소에 기록하지 않는다.
 - 부서와 부서 관리자 승인 목록은 구성원 importer보다 먼저 적용한다.
 
 #### 기존 구성원 활성화·부서 매핑

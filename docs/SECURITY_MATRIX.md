@@ -203,7 +203,7 @@ MVP 구현 기준은 다음과 같다.
 - 비밀번호 hash는 Spring `PasswordEncoder`로 만들고 평문·복호화 가능한 암호문을 저장하지 않는다.
 - 비밀번호 변경 성공 시 `password_changed_at`을 갱신하고 보안 감사 이력을 남기되 hash와 평문은 before/after에 넣지 않는다.
 
-현재 `account` schema에는 강제 변경 여부나 일회용 reset token을 표현하는 컬럼이 없다. 따라서 “시스템 관리자가 임시 비밀번호를 발급하고 다음 로그인에 강제 변경한다”는 기능을 현 schema만으로 안전하게 구현했다고 간주할 수 없다. 배포 전 bootstrap·reset 전달 절차와 필요한 schema를 확정해야 하며, 임시 비밀번호를 DB·로그·전자우편에 평문 보관하는 임시 구현은 금지한다.
+현재 `account` schema에는 회원가입 초대 상태나 일회용 초대·reset token을 표현하는 컬럼이 없다. 따라서 “시스템 관리자가 임시 비밀번호를 발급하고 다음 로그인에 강제 변경한다”는 기능을 현 schema만으로 안전하게 구현했다고 간주할 수 없다. 배포 전 bootstrap·회원가입 초대·reset 전달 절차와 필요한 schema를 확정해야 하며, 임시 비밀번호를 DB·로그·전자우편에 평문 보관하는 임시 구현은 금지한다.
 
 ### 5.2 로그인 시도 제한
 
@@ -229,15 +229,16 @@ MVP는 영구 계정 잠금을 만들지 않고 token bucket 두 개를 함께 �
 - 권한 배정·회수에는 대상 account, department, 실행 account와 시각을 감사한다.
 - 부서 command는 세션에 남은 오래된 authority만 믿지 않고 활성 `account_department_role`을 확인한다.
 
-### 5.4 최초 bootstrap·신규 계정 설정·reset 출시 gate
+### 5.4 최초 bootstrap·회원가입 초대·reset 출시 gate
 
 - 설치 artifact와 migration에는 공개 username·기본 비밀번호·공통 password hash를 넣지 않는다.
 - 최초 `SYSTEM_ADMIN`은 승인된 maintenance window에서 `cutover_writer` 또는 별도 제한 CLI로 한 번만 bootstrap한다. 비밀번호는 운영자가 interactive input으로 직접 넣고 process argument·환경변수·shell history·로그에 남기지 않는다.
 - 첫 계정 생성이 성공하면 같은 bootstrap entry point는 추가 계정을 만들 수 없게 닫는다. 이후 계정과 권한은 인증된 시스템 관리자 절차를 따른다.
-- 웹 신규 계정 최초 설정과 password reset은 최소 128 bit 난수 token, token hash, 발급·만료·사용 시각과 대상 account를 저장할 모델이 있어야 한다.
-- 설정·reset token은 최대 30분만 유효하고 한 번 성공하거나 새 token을 발급하면 이전 token은 즉시 무효다. 원문 token을 DB·감사·application/access log·email 본문에 보관하지 않는다.
+- 시스템 관리자는 계정을 먼저 생성한 뒤 회원가입 초대 token을 발급한다. 초대받지 않은 사용자가 직접 계정을 생성하는 공개 회원가입은 제공하지 않는다.
+- 회원가입 초대와 password reset은 최소 128 bit 난수 token, token hash, 발급·만료·사용 시각과 대상 account를 저장할 모델이 있어야 한다.
+- 초대·reset token은 최대 30분만 유효하고 한 번 성공하거나 새 token을 발급하면 이전 token은 즉시 무효다. 원문 token을 DB·감사·application/access log·email 본문에 보관하지 않는다.
 - token을 전달할 승인 채널과 HTTPS URL 정책이 확정되지 않았다면 URL만 임의로 만들지 않는다.
-- 현재 `account` schema에는 위 token과 강제 설정 상태가 없다. 필요한 Flyway migration과 테스트가 완료되기 전에는 계정 생성·최초 설정·reset command를 비활성화하고 성공 UI를 표시하지 않는다.
+- 현재 `account` schema에는 위 token과 초대 대기 상태가 없다. 필요한 Flyway migration과 테스트가 완료되기 전에는 계정 생성·회원가입 초대·reset command를 비활성화하고 성공 UI를 표시하지 않는다.
 - 평문 임시 비밀번호를 시스템 관리자가 조회·복사·메일 전송하는 방식은 대체 구현으로 허용하지 않는다.
 
 ---
@@ -710,7 +711,7 @@ PRG(Post/Redirect/Get)를 사용하더라도 성공하지 않은 변경을 성�
 | `SEC-AUTH-09` | 정상 logout 뒤 기존 cookie 재사용 | 인증 실패 |
 | `SEC-AUTH-10` | idle 30분·absolute 8시간 경계 | 만료 후 재인증 요구 |
 | `SEC-AUTH-11` | fresh DB·artifact·migration으로 최초 기동 | 공개 기본 계정·비밀번호·공통 hash가 없고 승인 bootstrap 없이는 로그인 가능한 계정이 생기지 않음 |
-| `SEC-AUTH-12` | 신규 계정 최초 설정 token의 재사용·만료·교체·DB/log 검사 | 구현됐다면 hash만 저장, 최대 30분·1회성·새 발급 시 구 token 무효; 모델 미구현이면 생성·설정 command와 성공 UI 비활성 |
+| `SEC-AUTH-12` | 회원가입 초대 token의 재사용·만료·교체·DB/log 검사 | 구현됐다면 hash만 저장, 최대 30분·1회성·새 발급 시 구 token 무효; 모델 미구현이면 계정 생성·초대 command와 성공 UI 비활성 |
 | `SEC-AUTH-13` | password reset token 재사용·만료·평문 임시 비밀번호 경로 | 구현됐다면 최대 30분·1회성이고 평문/token은 DB·audit·log에 없음; 모델 미구현이면 reset command 비활성 |
 
 기존 세션 강제 만료가 MVP 범위 밖이라는 사실도 별도 인수 테스트와 운영 문서에서 명시한다. 계정 비활성화 직후 기존 세션이 즉시 사라진다고 잘못 테스트해서는 안 된다.
@@ -824,7 +825,7 @@ PRG(Post/Redirect/Get)를 사용하더라도 성공하지 않은 변경을 성�
 - [ ] 로그인·장치 rate limit이 여러 인스턴스를 쓰는 경우에도 일관되게 동작함
 - [ ] application log와 backup 접근자가 별도로 제한됨
 - [ ] 개인정보·event·audit·backup 보유기간이 배포 전에 확정됨
-- [ ] bootstrap·password reset 전달 절차와 필요한 schema가 확정됨
+- [ ] bootstrap·회원가입 초대·password reset 전달 절차와 필요한 schema가 확정됨
 
 ---
 
