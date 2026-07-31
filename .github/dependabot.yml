@@ -8,7 +8,9 @@ updates:
       day: monday
       time: "09:00"
       timezone: Asia/Seoul
-    open-pull-requests-limit: 5
+    # 일반 버전 업데이트 PR은 만들지 않는다.
+    # 취약점 보안 업데이트는 저장소의 Dependabot security updates 설정이 담당한다.
+    open-pull-requests-limit: 0
 
   - package-ecosystem: gradle
     directory: /
@@ -17,4 +19,5 @@ updates:
       day: monday
       time: "09:15"
       timezone: Asia/Seoul
-    open-pull-requests-limit: 5
+    # 메이저·마이너·패치 버전 제안은 모두 중단하고 보안 업데이트만 분리 운영한다.
+    open-pull-requests-limit: 0
