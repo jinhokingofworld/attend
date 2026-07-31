@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>장치 등록</title>
+</head>
+<body>
+<main>
+    <h1>장치 등록</h1>
+    <p><a th:href="@{/admin/system/devices}">장치 목록</a></p>
+    <p th:if="${error}" th:text="${error}">오류</p>
+    <form th:action="@{/admin/system/devices}" method="post">
+        <label>장치명 <input name="name" required maxlength="100"></label>
+        <label>장치 코드 <input name="deviceCode" required maxlength="100"></label>
+        <label>고정 배정 부서
+            <select name="departmentId" required>
+                <option value="">선택</option>
+                <option th:each="department : ${departments}"
+                        th:value="${department.id}"
+                        th:text="${department.name}">아동부</option>
+            </select>
+        </label>
+        <button type="submit" th:disabled="${!writeEnabled}">등록하고 키 발급</button>
+    </form>
+</main>
+</body>
+</html>

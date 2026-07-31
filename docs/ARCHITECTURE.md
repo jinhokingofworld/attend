@@ -143,7 +143,7 @@ POST /api/attendance
 
 이 흐름에는 부서, 출석 정책 버전, 출석 대상 날짜, 대상자 스냅샷, 요청 ID와 자동 마감이 없다.
 
-### 3.3 현재 작업 트리의 M1~M2 구현 상태
+### 3.3 현재 작업 트리의 M1~M4 서버 구현 상태
 
 2026-07-31 M1 DB 기반 작업으로 다음 항목을 구현했다.
 
@@ -165,7 +165,19 @@ M2에서는 다음 기능을 신규 기능 패키지와 목표 테이블에 구�
 - 과거 날짜 자동 결석·마감, 재기동 catch-up과 `FINALIZED` 기준 개인 통계
 - 계정·시스템 주체의 감사 로그와 날짜별 멱등 자동 마감 감사
 
-레거시 4개 테이블의 기준 구조는 운영 resource가 아니라 `src/test/resources/db/legacy/legacy-schema.sql`에 격리했다. M2 application service는 신규 목표 테이블만 사용하고 레거시 출석에 이중 쓰지 않는다. M3에서 웹 로그인과 `/admin/**` 화면은 신규 `account`, 역할, 조직·출석 application service로 교체했고 명시되지 않은 레거시 MVC URL은 Security 기본 거부 대상으로 닫았다. 기존 REST 장치 경로의 교체는 M4 장치 API 범위다.
+레거시 4개 테이블의 기준 구조는 운영 resource가 아니라 `src/test/resources/db/legacy/legacy-schema.sql`에 격리했다. M2 application service는 신규 목표 테이블만 사용하고 레거시 출석에 이중 쓰지 않는다. M3에서 웹 로그인과 `/admin/**` 화면은 신규 `account`, 역할, 조직·출석 application service로 교체했고 명시되지 않은 레거시 MVC URL은 Security 기본 거부 대상으로 닫았다.
+
+M4 서버 범위에서는 다음 기능을 구현했다.
+
+- 시스템 장치 등록, 원문 키 1회 표시, 시험 후 활성화, 비활성화, 즉시 키 교체와 종결 폐기
+- 별도 `device-api.enabled` availability와 stateless header 인증, 인증 전·장치별 rate limit
+- `POST /api/v1/device/credential-tests`와 `POST /api/v1/device/check-ins`
+- 실제 1 KiB stream 제한, strict JSON, UID·request ID 검증과 개인정보 없는 공통 응답
+- `(device_id, request_id)` 선점, PostgreSQL `jsonb` canonical 응답 저장과 동일 요청 재현
+- 카드·소속·날짜·대상·고정 정책 판정, NFC 출석과 확정 event의 단일 transaction
+- 원문 키를 process argument에 넣지 않는 `scripts/device-smoke.sh` HTTP 시험 도구
+
+`RFID.ino`는 신규 계약을 구현한 펌웨어가 아니라 배포 금지 레거시로 표시했다. 따라서 M4의 서버·관리자 웹·HTTP simulator 범위가 구현된 것이며 실제 Arduino 연동 완료를 뜻하지 않는다.
 
 그러나 다음 이유로 안전 릴리스가 완료된 것은 아니다.
 
@@ -176,7 +188,7 @@ M2에서는 다음 기능을 신규 기능 패키지와 목표 테이블에 구�
 - 운영 runtime은 시작 시 실제 DB 권한을 검사해 schema DDL, 임시 테이블,
   Flyway history 변경, 교사 삭제와 레거시 DML 권한이 있으면 기동을 거부한다.
 - 현재 guarded runner는 Gradle `dbMigrate` 작업으로 제공되며, 운영에서 이를 실행할 고정 컨테이너·배포 job은 아직 없다.
-- 장치 REST 호출 경로와 Arduino 펌웨어는 아직 신규 장치 계약으로 교체하지 않았다.
+- 실제 Arduino 펌웨어와 현장 네트워크는 아직 신규 장치 계약으로 교체·검증하지 않았다.
 
 ### 3.4 현재 구조에서 유지할 수 없는 부분
 
@@ -990,7 +1002,7 @@ Spring Boot Actuator를 도입하면 health endpoint를 외부에 무제한 공�
 - 앱 재시작 뒤 과거 미마감 날짜 복구
 - 새 앱의 레거시 출석·로그 DML 시도
 
-현재 환경의 JDK 21과 PostgreSQL 15 Testcontainers에서 전체 17개 테스트가 통과했다. M2 통합 테스트는 교사·카드 등록, 정책 발행·불변성, 날짜·대상자 snapshot, 시작 전 대상 변경, 수동 판정, 자동 결석·멱등 마감, 통계, 메모 원천 보존과 부서 제외를 한 대표 흐름으로 검증한다. M3 통합 테스트는 활성 계정 로그인, 시스템·부서 역할 분리, CSRF, 장치 chain의 stateless 차단, 관리자 주요 화면 rendering과 초대·재설정 token의 hash 저장·재사용 거부·교체 무효화를 검증한다. 별도 PostgreSQL 동시성 테스트는 같은 날짜 자동 마감 2건에서 결석·상태·멱등 감사 중복이 없음을 검증한다. 아직 자동화하지 않은 아래 시나리오와 M4 이후 전체 아키텍처까지 검증됐다는 의미는 아니다.
+현재 환경의 JDK 21과 PostgreSQL 15 Testcontainers에서 전체 20개 테스트가 통과했다. M2 통합 테스트는 교사·카드 등록, 정책 발행·불변성, 날짜·대상자 snapshot, 시작 전 대상 변경, 수동 판정, 자동 결석·멱등 마감, 통계, 메모 원천 보존과 부서 제외를 한 대표 흐름으로 검증한다. M3 통합 테스트는 활성 계정 로그인, 시스템·부서 역할 분리, CSRF, 장치 chain의 stateless availability 차단, 관리자 주요 화면 rendering과 초대·재설정 token의 hash 저장·재사용 거부·교체 무효화를 검증한다. M4 통합 테스트는 INACTIVE 차단, credential 시험, 활성화, 최초 NFC 출석, 동일 requestId의 canonical 응답 재현, UID 충돌, 중복 JSON member와 1 KiB 본문 제한을 검증한다. 별도 PostgreSQL 동시성 테스트는 같은 날짜 자동 마감 2건에서 결석·상태·멱등 감사 중복이 없음을 검증한다. 아직 자동화하지 않은 전체 부정·경합 시나리오와 실제 Arduino 현장 연동까지 검증됐다는 의미는 아니다.
 
 ---
 

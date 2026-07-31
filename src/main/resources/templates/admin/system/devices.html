@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>장치 관리</title>
+</head>
+<body>
+<main>
+    <h1>장치 관리</h1>
+    <p><a th:href="@{/admin/system}">시스템 홈</a></p>
+    <p th:if="${message}" th:text="${message}">성공</p>
+    <p th:if="${error}" th:text="${error}">오류</p>
+    <p th:if="${writeEnabled}"><a th:href="@{/admin/system/devices/new}">장치 등록</a></p>
+    <table>
+        <thead>
+        <tr>
+            <th>장치명</th><th>장치 코드</th><th>부서</th><th>상태</th>
+            <th>키 세대</th><th>마지막 인증 성공</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="device : ${devices}">
+            <td><a th:href="@{/admin/system/devices/{id}(id=${device.id})}"
+                   th:text="${device.name}">입구 장치</a></td>
+            <td th:text="${device.deviceCode}">entrance-01</td>
+            <td th:text="${device.departmentName}">아동부</td>
+            <td th:text="${device.status}">INACTIVE</td>
+            <td th:text="${device.credentialVersion}">1</td>
+            <td th:text="${device.lastSeenAt ?: '없음'}">없음</td>
+        </tr>
+        </tbody>
+    </table>
+    <p th:if="${#lists.isEmpty(devices)}">등록된 장치가 없습니다.</p>
+</main>
+</body>
+</html>

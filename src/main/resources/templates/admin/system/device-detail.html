@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>장치 상세</title>
+</head>
+<body>
+<main>
+    <h1 th:text="${device.name}">장치 상세</h1>
+    <p><a th:href="@{/admin/system/devices}">장치 목록</a></p>
+    <p th:if="${message}" th:text="${message}">성공</p>
+    <p th:if="${error}" th:text="${error}">오류</p>
+    <dl>
+        <dt>장치 코드</dt><dd th:text="${device.deviceCode}">entrance-01</dd>
+        <dt>고정 배정 부서</dt><dd th:text="${device.departmentName}">아동부</dd>
+        <dt>상태</dt><dd th:text="${device.status}">INACTIVE</dd>
+        <dt>credential version</dt><dd th:text="${device.credentialVersion}">1</dd>
+        <dt>발급 시각</dt><dd th:text="${device.credentialIssuedAt}">시각</dd>
+        <dt>시험 상태</dt>
+        <dd th:text="${device.currentCredentialTested() ? '현재 키 시험 성공' : '대기 중'}">
+            대기 중
+        </dd>
+        <dt>시험 성공 시각</dt><dd th:text="${device.credentialTestedAt ?: '없음'}">없음</dd>
+        <dt>마지막 인증 성공</dt><dd th:text="${device.lastSeenAt ?: '없음'}">없음</dd>
+    </dl>
+
+    <section th:if="${writeEnabled and device.status == 'INACTIVE'}">
+        <p>실제 장치에서 credential-test를 성공시킨 뒤 새로고침하세요.</p>
+        <form th:action="@{/admin/system/devices/{id}/activate(id=${device.id})}" method="post">
+            <button type="submit" th:disabled="${!device.currentCredentialTested()}">활성화</button>
+        </form>
+    </section>
+
+    <section th:if="${writeEnabled and device.status == 'ACTIVE'}">
+        <form th:action="@{/admin/system/devices/{id}/deactivate(id=${device.id})}" method="post">
+            <label>비활성화 사유 <input name="reason" required maxlength="500"></label>
+            <button type="submit">비활성화</button>
+        </form>
+    </section>
+
+    <nav th:if="${writeEnabled and device.status != 'REVOKED'}">
+        <a th:href="@{/admin/system/devices/{id}/rotate-credential(id=${device.id})}">
+            키 교체
+        </a>
+        <a th:href="@{/admin/system/devices/{id}/revoke(id=${device.id})}">
+            장치 폐기
+        </a>
+    </nav>
+</main>
+</body>
+</html>

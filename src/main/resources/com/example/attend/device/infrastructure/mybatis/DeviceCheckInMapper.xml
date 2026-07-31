@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+		PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+		"https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.attend.device.infrastructure.mybatis.DeviceCheckInMapper">
+
+	<insert id="claimEvent">
+		INSERT INTO public.tag_event_log (
+			device_id,
+			department_id,
+			request_id,
+			uid,
+			result_code,
+			received_at
+		)
+		VALUES (
+			#{deviceId},
+			#{departmentId},
+			#{requestId},
+			#{uid},
+			'PROCESSING',
+			#{receivedAt}
+		)
+		ON CONFLICT (device_id, request_id) DO NOTHING
+	</insert>
+
+	<select id="selectEvent"
+			resultType="com.example.attend.device.infrastructure.mybatis.TagEventRow">
+		SELECT uid, http_status, response_body::text AS response_body
+		FROM public.tag_event_log
+		WHERE device_id = #{deviceId}
+		  AND request_id = #{requestId}
+	</select>
+
+	<select id="selectCardCandidate"
+			resultType="com.example.attend.device.infrastructure.mybatis.DeviceCardCandidateRow">
+		SELECT
+			card.id AS card_id,
+			card.status AS card_status,
+			assignment.department_id AS assignment_department_id
+		FROM public.nfc_card AS card
+		LEFT JOIN public.nfc_card_assignment AS assignment
+		  ON assignment.nfc_card_id = card.id
+		 AND assignment.unassigned_at IS NULL
+		WHERE card.uid = #{uid}
+	</select>
+
+	<select id="lockAttendanceDay"
+			resultType="com.example.attend.device.infrastructure.mybatis.DeviceAttendanceDayRow">
+		SELECT
+			day.id,
+			day.policy_version_id,
+			day.status,
+			policy.check_in_start_time
+		FROM public.attendance_day AS day
+		JOIN public.attendance_policy_version AS policy
+		  ON policy.id = day.policy_version_id
+		 AND policy.department_id = day.department_id
+		WHERE day.department_id = #{departmentId}
+		  AND day.attendance_date = #{attendanceDate}
+		FOR UPDATE OF day
+	</select>
+
+	<select id="lockEligibility"
+			resultType="com.example.attend.device.infrastructure.mybatis.DeviceEligibilityRow">
+		SELECT
+			card.id AS card_id,
+			membership.id AS membership_id,
+			membership.member_id
+		FROM public.nfc_card AS card
+		JOIN public.nfc_card_assignment AS assignment
+		  ON assignment.nfc_card_id = card.id
+		 AND assignment.department_id = #{departmentId}
+		 AND assignment.unassigned_at IS NULL
+		JOIN public.department_membership AS membership
+		  ON membership.id = assignment.membership_id
+		 AND membership.department_id = assignment.department_id
+		 AND membership.member_id = assignment.member_id
+		 AND membership.ended_at IS NULL
+		WHERE card.uid = #{uid}
+		  AND card.status = 'ACTIVE'
+		FOR UPDATE OF card, assignment, membership
+	</select>
+
+	<select id="insertAttendanceRecord" resultType="long" affectData="true">
+		INSERT INTO public.attendance_record (
+			attendance_day_id,
+			policy_version_id,
+			member_id,
+			attendance_band_id,
+			status,
+			band_sequence_snapshot,
+			band_label_snapshot,
+			checked_in_at,
+			source
+		)
+		VALUES (
+			#{attendanceDayId},
+			#{policyVersionId},
+			#{memberId},
+			#{attendanceBandId},
+			#{status},
+			#{bandSequence},
+			#{bandLabel},
+			#{checkedInAt},
+			'NFC'
+		)
+		RETURNING id
+	</select>
+
+	<select id="completeEvent" resultType="string" affectData="true">
+		UPDATE public.tag_event_log
+		SET nfc_card_id = #{nfcCardId},
+			attendance_day_id = #{attendanceDayId},
+			attendance_record_id = #{attendanceRecordId},
+			result_code = #{resultCode},
+			http_status = #{httpStatus},
+			response_body = CAST(#{responseBody} AS jsonb)
+		WHERE device_id = #{deviceId}
+		  AND request_id = #{requestId}
+		  AND result_code = 'PROCESSING'
+		RETURNING response_body::text
+	</select>
+
+</mapper>

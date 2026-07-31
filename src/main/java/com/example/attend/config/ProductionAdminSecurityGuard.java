@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 public final class ProductionAdminSecurityGuard {
 
 	private final AdminSecurityProperties properties;
+	private final DeviceApiProperties deviceProperties;
 
 	/**
 	 * 검증할 외부 관리자 보안 설정을 주입받는다.
@@ -22,8 +23,10 @@ public final class ProductionAdminSecurityGuard {
 	 * @param properties 관리자 보안 설정
 	 */
 	public ProductionAdminSecurityGuard(
-			AdminSecurityProperties properties) {
+			AdminSecurityProperties properties,
+			DeviceApiProperties deviceProperties) {
 		this.properties = properties;
+		this.deviceProperties = deviceProperties;
 	}
 
 	/**
@@ -54,6 +57,12 @@ public final class ProductionAdminSecurityGuard {
 				|| uri.getFragment() != null) {
 			throw new IllegalStateException(
 					"PUBLIC_BASE_URL must be a valid HTTPS origin in prod");
+		}
+		String devicePepper = deviceProperties.credentialPepper();
+		if (devicePepper == null
+				|| devicePepper.getBytes(StandardCharsets.UTF_8).length < 32) {
+			throw new IllegalStateException(
+					"DEVICE_CREDENTIAL_PEPPER must contain at least 32 bytes in prod");
 		}
 	}
 }

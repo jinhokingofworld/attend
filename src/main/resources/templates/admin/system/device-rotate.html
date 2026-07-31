@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>장치 키 교체</title></head>
+<body>
+<main>
+    <h1>장치 키 교체</h1>
+    <p>장치는 즉시 INACTIVE가 되고 기존 키는 바로 무효가 됩니다. 새 키 시험과 재활성화 전까지 출석할 수 없습니다.</p>
+    <p th:if="${error}" th:text="${error}">오류</p>
+    <form th:action="@{/admin/system/devices/{id}/rotate-credential(id=${device.id})}" method="post">
+        <label>장치 코드 확인 <input name="deviceCodeConfirmation" required></label>
+        <label>사유 <textarea name="reason" required maxlength="500"></textarea></label>
+        <button type="submit" th:disabled="${!writeEnabled or device.status == 'REVOKED'}">키 교체</button>
+    </form>
+    <a th:href="@{/admin/system/devices/{id}(id=${device.id})}">취소</a>
+</main>
+</body>
+</html>

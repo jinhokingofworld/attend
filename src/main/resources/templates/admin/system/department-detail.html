@@ -21,7 +21,7 @@
                 th:text="|${device.name} · ${device.status}|">장치</li>
         </ul>
         <p th:if="${#lists.isEmpty(devices)}">등록된 장치가 없습니다.</p>
-        <p>장치 credential lifecycle은 M4에서 제공합니다.</p>
+        <p><a th:href="@{/admin/system/devices}">장치 관리에서 등록·키·상태를 관리합니다.</a></p>
     </section>
     <a th:href="@{/admin/system/departments}">부서 목록</a>
 </main>
