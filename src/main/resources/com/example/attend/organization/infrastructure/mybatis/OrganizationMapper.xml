@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+		PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+		"https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.attend.organization.infrastructure.mybatis.OrganizationMapper">
+
+	<select id="lockActiveDepartment" resultType="long">
+		SELECT id
+		FROM public.department
+		WHERE id = #{departmentId}
+		  AND active
+		FOR UPDATE
+	</select>
+
+	<select id="insertMember" resultType="long" affectData="true">
+		INSERT INTO public.member (name, phone, active)
+		VALUES (#{name}, #{phone}, TRUE)
+		RETURNING id
+	</select>
+
+	<select id="insertMembership" resultType="long" affectData="true">
+		INSERT INTO public.department_membership (
+			department_id,
+			member_id,
+			joined_at,
+			created_by_account_id
+		)
+		VALUES (
+			#{departmentId},
+			#{memberId},
+			#{joinedAt},
+			#{actorAccountId}
+		)
+		RETURNING id
+	</select>
+
+	<update id="updateTeacher">
+		UPDATE public.member AS member
+		SET name = #{name},
+			phone = #{phone}
+		WHERE member.id = #{memberId}
+		  AND EXISTS (
+			SELECT 1
+			FROM public.department_membership AS membership
+			WHERE membership.department_id = #{departmentId}
+			  AND membership.member_id = member.id
+			  AND membership.ended_at IS NULL
+		  )
+	</update>
+
+	<select id="lockActiveMembership"
+			resultType="com.example.attend.organization.infrastructure.mybatis.MembershipRow">
+		SELECT id, member_id, joined_at
+		FROM public.department_membership
+		WHERE department_id = #{departmentId}
+		  AND member_id = #{memberId}
+		  AND ended_at IS NULL
+		FOR UPDATE
+	</select>
+
+	<select id="lockActiveAssignment"
+			resultType="com.example.attend.organization.infrastructure.mybatis.CardAssignmentRow">
+		SELECT
+			assignment.id AS assignment_id,
+			card.id AS card_id,
+			card.status AS card_status
+		FROM public.nfc_card_assignment AS assignment
+		JOIN public.nfc_card AS card
+		  ON card.id = assignment.nfc_card_id
+		WHERE assignment.department_id = #{departmentId}
+		  AND assignment.member_id = #{memberId}
+		  AND assignment.unassigned_at IS NULL
+		FOR UPDATE OF assignment, card
+	</select>
+
+	<insert id="insertAvailableCardIfAbsent">
+		INSERT INTO public.nfc_card (uid, status)
+		VALUES (#{uid}, 'AVAILABLE')
+		ON CONFLICT (uid) DO NOTHING
+	</insert>
+
+	<select id="lockCardByUid"
+			resultType="com.example.attend.organization.infrastructure.mybatis.CardRow">
+		SELECT id, uid, status
+		FROM public.nfc_card
+		WHERE uid = #{uid}
+		FOR UPDATE
+	</select>
+
+	<update id="updateCardStatus">
+		UPDATE public.nfc_card
+		SET status = #{targetStatus}
+		WHERE id = #{cardId}
+		  AND status = #{expectedStatus}
+	</update>
+
+	<select id="insertCardAssignment" resultType="long" affectData="true">
+		INSERT INTO public.nfc_card_assignment (
+			nfc_card_id,
+			department_id,
+			membership_id,
+			member_id,
+			assigned_by_account_id,
+			assigned_at
+		)
+		VALUES (
+			#{cardId},
+			#{departmentId},
+			#{membershipId},
+			#{memberId},
+			#{actorAccountId},
+			#{assignedAt}
+		)
+		RETURNING id
+	</select>
+
+	<update id="endCardAssignment">
+		UPDATE public.nfc_card_assignment
+		SET unassigned_by_account_id = #{actorAccountId},
+			unassigned_at = #{endedAt},
+			end_reason = #{reason}
+		WHERE id = #{assignmentId}
+		  AND unassigned_at IS NULL
+	</update>
+
+	<update id="endMembership">
+		UPDATE public.department_membership
+		SET ended_by_account_id = #{actorAccountId},
+			ended_at = #{endedAt},
+			end_reason = #{reason}
+		WHERE id = #{membershipId}
+		  AND ended_at IS NULL
+	</update>
+
+	<update id="deactivateMemberWithoutActiveMembership">
+		UPDATE public.member AS member
+		SET active = FALSE
+		WHERE member.id = #{memberId}
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM public.department_membership AS membership
+			WHERE membership.member_id = member.id
+			  AND membership.ended_at IS NULL
+		  )
+	</update>
+
+</mapper>

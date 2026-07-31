@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+		PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+		"https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.attend.attendance.infrastructure.mybatis.AttendanceRecordMapper">
+
+	<select id="lockTarget"
+			resultType="com.example.attend.attendance.infrastructure.mybatis.AttendanceTargetRow">
+		SELECT
+			target.membership_id,
+			target.is_target,
+			membership.joined_at,
+			membership.ended_at
+		FROM public.attendance_target AS target
+		JOIN public.department_membership AS membership
+		  ON membership.id = target.membership_id
+		 AND membership.department_id = target.department_id
+		 AND membership.member_id = target.member_id
+		WHERE target.attendance_day_id = #{attendanceDayId}
+		  AND target.department_id = #{departmentId}
+		  AND target.member_id = #{memberId}
+		FOR UPDATE OF membership, target
+	</select>
+
+	<select id="lockMembershipAt"
+			resultType="com.example.attend.attendance.infrastructure.mybatis.MembershipPeriodRow">
+		SELECT id, joined_at, ended_at
+		FROM public.department_membership
+		WHERE department_id = #{departmentId}
+		  AND member_id = #{memberId}
+		  AND joined_at &lt;= #{actualCheckInAt}
+		  AND (ended_at IS NULL OR #{actualCheckInAt} &lt; ended_at)
+		ORDER BY joined_at DESC
+		LIMIT 1
+		FOR UPDATE
+	</select>
+
+	<insert id="insertManualTarget">
+		INSERT INTO public.attendance_target (
+			attendance_day_id,
+			member_id,
+			department_id,
+			membership_id,
+			is_target,
+			added_source,
+			changed_by_account_id,
+			changed_at,
+			change_reason
+		)
+		VALUES (
+			#{attendanceDayId},
+			#{memberId},
+			#{departmentId},
+			#{membershipId},
+			TRUE,
+			'MANUAL',
+			#{actorAccountId},
+			#{changedAt},
+			#{reason}
+		)
+	</insert>
+
+	<update id="reactivateManualTarget">
+		UPDATE public.attendance_target
+		SET is_target = TRUE,
+			membership_id = #{membershipId},
+			added_source = 'MANUAL',
+			changed_by_account_id = #{actorAccountId},
+			changed_at = #{changedAt},
+			change_reason = #{reason}
+		WHERE attendance_day_id = #{attendanceDayId}
+		  AND department_id = #{departmentId}
+		  AND member_id = #{memberId}
+		  AND NOT is_target
+	</update>
+
+	<select id="lockRecord"
+			resultType="com.example.attend.attendance.infrastructure.mybatis.AttendanceRecordRow">
+		SELECT
+			id,
+			status,
+			attendance_band_id,
+			band_label_snapshot,
+			checked_in_at,
+			source,
+			note
+		FROM public.attendance_record
+		WHERE attendance_day_id = #{attendanceDayId}
+		  AND member_id = #{memberId}
+		FOR UPDATE
+	</select>
+
+	<select id="insertManualRecord" resultType="long" affectData="true">
+		INSERT INTO public.attendance_record (
+			attendance_day_id,
+			policy_version_id,
+			member_id,
+			attendance_band_id,
+			status,
+			band_sequence_snapshot,
+			band_label_snapshot,
+			checked_in_at,
+			source,
+			note,
+			created_by_account_id
+		)
+		VALUES (
+			#{attendanceDayId},
+			#{policyVersionId},
+			#{memberId},
+			#{attendanceBandId},
+			#{status},
+			#{bandSequence},
+			#{bandLabel},
+			#{checkedInAt},
+			'MANUAL',
+			#{note},
+			#{actorAccountId}
+		)
+		RETURNING id
+	</select>
+
+	<update id="updateManualRecord">
+		UPDATE public.attendance_record
+		SET policy_version_id = #{policyVersionId},
+			attendance_band_id = #{attendanceBandId},
+			status = #{status},
+			band_sequence_snapshot = #{bandSequence},
+			band_label_snapshot = #{bandLabel},
+			checked_in_at = #{checkedInAt},
+			source = 'MANUAL',
+			note = #{note},
+			updated_by_account_id = #{actorAccountId}
+		WHERE id = #{recordId}
+	</update>
+
+	<update id="updateNoteOnly">
+		UPDATE public.attendance_record
+		SET note = #{note},
+			updated_by_account_id = #{actorAccountId}
+		WHERE id = #{recordId}
+	</update>
+
+</mapper>

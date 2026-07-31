@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+		PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+		"https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.attend.audit.infrastructure.mybatis.AuditLogMapper">
+
+	<insert id="insertAccountAudit">
+		INSERT INTO public.audit_log (
+			department_id,
+			actor_type,
+			actor_account_id,
+			attendance_day_id,
+			action,
+			target_type,
+			target_id,
+			before_data,
+			after_data,
+			reason
+		)
+		VALUES (
+			#{departmentId},
+			'ACCOUNT',
+			#{actorAccountId},
+			#{attendanceDayId},
+			#{action},
+			#{targetType},
+			#{targetId},
+			CAST(#{beforeData} AS jsonb),
+			CAST(#{afterData} AS jsonb),
+			#{reason}
+		)
+	</insert>
+
+	<insert id="insertSystemAuditOnce">
+		INSERT INTO public.audit_log (
+			department_id,
+			actor_type,
+			attendance_day_id,
+			action,
+			target_type,
+			target_id,
+			after_data,
+			idempotency_key
+		)
+		VALUES (
+			#{departmentId},
+			'SYSTEM',
+			#{attendanceDayId},
+			#{action},
+			#{targetType},
+			#{targetId},
+			CAST(#{afterData} AS jsonb),
+			#{idempotencyKey}
+		)
+		ON CONFLICT (idempotency_key) DO NOTHING
+	</insert>
+
+</mapper>

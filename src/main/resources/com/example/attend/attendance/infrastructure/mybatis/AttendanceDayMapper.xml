@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+		PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+		"https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.attend.attendance.infrastructure.mybatis.AttendanceDayMapper">
+
+	<select id="insertDay" resultType="long" affectData="true">
+		INSERT INTO public.attendance_day (
+			department_id,
+			attendance_date,
+			policy_version_id,
+			status,
+			created_by_account_id
+		)
+		VALUES (
+			#{departmentId},
+			#{attendanceDate},
+			#{policyVersionId},
+			'SCHEDULED',
+			#{actorAccountId}
+		)
+		RETURNING id
+	</select>
+
+	<insert id="snapshotActiveMembers">
+		INSERT INTO public.attendance_target (
+			attendance_day_id,
+			member_id,
+			department_id,
+			membership_id,
+			is_target,
+			added_source
+		)
+		SELECT
+			#{attendanceDayId},
+			membership.member_id,
+			membership.department_id,
+			membership.id,
+			TRUE,
+			'SNAPSHOT'
+		FROM public.department_membership AS membership
+		JOIN public.member AS member
+		  ON member.id = membership.member_id
+		 AND member.active
+		WHERE membership.department_id = #{departmentId}
+		  AND membership.ended_at IS NULL
+		ORDER BY membership.member_id
+	</insert>
+
+	<select id="lockDay"
+			resultType="com.example.attend.attendance.infrastructure.mybatis.AttendanceDayRow">
+		SELECT
+			day.id,
+			day.department_id,
+			day.attendance_date,
+			day.policy_version_id,
+			day.status,
+			policy.check_in_start_time
+		FROM public.attendance_day AS day
+		JOIN public.attendance_policy_version AS policy
+		  ON policy.id = day.policy_version_id
+		 AND policy.department_id = day.department_id
+		WHERE day.id = #{attendanceDayId}
+		  AND day.department_id = #{departmentId}
+		FOR UPDATE OF day
+	</select>
+
+	<select id="countRecords" resultType="int">
+		SELECT count(*)
+		FROM public.attendance_record
+		WHERE attendance_day_id = #{attendanceDayId}
+	</select>
+
+	<update id="cancelDay">
+		UPDATE public.attendance_day
+		SET status = 'CANCELED',
+			canceled_by_account_id = #{actorAccountId},
+			canceled_at = #{canceledAt},
+			cancel_reason = #{reason}
+		WHERE id = #{attendanceDayId}
+		  AND department_id = #{departmentId}
+		  AND status = 'SCHEDULED'
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM public.attendance_record
+			WHERE attendance_day_id = #{attendanceDayId}
+		  )
+	</update>
+
+	<update id="updateDayPolicy">
+		UPDATE public.attendance_day
+		SET policy_version_id = #{policyVersionId}
+		WHERE id = #{attendanceDayId}
+		  AND department_id = #{departmentId}
+		  AND status = 'SCHEDULED'
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM public.attendance_record
+			WHERE attendance_day_id = #{attendanceDayId}
+		  )
+	</update>
+
+	<select id="lockTargetDays"
+			resultType="com.example.attend.attendance.infrastructure.mybatis.AttendanceDayRow">
+		SELECT
+			day.id,
+			day.department_id,
+			day.attendance_date,
+			day.policy_version_id,
+			day.status,
+			policy.check_in_start_time
+		FROM public.attendance_day AS day
+		JOIN public.attendance_policy_version AS policy
+		  ON policy.id = day.policy_version_id
+		 AND policy.department_id = day.department_id
+		JOIN public.attendance_target AS target
+		  ON target.attendance_day_id = day.id
+		 AND target.department_id = day.department_id
+		WHERE day.department_id = #{departmentId}
+		  AND target.member_id = #{memberId}
+		  AND target.is_target
+		  AND day.id IN
+		  <foreach collection="attendanceDayIds" item="dayId" open="(" separator="," close=")">
+			#{dayId}
+		  </foreach>
+		ORDER BY day.id
+		FOR UPDATE OF day
+	</select>
+
+	<update id="excludeTarget">
+		UPDATE public.attendance_target
+		SET is_target = FALSE,
+			changed_by_account_id = #{actorAccountId},
+			changed_at = #{changedAt},
+			change_reason = #{reason}
+		WHERE attendance_day_id = #{attendanceDayId}
+		  AND department_id = #{departmentId}
+		  AND member_id = #{memberId}
+		  AND is_target
+	</update>
+
+	<select id="countMemberRecord" resultType="int">
+		SELECT count(*)
+		FROM public.attendance_record
+		WHERE attendance_day_id = #{attendanceDayId}
+		  AND member_id = #{memberId}
+	</select>
+
+	<select id="selectDepartmentId" resultType="long">
+		SELECT department_id
+		FROM public.attendance_day
+		WHERE id = #{attendanceDayId}
+	</select>
+
+	<select id="selectPastScheduledDayIds" resultType="long">
+		SELECT id
+		FROM public.attendance_day
+		WHERE status = 'SCHEDULED'
+		  AND attendance_date &lt; #{today}
+		ORDER BY attendance_date, id
+	</select>
+
+	<insert id="insertMissingAbsences">
+		INSERT INTO public.attendance_record (
+			attendance_day_id,
+			policy_version_id,
+			member_id,
+			status,
+			source
+		)
+		SELECT
+			day.id,
+			day.policy_version_id,
+			target.member_id,
+			'ABSENT',
+			'AUTO_ABSENCE'
+		FROM public.attendance_day AS day
+		JOIN public.attendance_target AS target
+		  ON target.attendance_day_id = day.id
+		 AND target.department_id = day.department_id
+		 AND target.is_target
+		LEFT JOIN public.attendance_record AS record
+		  ON record.attendance_day_id = target.attendance_day_id
+		 AND record.member_id = target.member_id
+		WHERE day.id = #{attendanceDayId}
+		  AND day.status = 'SCHEDULED'
+		  AND record.id IS NULL
+		ON CONFLICT (attendance_day_id, member_id) DO NOTHING
+	</insert>
+
+	<update id="finalizeDay">
+		UPDATE public.attendance_day
+		SET status = 'FINALIZED',
+			finalized_at = #{finalizedAt}
+		WHERE id = #{attendanceDayId}
+		  AND status = 'SCHEDULED'
+	</update>
+
+</mapper>
