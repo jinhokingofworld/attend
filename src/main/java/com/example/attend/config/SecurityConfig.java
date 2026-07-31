@@ -104,7 +104,10 @@ public class SecurityConfig {
                                 "/authentication",
                                 "/account/setup",
                                 "/account/password-reset",
-                                "/error").permitAll()
+                                "/error",
+								"/actuator/health",
+								"/actuator/health/**").permitAll()
+						.requestMatchers("/actuator/**").denyAll()
                         .requestMatchers("/admin/system/**")
                                 .hasRole("SYSTEM_ADMIN")
                         .requestMatchers("/admin/departments/**")

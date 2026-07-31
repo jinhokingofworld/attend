@@ -5,13 +5,28 @@
 <main>
     <h1>운영 상태</h1>
     <p th:unless="${writeEnabled}">관리자 쓰기가 중지된 읽기 전용 모드입니다.</p>
+    <h2>애플리케이션</h2>
+    <dl>
+        <dt>상태</dt><dd>정상</dd>
+        <dt>배포 버전</dt><dd th:text="${runtimeStatus.applicationVersion}">개발 빌드</dd>
+        <dt>시작 시각</dt><dd th:text="${runtimeStatus.startedAt}">-</dd>
+        <dt>DB·스키마</dt><dd th:text="${runtimeStatus.databaseStatus}">확인 불가</dd>
+    </dl>
+    <h2>기능 플래그</h2>
+    <p>환경 설정과 controlled restart로만 변경할 수 있습니다.</p>
+    <dl>
+        <dt>관리자 쓰기</dt><dd th:text="${runtimeStatus.adminWriteEnabled}">false</dd>
+        <dt>장치 API</dt><dd th:text="${runtimeStatus.deviceApiEnabled}">false</dd>
+        <dt>자동 마감</dt><dd th:text="${runtimeStatus.schedulerEnabled}">false</dd>
+    </dl>
+    <h2>업무 상태</h2>
     <dl>
         <dt>활성 부서</dt><dd th:text="${operations.active_department_count}">0</dd>
         <dt>과거 미마감 출석 날짜</dt><dd th:text="${operations.overdue_day_count}">0</dd>
         <dt>활성 장치</dt><dd th:text="${operations.active_device_count}">0</dd>
         <dt>비활성 장치</dt><dd th:text="${operations.inactive_device_count}">0</dd>
         <dt>폐기 장치</dt><dd th:text="${operations.revoked_device_count}">0</dd>
-        <dt>백업 상태</dt><dd>확인 source 미구성</dd>
+        <dt>백업 상태</dt><dd th:text="${runtimeStatus.backupStatus}">확인 불가</dd>
     </dl>
     <p>미마감 날짜를 시스템 관리자 권한으로 수동 마감하는 기능은 제공하지 않습니다.</p>
     <a th:href="@{/admin/system}">시스템 홈</a>

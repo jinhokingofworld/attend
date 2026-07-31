@@ -39,15 +39,22 @@ jobs:
           validate-wrappers: true
 
       - name: Run checks and build executable JAR
-        run: ./gradlew check bootJar --no-daemon --stacktrace
+        run: ./gradlew check bootJar migrationBootJar --no-daemon --stacktrace
 
       - name: Verify packaged database resources
         shell: bash
         run: |
           set -euo pipefail
 
-          artifact_path="$(find build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-plain.jar' -print -quit)"
-          test -n "${artifact_path}"
+          artifact_path="build/libs/attend-app.jar"
+          migration_artifact_path="build/libs/attend-migration.jar"
+          test -f "${artifact_path}"
+          test -f "${migration_artifact_path}"
+
+          unzip -p "${artifact_path}" META-INF/MANIFEST.MF \
+            | grep -F 'Start-Class: com.example.attend.AttendApplication'
+          unzip -p "${migration_artifact_path}" META-INF/MANIFEST.MF \
+            | grep -F 'Start-Class: com.example.attend.database.DatabaseMigrationCli'
 
           jar tf "${artifact_path}" > build/jar-contents.txt
 
