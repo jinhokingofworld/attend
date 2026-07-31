@@ -11,7 +11,7 @@ import java.time.Clock;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * DB 인증 전에 실제 remote address별 요청 burst를 제한한다.
+ * DB 인증 전에 신뢰 Caddy filter가 복원한 client address별 burst를 제한한다.
  */
 public final class DevicePreAuthenticationRateLimitFilter
 		extends OncePerRequestFilter {
@@ -28,7 +28,7 @@ public final class DevicePreAuthenticationRateLimitFilter
 	}
 
 	/**
-	 * 신뢰 proxy가 아직 설정되지 않은 MVP에서는 forwarded header를 무시한다.
+	 * 검증된 client address만 source bucket key로 사용한다.
 	 */
 	@Override
 	protected void doFilterInternal(

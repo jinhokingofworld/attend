@@ -25,6 +25,7 @@ repositories {
 }
 
 dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
 	implementation 'org.springframework.boot:spring-boot-starter-security'
 	implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
@@ -44,6 +45,23 @@ dependencies {
 	testImplementation 'org.testcontainers:junit-jupiter'
 	testImplementation 'org.testcontainers:postgresql'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+springBoot {
+	buildInfo()
+}
+
+tasks.named('bootJar') {
+	archiveFileName = 'attend-app.jar'
+}
+
+tasks.register('migrationBootJar', org.springframework.boot.gradle.tasks.bundling.BootJar) {
+	group = 'build'
+	description = 'Builds the guarded Flyway migration runner container artifact.'
+	archiveFileName = 'attend-migration.jar'
+	mainClass = 'com.example.attend.database.DatabaseMigrationCli'
+	targetJavaVersion = JavaVersion.VERSION_21
+	classpath = sourceSets.main.runtimeClasspath
 }
 
 tasks.named('test') {

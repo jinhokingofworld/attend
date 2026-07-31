@@ -43,7 +43,7 @@ public final class LoginRateLimitFilter extends OncePerRequestFilter {
 	}
 
 	/**
-	 * 비신뢰 proxy header를 무시하고 실제 remote address로 제한한다.
+	 * 신뢰 Caddy filter가 복원한 실제 remote address로 제한한다.
 	 */
 	@Override
 	protected void doFilterInternal(

@@ -8,6 +8,7 @@ import com.example.attend.access.domain.CredentialTokenPurpose;
 import com.example.attend.access.infrastructure.mybatis.AccountAdministrationRow;
 import com.example.attend.access.security.AccountPrincipal;
 import com.example.attend.common.error.BusinessRuleException;
+import com.example.attend.operations.OperationsRuntimeStatusService;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -26,6 +27,7 @@ public final class SystemAdminController {
 	private final SystemAdministrationService administrationService;
 	private final CredentialTokenService tokenService;
 	private final AdminWriteGate writeGate;
+	private final OperationsRuntimeStatusService runtimeStatusService;
 
 	/**
 	 * 시스템 관리자 화면의 application service를 주입받는다.
@@ -33,10 +35,12 @@ public final class SystemAdminController {
 	public SystemAdminController(
 			SystemAdministrationService administrationService,
 			CredentialTokenService tokenService,
-			AdminWriteGate writeGate) {
+			AdminWriteGate writeGate,
+			OperationsRuntimeStatusService runtimeStatusService) {
 		this.administrationService = administrationService;
 		this.tokenService = tokenService;
 		this.writeGate = writeGate;
+		this.runtimeStatusService = runtimeStatusService;
 	}
 
 	/** 시스템 관리 요약 화면을 표시한다. */
@@ -131,6 +135,7 @@ public final class SystemAdminController {
 		addCommon(principal, model);
 		model.addAttribute("operations",
 				administrationService.operations(principal.toActor()));
+		model.addAttribute("runtimeStatus", runtimeStatusService.current());
 		return "admin/system/operations";
 	}
 

@@ -286,6 +286,13 @@ MVP의 운영 배포 단위는 다음 네 개다.
 
 Nginx·Caddy 같은 reverse proxy는 HTTPS 종단과 접근 제한이 필요할 때 사용한다. 제품 자체는 고정하지 않지만, 공유망 운영에서 TLS 종단점은 선택 사항이 아니다.
 
+운영 Caddy는 외부 요청의 `X-Forwarded-For`를 그대로 전달하지 않고 실제 연결
+주소 한 건으로 덮어쓴다. 애플리케이션은 Caddy와 공유하는 별도 32-byte 이상 내부
+token이 일치할 때만 그 주소를 `getRemoteAddr()`로 복원한다. token이 설정된 운영
+환경에서 Caddy를 거치지 않은 요청과 다중·hostname 전달값은 거부한다. 따라서
+로그인·공개 계정 token·장치 사전 인증 rate limit이 Caddy 컨테이너 주소 하나를
+공유하지 않으며, 임의 forwarded header도 신뢰하지 않는다.
+
 ---
 
 ## 5. 애플리케이션 모듈

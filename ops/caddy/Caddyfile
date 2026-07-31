@@ -1,0 +1,25 @@
+{
+	email {$ACME_CONTACT_EMAIL}
+	admin off
+}
+
+{$PUBLIC_HOST} {
+	encode zstd gzip
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+	}
+
+	request_body {
+		max_size 1MB
+	}
+
+	reverse_proxy app:8080 {
+		# Overwrite, rather than append to, user-controlled forwarding headers.
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Attend-Proxy-Token {$TRUSTED_PROXY_TOKEN}
+	}
+}

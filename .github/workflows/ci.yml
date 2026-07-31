@@ -39,15 +39,22 @@ jobs:
           validate-wrappers: true
 
       - name: Run checks and build executable JAR
-        run: ./gradlew check bootJar --no-daemon --stacktrace
+        run: ./gradlew check bootJar migrationBootJar --no-daemon --stacktrace
 
       - name: Verify packaged database resources
         shell: bash
         run: |
           set -euo pipefail
 
-          artifact_path="$(find build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-plain.jar' -print -quit)"
-          test -n "${artifact_path}"
+          artifact_path="build/libs/attend-app.jar"
+          migration_artifact_path="build/libs/attend-migration.jar"
+          test -f "${artifact_path}"
+          test -f "${migration_artifact_path}"
+
+          unzip -p "${artifact_path}" META-INF/MANIFEST.MF \
+            | grep -F 'Start-Class: com.example.attend.AttendApplication'
+          unzip -p "${migration_artifact_path}" META-INF/MANIFEST.MF \
+            | grep -F 'Start-Class: com.example.attend.database.DatabaseMigrationCli'
 
           jar tf "${artifact_path}" > build/jar-contents.txt
 
@@ -64,6 +71,68 @@ jobs:
             echo "Destructive legacy SQL initialization resource found in the application JAR."
             exit 1
           fi
+
+      - name: Validate runtime Compose without migration credentials
+        env:
+          DB_URL: jdbc:postgresql://db.example.test/attend
+          DB_USERNAME: app_runtime
+          DB_PASSWORD: ci-runtime-password
+          PUBLIC_BASE_URL: https://attendance.example.test
+          PUBLIC_HOST: attendance.example.test
+          ACME_CONTACT_EMAIL: operator@example.test
+          ACCOUNT_TOKEN_PEPPER: ci-account-token-pepper-at-least-32-bytes
+          DEVICE_CREDENTIAL_PEPPER: ci-device-pepper-at-least-32-bytes
+          TRUSTED_PROXY_TOKEN: ci-proxy-token-that-is-at-least-32-bytes
+        run: >-
+          docker compose --env-file /dev/null -f compose.prod.yaml config
+          --no-env-resolution --quiet
+
+      - name: Validate migration Compose without runtime credentials
+        env:
+          FLYWAY_DB_URL: jdbc:postgresql://direct-db.example.test/attend
+          FLYWAY_DB_USERNAME: migration_owner
+          FLYWAY_DB_PASSWORD: ci-migration-password
+          MIGRATION_SOURCE_CLASS: NEW_OR_SAMPLE
+        run: >-
+          docker compose --env-file /dev/null -f compose.migration.yaml config
+          --no-env-resolution --quiet
+
+      - name: Build runtime and migration container images
+        run: |
+          docker build --target runtime --tag attend:ci .
+          docker build --target migration --tag attend-migration:ci .
+
+      - name: Validate Caddy configuration
+        run: |
+          docker run --rm \
+            --env PUBLIC_HOST=attendance.example.test \
+            --env ACME_CONTACT_EMAIL=operator@example.test \
+            --env TRUSTED_PROXY_TOKEN=ci-proxy-token-that-is-at-least-32-bytes \
+            --volume "${PWD}/ops/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2-alpine \
+            caddy validate --config /etc/caddy/Caddyfile
+
+      - name: Validate operational shell scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts=(
+            ops/backup/backup.sh
+            ops/backup/restore-verify.sh
+            scripts/device-smoke.sh
+            scripts/pilot-http-simulator.sh
+          )
+          bash -n "${scripts[@]}"
+          shellcheck "${scripts[@]}"
+
+          set +e
+          RESTORE_DATABASE_URL='postgresql://restore.example.test/attend' \
+            RESTORE_DUMP_FILE='build.gradle' \
+            RESTORE_CHECKSUM_FILE='src/test/resources/ops/invalid-backup.sha256' \
+            ./ops/backup/restore-verify.sh
+          restore_status="$?"
+          set -e
+          test "${restore_status}" -eq 5
 
       - name: Upload test reports on failure
         if: failure()

@@ -1,0 +1,10 @@
+.git
+.gradle
+.idea
+build
+.env
+.env.*
+!.env.example
+.device-smoke.env
+*.log
+ops/backups

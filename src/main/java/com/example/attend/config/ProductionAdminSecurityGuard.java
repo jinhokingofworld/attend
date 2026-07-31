@@ -16,17 +16,22 @@ public final class ProductionAdminSecurityGuard {
 
 	private final AdminSecurityProperties properties;
 	private final DeviceApiProperties deviceProperties;
+	private final TrustedProxyProperties proxyProperties;
 
 	/**
 	 * 검증할 외부 관리자 보안 설정을 주입받는다.
 	 *
 	 * @param properties 관리자 보안 설정
+	 * @param deviceProperties 장치 API 보안 설정
+	 * @param proxyProperties Caddy 내부 신뢰 token 설정
 	 */
 	public ProductionAdminSecurityGuard(
 			AdminSecurityProperties properties,
-			DeviceApiProperties deviceProperties) {
+			DeviceApiProperties deviceProperties,
+			TrustedProxyProperties proxyProperties) {
 		this.properties = properties;
 		this.deviceProperties = deviceProperties;
+		this.proxyProperties = proxyProperties;
 	}
 
 	/**
@@ -63,6 +68,12 @@ public final class ProductionAdminSecurityGuard {
 				|| devicePepper.getBytes(StandardCharsets.UTF_8).length < 32) {
 			throw new IllegalStateException(
 					"DEVICE_CREDENTIAL_PEPPER must contain at least 32 bytes in prod");
+		}
+		String proxyToken = proxyProperties.sharedToken();
+		if (proxyToken == null
+				|| proxyToken.getBytes(StandardCharsets.UTF_8).length < 32) {
+			throw new IllegalStateException(
+					"TRUSTED_PROXY_TOKEN must contain at least 32 bytes in prod");
 		}
 	}
 }
