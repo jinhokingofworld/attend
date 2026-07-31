@@ -17,6 +17,8 @@ if [[ -f "${secret_file}" ]]; then
 fi
 
 base_url="${DEVICE_BASE_URL:-http://localhost:8080}"
+connect_timeout="${DEVICE_CONNECT_TIMEOUT_SECONDS:-3}"
+request_timeout="${DEVICE_REQUEST_TIMEOUT_SECONDS:-10}"
 device_code="${DEVICE_CODE:-}"
 device_key="${DEVICE_KEY:-}"
 uid="${DEVICE_UID:-04A1B2C3}"
@@ -56,6 +58,8 @@ post() {
     "${device_code}" "${key}" >"${auth_file}"
   if [[ -n "${body}" ]]; then
     status="$(curl --silent --show-error \
+      --connect-timeout "${connect_timeout}" \
+      --max-time "${request_timeout}" \
       --output "${response_file}" \
       --dump-header "${header_file}" \
       --write-out '%{http_code}' \
@@ -66,6 +70,8 @@ post() {
       "${base_url}${path}")"
   else
     status="$(curl --silent --show-error \
+      --connect-timeout "${connect_timeout}" \
+      --max-time "${request_timeout}" \
       --output "${response_file}" \
       --dump-header "${header_file}" \
       --write-out '%{http_code}' \

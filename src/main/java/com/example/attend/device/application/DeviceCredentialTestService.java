@@ -65,6 +65,7 @@ public class DeviceCredentialTestService {
 						device.status(), device.credentialVersion()));
 	}
 
+	/** 시험 결과를 공통 envelope의 canonical JSON과 HTTP 상태로 묶는다. */
 	private DeviceHttpResult response(
 			int status,
 			boolean success,

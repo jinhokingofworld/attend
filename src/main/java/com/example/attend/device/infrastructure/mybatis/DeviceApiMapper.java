@@ -10,8 +10,8 @@ import org.apache.ibatis.annotations.Param;
 @Mapper
 public interface DeviceApiMapper {
 
-	/** 공개 장치 코드로 자격증명 행을 잠가 동시 키 교체와 직렬화한다. */
-	DeviceCredentialRow lockCredentialByCode(
+	/** 공개 장치 코드로 현재 자격증명 projection을 읽는다. */
+	DeviceCredentialRow selectCredentialByCode(
 			@Param("deviceCode") String deviceCode);
 
 	/** 성공한 인증의 telemetry만 현재 세대에 조건부 기록한다. */

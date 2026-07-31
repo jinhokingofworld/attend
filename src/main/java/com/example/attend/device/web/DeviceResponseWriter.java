@@ -81,6 +81,7 @@ public final class DeviceResponseWriter {
 		}
 	}
 
+	/** 모든 장치 응답에 JSON·UTF-8·no-store 경계를 동일하게 설정한다. */
 	private static void prepare(HttpServletResponse response, int status) {
 		response.setStatus(status);
 		response.setCharacterEncoding("UTF-8");

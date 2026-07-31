@@ -18,6 +18,7 @@ import org.springframework.stereotype.Component;
 public final class DeviceCredentialHasher {
 
 	private static final int KEY_BYTES = 32;
+	private static final int MIN_PEPPER_BYTES = 32;
 	private static final String HMAC_ALGORITHM = "HmacSHA256";
 	private final SecureRandom secureRandom = new SecureRandom();
 	private final byte[] pepper;
@@ -66,7 +67,7 @@ public final class DeviceCredentialHasher {
 	 * @return 같은 키이면 {@code true}
 	 */
 	public boolean matches(String rawKey, String storedHash) {
-		if (pepper.length < KEY_BYTES) {
+		if (pepper.length < MIN_PEPPER_BYTES) {
 			return false;
 		}
 		if (rawKey == null || storedHash == null) {
@@ -81,6 +82,7 @@ public final class DeviceCredentialHasher {
 		return MessageDigest.isEqual(mac(rawKey), expected);
 	}
 
+	/** 원문 키를 외부 pepper로 HMAC 처리해 복원 불가능한 byte 배열을 만든다. */
 	private byte[] mac(String rawKey) {
 		try {
 			Mac mac = Mac.getInstance(HMAC_ALGORITHM);
@@ -91,8 +93,9 @@ public final class DeviceCredentialHasher {
 		}
 	}
 
+	/** 장치 키를 발급하기 전에 운영 수준의 pepper가 설정됐는지 확인한다. */
 	private void requireConfiguredPepper() {
-		if (pepper.length < KEY_BYTES) {
+		if (pepper.length < MIN_PEPPER_BYTES) {
 			throw new IllegalStateException(
 					"DEVICE_CREDENTIAL_PEPPER must contain at least 32 bytes");
 		}

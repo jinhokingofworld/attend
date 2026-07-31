@@ -15,6 +15,7 @@ import com.example.attend.device.infrastructure.mybatis.DeviceCheckInMapper;
 import com.example.attend.device.infrastructure.mybatis.DeviceEligibilityRow;
 import com.example.attend.device.infrastructure.mybatis.DeviceRuntimeRow;
 import com.example.attend.device.infrastructure.mybatis.TagEventRow;
+import com.example.attend.device.domain.DeviceStatus;
 import com.example.attend.device.security.DevicePrincipal;
 import com.example.attend.device.web.CheckInRequest;
 import com.example.attend.device.web.DeviceResponseBody;
@@ -85,7 +86,7 @@ public class DeviceCheckInService {
 				receivedAt) == 0) {
 			return replayOrConflict(principal, request, receivedAt);
 		}
-		if (!"ACTIVE".equals(device.status())
+		if (!DeviceStatus.ACTIVE.name().equals(device.status())
 				|| device.credentialVersion() != principal.credentialVersion()) {
 			throw new DeviceStateChangedException(request.requestId());
 		}
@@ -208,6 +209,9 @@ public class DeviceCheckInService {
 				eligibility.cardId(), day.id(), recordId, data);
 	}
 
+	/**
+	 * 이미 확정된 같은 UID 요청은 최초 응답을 재현하고, 다른 UID 재사용은 거부한다.
+	 */
 	private DeviceHttpResult replayOrConflict(
 			DevicePrincipal principal,
 			CheckInRequest request,
@@ -226,6 +230,9 @@ public class DeviceCheckInService {
 		return new DeviceHttpResult(event.httpStatus(), event.responseBody());
 	}
 
+	/**
+	 * 출석 결과와 같은 transaction에서 PROCESSING event를 확정 JSON으로 완성한다.
+	 */
 	private DeviceHttpResult complete(
 			DevicePrincipal principal,
 			CheckInRequest request,
@@ -255,6 +262,7 @@ public class DeviceCheckInService {
 		return new DeviceHttpResult(status, canonical);
 	}
 
+	/** event에 저장하지 않는 request ID 충돌 응답을 즉시 직렬화한다. */
 	private DeviceHttpResult immediate(
 			int status,
 			boolean success,

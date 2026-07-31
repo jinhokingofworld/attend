@@ -40,7 +40,7 @@ public class DeviceAuthenticationService {
 	 */
 	@Transactional(propagation = Propagation.REQUIRES_NEW)
 	public DevicePrincipal authenticate(String deviceCode, String deviceKey) {
-		DeviceCredentialRow row = mapper.lockCredentialByCode(deviceCode);
+		DeviceCredentialRow row = mapper.selectCredentialByCode(deviceCode);
 		boolean matched = credentialHasher.matches(
 				deviceKey, row == null ? DUMMY_HASH : row.credentialHash());
 		if (row == null || !matched) {

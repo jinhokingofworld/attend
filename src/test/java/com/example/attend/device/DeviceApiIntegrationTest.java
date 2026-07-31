@@ -208,6 +208,36 @@ class DeviceApiIntegrationTest {
 	/** 중복 JSON member와 실제 1025-byte body를 event 생성 전에 거부한다. */
 	@Test
 	void rejectsDuplicateJsonFieldsAndOversizedBodiesBeforeEvents() throws Exception {
+		mockMvc.perform(post("/api/v1/device/check-ins")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"uid":"04A1B2C3","requestId":"missing-auth"}
+								"""))
+				.andExpect(status().isUnauthorized())
+				.andExpect(jsonPath("$.code").value("DEVICE_UNAUTHORIZED"));
+		mockMvc.perform(post("/api/v1/device/check-ins")
+						.header(
+								"X-Device-Code",
+								issued.deviceCode(),
+								issued.deviceCode())
+						.header("X-Device-Key", issued.deviceKey())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"uid":"04A1B2C3","requestId":"duplicate-auth"}
+								"""))
+				.andExpect(status().isUnauthorized())
+				.andExpect(jsonPath("$.code").value("DEVICE_UNAUTHORIZED"));
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT last_seen_at IS NULL
+				FROM public.device
+				WHERE id = ?
+				""", Boolean.class, issued.deviceId())).isTrue();
+
+		mockMvc.perform(authenticatedPost("/api/v1/device/credential-tests")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{}"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("UNEXPECTED_BODY"));
 		mockMvc.perform(authenticatedPost("/api/v1/device/credential-tests"))
 				.andExpect(status().isOk());
 		deviceManagementService.activate(
@@ -228,6 +258,7 @@ class DeviceApiIntegrationTest {
 		assertThat(count("public.tag_event_log")).isZero();
 	}
 
+	/** 현재 fixture의 code/key header를 포함한 POST 요청 builder를 만든다. */
 	private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder
 			authenticatedPost(String path) {
 		return post(path)
@@ -235,12 +266,14 @@ class DeviceApiIntegrationTest {
 				.header("X-Device-Key", issued.deviceKey());
 	}
 
+	/** allowlist에서 선택한 fixture 테이블의 현재 행 수를 조회한다. */
 	private int count(String table) {
 		Integer count = jdbcTemplate.queryForObject(
 				"SELECT count(*) FROM " + table, Integer.class);
 		return count == null ? 0 : count;
 	}
 
+	/** RETURNING id SQL을 실행하고 fixture 식별자가 없으면 즉시 실패한다. */
 	private long insertId(String sql, Object... arguments) {
 		Long id = jdbcTemplate.queryForObject(sql, Long.class, arguments);
 		if (id == null) {
@@ -249,10 +282,12 @@ class DeviceApiIntegrationTest {
 		return id;
 	}
 
+	/** PostgreSQL JDBC가 명확히 처리할 수 있는 서울 offset 시각으로 바꾼다. */
 	private static OffsetDateTime atSeoul(Instant instant) {
 		return OffsetDateTime.ofInstant(instant, ZoneId.of("Asia/Seoul"));
 	}
 
+	/** FK 자식부터 삭제해 각 테스트의 데이터 격리를 보장한다. */
 	private void deleteFixtures() {
 		for (String table : new String[]{
 				"audit_log", "tag_event_log", "attendance_record",

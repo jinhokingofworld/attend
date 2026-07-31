@@ -117,8 +117,11 @@ public final class DeviceAdminController {
 			Model model,
 			RedirectAttributes redirectAttributes) {
 		deviceService.device(principal.toActor(), deviceId);
-		Object value = session.getAttribute(sessionKey(deviceId));
-		session.removeAttribute(sessionKey(deviceId));
+		Object value;
+		synchronized (session) {
+			value = session.getAttribute(sessionKey(deviceId));
+			session.removeAttribute(sessionKey(deviceId));
+		}
 		if (!(value instanceof IssuedDeviceCredential issued)
 				|| issued.deviceId() != deviceId
 				|| Duration.between(issued.issuedAt(), clock.instant())
@@ -237,21 +240,25 @@ public final class DeviceAdminController {
 		}
 	}
 
+	/** 시스템 장치 화면이 공통으로 사용하는 인증 주체와 쓰기 상태를 추가한다. */
 	private void addCommon(AccountPrincipal principal, Model model) {
 		model.addAttribute("principal", principal);
 		model.addAttribute("writeEnabled", writeGate.isEnabled());
 	}
 
+	/** 원문 키를 URL이나 flash에 넣지 않고 현재 서버 세션에 한 번만 보관한다. */
 	private static void storeOnce(
 			HttpSession session,
 			IssuedDeviceCredential issued) {
 		session.setAttribute(sessionKey(issued.deviceId()), issued);
 	}
 
+	/** 여러 장치 탭의 1회 키가 서로 덮어쓰이지 않도록 장치별 session key를 만든다. */
 	private static String sessionKey(long deviceId) {
 		return CREDENTIAL_SESSION_PREFIX + deviceId;
 	}
 
+	/** 메시지가 없는 업무 예외를 사용자용 일반 문구로 바꾼다. */
 	private static String safeMessage(RuntimeException exception) {
 		return exception.getMessage() == null
 				? "요청을 처리할 수 없습니다."

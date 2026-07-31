@@ -80,6 +80,7 @@ public final class DeviceCheckInRequestParser {
 		return ParsedCheckIn.success(new CheckInRequest(uid, requestId));
 	}
 
+	/** application/json·UTF-8·비압축 body만 허용하는지 확인한다. */
 	private static boolean supportedMediaType(HttpServletRequest request) {
 		String encoding = request.getHeader("Content-Encoding");
 		if (encoding != null && !"identity".equalsIgnoreCase(encoding.trim())) {
@@ -99,6 +100,7 @@ public final class DeviceCheckInRequestParser {
 		}
 	}
 
+	/** Content-Length를 신뢰하지 않고 실제 stream을 최대 1025 bytes까지만 읽는다. */
 	private static byte[] readLimited(HttpServletRequest request)
 			throws IOException {
 		ByteArrayOutputStream output = new ByteArrayOutputStream();
@@ -116,6 +118,7 @@ public final class DeviceCheckInRequestParser {
 		return output.toByteArray();
 	}
 
+	/** UID와 requestId 외의 추가 JSON member가 없는지 검사한다. */
 	private static boolean onlyAllowedFields(JsonNode root) {
 		Iterator<String> names = root.fieldNames();
 		while (names.hasNext()) {
@@ -126,6 +129,7 @@ public final class DeviceCheckInRequestParser {
 		return true;
 	}
 
+	/** JSON 문서 자체를 해석할 수 없는 400 결과를 만든다. */
 	private static ParsedCheckIn malformed() {
 		return ParsedCheckIn.failure(
 				400,
@@ -133,6 +137,7 @@ public final class DeviceCheckInRequestParser {
 				"요청 JSON을 해석할 수 없습니다.");
 	}
 
+	/** JSON은 유효하지만 외부 schema를 위반한 422 결과를 만든다. */
 	private static ParsedCheckIn invalid() {
 		return ParsedCheckIn.failure(
 				422,

@@ -2,6 +2,8 @@ package com.example.attend.device.web;
 
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -11,6 +13,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice(assignableTypes = DeviceApiController.class)
 public final class DeviceApiExceptionHandler {
 
+	private static final Logger log = LoggerFactory.getLogger(
+			DeviceApiExceptionHandler.class);
 	private final DeviceResponseWriter responseWriter;
 
 	/** 공통 장치 응답기를 주입받는다. */
@@ -25,6 +29,7 @@ public final class DeviceApiExceptionHandler {
 	public void handleUnexpected(
 			Exception exception,
 			HttpServletResponse response) throws IOException {
+		log.error("Unhandled device API exception", exception);
 		if (!response.isCommitted()) {
 			responseWriter.write(
 					response, 500, false, "SERVER_ERROR",

@@ -2,6 +2,7 @@ package com.example.attend.device.application;
 
 import com.example.attend.device.infrastructure.mybatis.DeviceApiMapper;
 import com.example.attend.device.infrastructure.mybatis.DeviceRuntimeRow;
+import com.example.attend.device.domain.DeviceStatus;
 import com.example.attend.device.security.DevicePrincipal;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,7 +31,7 @@ public class DeviceRequestStateService {
 		DeviceRuntimeRow row = mapper.selectRuntimeDevice(
 				principal.deviceId(), principal.departmentId());
 		return row != null
-				&& "ACTIVE".equals(row.status())
+				&& DeviceStatus.ACTIVE.name().equals(row.status())
 				&& row.credentialVersion() == principal.credentialVersion();
 	}
 }

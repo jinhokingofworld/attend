@@ -186,6 +186,7 @@ public class DeviceManagementService {
 		writeStateAudit(actor, device, "DEVICE_REVOKED", DeviceStatus.REVOKED, reason);
 	}
 
+	/** 비밀키 hash를 제외한 장치가 존재하는지 확인한다. */
 	private DeviceAdminRow requireDevice(long deviceId) {
 		DeviceAdminRow device = mapper.selectDevice(deviceId);
 		if (device == null) {
@@ -194,6 +195,7 @@ public class DeviceManagementService {
 		return device;
 	}
 
+	/** 문서의 department → device 순서로 행을 잠그고 최신 상태를 반환한다. */
 	private DeviceAdminRow lockDeviceInOrder(long deviceId) {
 		Long departmentId = mapper.selectDepartmentId(deviceId);
 		if (departmentId == null) {
@@ -207,11 +209,13 @@ public class DeviceManagementService {
 		return device;
 	}
 
+	/** feature flag와 시스템 관리자 권한을 모든 변경 명령 앞에서 함께 검사한다. */
 	private void requireWriteAndSystemAdmin(AccountActor actor) {
 		writeGate.requireEnabled();
 		authorization.requireSystemAdmin(actor);
 	}
 
+	/** 키 교체·폐기처럼 위험한 명령에서 사용자가 장치 코드를 다시 입력했는지 확인한다. */
 	private static void requireCodeConfirmation(
 			DeviceAdminRow device,
 			String confirmation) {
@@ -221,6 +225,7 @@ public class DeviceManagementService {
 		}
 	}
 
+	/** 원문 키와 hash를 제외한 상태·세대 변화만 감사 로그에 저장한다. */
 	private void writeStateAudit(
 			AccountActor actor,
 			DeviceAdminRow device,
@@ -239,6 +244,7 @@ public class DeviceManagementService {
 				reason);
 	}
 
+	/** 필수 문자열의 바깥 공백과 Unicode code point 길이를 검증한다. */
 	private static String normalizeRequired(
 			String value,
 			String field,
@@ -253,10 +259,12 @@ public class DeviceManagementService {
 		return value;
 	}
 
+	/** 감사 사유를 필수 500자 문자열로 정규화한다. */
 	private static String normalizeReason(String reason) {
 		return normalizeRequired(reason, "reason", 500);
 	}
 
+	/** 공개 장치 코드가 단일 HTTP header 값으로 안전하게 전달될 수 있게 한다. */
 	private static String normalizeDeviceCode(String deviceCode) {
 		deviceCode = normalizeRequired(deviceCode, "device code", 100);
 		if (deviceCode.indexOf('\r') >= 0 || deviceCode.indexOf('\n') >= 0) {

@@ -9,6 +9,7 @@ import com.example.attend.device.security.DevicePrincipal;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.io.InputStream;
 import java.time.Clock;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public final class DeviceApiController {
 
+	private static final int CREDENTIAL_BODY_DRAIN_LIMIT = 1024;
 	private final DeviceCredentialTestService credentialTestService;
 	private final DeviceCheckInService checkInService;
 	private final DeviceRequestStateService requestStateService;
@@ -49,7 +51,7 @@ public final class DeviceApiController {
 			@AuthenticationPrincipal DevicePrincipal principal,
 			HttpServletRequest request,
 			HttpServletResponse response) throws IOException {
-		if (request.getInputStream().read() != -1) {
+		if (hasUnexpectedBody(request)) {
 			responseWriter.write(
 					response, 400, false, "UNEXPECTED_BODY",
 					"이 요청에는 body를 보낼 수 없습니다.", null, null);
@@ -97,5 +99,33 @@ public final class DeviceApiController {
 					"처리 중 장치 상태가 변경되었습니다.",
 					exception.requestId(), null);
 		}
+	}
+
+	/**
+	 * credential-test의 body를 최대 1 KiB까지 배출해 작은 잘못된 요청에서도
+	 * keep-alive 연결을 재사용할 수 있게 한다.
+	 *
+	 * @param request 검사할 servlet 요청
+	 * @return 한 byte라도 body가 있으면 {@code true}
+	 * @throws IOException body를 읽지 못한 경우
+	 */
+	private static boolean hasUnexpectedBody(HttpServletRequest request)
+			throws IOException {
+		InputStream input = request.getInputStream();
+		byte[] buffer = new byte[256];
+		int total = 0;
+		while (total <= CREDENTIAL_BODY_DRAIN_LIMIT) {
+			int read = input.read(
+					buffer,
+					0,
+					Math.min(
+							buffer.length,
+							CREDENTIAL_BODY_DRAIN_LIMIT + 1 - total));
+			if (read < 0) {
+				break;
+			}
+			total += read;
+		}
+		return total > 0 || request.getContentLengthLong() > 0;
 	}
 }
