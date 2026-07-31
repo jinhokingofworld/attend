@@ -19,7 +19,4 @@ public interface MemberMapper {
 
     //멤버 수정하기
     void updateMember(Member m);
-
-    //멤버 삭제하기
-    void deleteMember(@Param("id") Long id);
 }

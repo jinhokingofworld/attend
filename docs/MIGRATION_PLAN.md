@@ -33,7 +33,7 @@ MVP의 데이터베이스 변경 도구는 **Flyway**로 통일한다.
 ### 1.1 목적
 
 - 애플리케이션 재시작으로 운영 데이터가 삭제되는 위험을 제거한다.
-- 기존 `member` 1개를 채택하고 신규 14개 테이블을 재현 가능하고 검증 가능한 순서로 생성한다.
+- 기존 `member` 1개를 채택하고 신규 15개 테이블을 재현 가능하고 검증 가능한 순서로 생성한다.
 - 레거시 데이터의 의미를 왜곡하지 않고 보존한다.
 - 신규 애플리케이션 전환 실패 시 복구 가능한 지점을 만든다.
 - 개발, 테스트, 운영 DB가 같은 초기화 방식을 공유하지 않게 한다.
@@ -57,25 +57,24 @@ MVP의 데이터베이스 변경 도구는 **Flyway**로 통일한다.
 
 ---
 
-## 2. 현재 코드에서 확인된 위험
+## 2. 착수 시 확인된 위험과 안전 릴리스 조치
 
-| 근거 | 현재 상태 | 위험 | 조치 |
+| 근거 | 착수 시 상태 | 위험 | 구현 조치 |
 |---|---|---|---|
-| `src/main/resources/schema.sql` | 시작 SQL에 네 테이블과 enum의 `DROP` 포함 | 앱 재시작만으로 전체 데이터 삭제 가능 | 안전 릴리스에서 운영 실행 차단 |
-| `src/main/resources/application.properties` | 작업 트리 기본값은 `${SQL_INIT_MODE:never}`로 수정됐지만 환경변수로 재활성화 가능 | 파괴적 SQL이 artifact에 남아 있어 오설정 시 전체 초기화 가능 | 파괴적 SQL을 운영 artifact에서 제거하고 환경·재시작 검증 |
-| `src/main/resources/application.properties` | `DB_URL`이 없으면 localhost로 fallback | 운영 설정 누락을 숨기고 의도하지 않은 DB에 접속 가능 | 운영 프로필은 fallback 없이 필수값으로 검증 |
-| `src/main/resources/data.sql` | 공개된 샘플 계정과 비밀번호 해시 포함 | 알려진 자격증명이 운영에 생성될 수 있음 | 운영 seed 금지, 최초 관리자 별도 생성 |
-| `src/main/resources/data.sql` | `L`, `Q`, `O`가 포함된 샘플 UID 존재 | 실제 카드 UID로 사용할 수 없는 값 | 이관 금지, 실제 카드 재태깅 |
+| 기존 `src/main/resources/schema.sql` | 시작 SQL에 네 테이블과 enum의 `DROP` 포함 | 앱 재시작만으로 전체 데이터 삭제 가능 | 운영 classpath에서 삭제하고 비파괴 Flyway V001~V008로 교체 |
+| `src/main/resources/application.properties` | SQL 초기화를 환경변수로 재활성화할 수 있었음 | 오설정 시 파괴적 SQL 실행 가능 | `spring.sql.init.mode=never`를 고정하고 파괴적 SQL resource 제거 |
+| `src/main/resources/application.properties` | `DB_URL`이 없으면 localhost로 fallback | 운영 설정 누락을 숨기고 의도하지 않은 DB에 접속 가능 | 개발 fallback은 유지하되 `prod` 프로필은 URL·계정·비밀번호를 필수값으로 재정의 |
+| 기존 `src/main/resources/data.sql` | 공개된 샘플 계정·비밀번호 해시와 잘못된 UID 포함 | 알려진 자격증명과 사용할 수 없는 카드가 생성될 수 있음 | 운영 classpath에서 삭제하고 migration seed 금지 |
 | 기존 `attendance` | 부서, 정책 버전, 출석일, 대상자 스냅샷 없음 | 과거 결석과 통계 분모를 복원할 수 없음 | 기본적으로 레거시 이력으로 보존 |
 | 기존 시간 컬럼 | `timestamp without time zone` | 저장 당시 시간대가 데이터에 없음 | 승인 전 임의 시간대 변환 금지 |
 | 기존 외래 키 | 구성원 삭제 시 출석·로그 `ON DELETE CASCADE` | 이미 삭제된 과거 이력은 복구 불가 | 기존 FK를 `RESTRICT`로 교체하고 종료 이력 사용 |
-| `MemberMapper.xml`, `MemberController` | `DELETE FROM member` 물리 삭제 경로 존재 | 기준 구성원과 과거 이력이 함께 손실될 수 있음 | 안전 릴리스에서 삭제 경로 차단 |
+| 기존 `MemberMapper.xml`, `MemberController` | `DELETE FROM member`와 `member.card_uid` 직접 수정 경로 존재 | 기준 구성원·과거 이력 손실과 카드 이력 우회 | 물리 삭제 API·Mapper와 카드 UID 직접 수정 필드를 제거 |
 | 기존 상태 | PostgreSQL enum `IN_TIME`, `TIME_OUT`, `MISS` | 다단계 지각 정책을 표현할 수 없음 | 신규 구조는 정책 구간 행과 `VARCHAR + CHECK` 사용 |
 | 기존 `attendance_log` | 장치, 부서, 요청 ID와 응답 원문 없음 | 신규 장치 이벤트로 신뢰성 있게 변환 불가 | 기존 로그를 읽기 전용 보존 |
 
-현재 저장소의 `data.sql`이 샘플이라는 사실과 별개로, 이미 배포된 DB가 샘플 DB인지 실제 운영 DB인지는 저장소만 보고 판단할 수 없다. 운영자가 명시적으로 분류하기 전에는 어떤 데이터도 삭제하거나 이관하지 않는다.
+제거된 `data.sql`이 샘플이었다는 사실과 별개로, 이미 배포된 DB가 샘플 DB인지 실제 운영 DB인지는 저장소만 보고 판단할 수 없다. 운영자가 명시적으로 분류하기 전에는 어떤 데이터도 삭제하거나 이관하지 않는다.
 
-`application.properties`의 작업 트리 변경은 아직 안전 릴리스 검증을 통과한 운영 artifact가 아니다. 이 문서는 기본값 변경만으로 위험이 제거됐다고 판단하지 않는다.
+위 안전화는 PostgreSQL 15 Testcontainers에서 fresh·레거시·거부 경로를 통과했지만 실제 운영 배포 증거는 아니다. 운영 복제본, 권한 분리, 백업 복원과 재시작 검증을 별도로 통과해야 한다.
 
 ---
 
@@ -198,18 +197,35 @@ spring.flyway.out-of-order=false
 초기 운영 전환은 migration 실행과 웹 애플리케이션 시작을 분리한다.
 
 ```properties
-# migration job, 로컬, 테스트
+# Testcontainers test profile
 spring.flyway.enabled=true
 
-# 운영 웹 애플리케이션 runtime
+# 로컬·운영 웹 애플리케이션 runtime
 spring.flyway.enabled=false
 ```
 
-- 운영 migration은 버전이 고정된 Flyway CLI 또는 컨테이너로 한 번만 실행한다.
+이 저장소의 최초 guarded runner는 다음 환경변수를 비밀 저장소나 승인된 배포 설정에서 주입한 뒤 실행한다.
+
+```text
+FLYWAY_DB_URL=<direct JDBC URL>
+FLYWAY_DB_USERNAME=<migration_owner>
+FLYWAY_DB_PASSWORD=<secret>
+MIGRATION_SOURCE_CLASS=NEW_OR_SAMPLE | LEGACY_OPERATIONAL
+```
+
+```bash
+./gradlew dbMigrate
+```
+
+`dbMigrate`는 V008을 고정 target으로 사용한다. Flyway를 호출하기 전에 read-only transaction에서 V001의 catalog·데이터 검사를 실행하고, fresh 또는 정확한 legacy 후보만 허용한다. 이 사전검사는 V001의 `ACCESS EXCLUSIVE` 잠금을 메모리에서 `ACCESS SHARE`로 바꾼 검증 블록을 실행해 실제 DDL 직전의 read-only 위반에 도달한 경우만 통과시킨다. 파일 자체는 수정하지 않으며 V001은 실제 적용 시 다시 원래의 exclusive lock과 전체 검사를 수행한다.
+
+사전검사가 거부한 DB에는 `flyway_schema_history`도 만들지 않는다. 기존 공개 샘플 계정은 원문 비밀번호나 BCrypt hash를 artifact에 넣지 않고 공개된 비밀번호 hash 자체의 one-way fingerprint denylist로 탐지해 baseline 전에 중단한다. 사용자명이나 권한을 바꿔도 같은 공개 hash면 거부하며, 실제 V001도 exclusive lock을 잡은 뒤 같은 fingerprint를 재검사한다. 기술 검사가 fresh 또는 legacy 형태를 확인해도 실제 용도는 추정하지 않으며 `MIGRATION_SOURCE_CLASS`에는 운영 책임자의 승인 기록과 같은 분류만 입력한다.
+
+- 운영 migration은 이 runner를 포함한 동일 commit의 고정 컨테이너 또는 승인된 job으로 한 번만 실행한다.
 - 운영 웹 애플리케이션 계정에는 DDL 권한을 주지 않는다.
-- CLI 버전은 애플리케이션이 사용하는 Flyway 버전과 맞추고 전환 기록에 남긴다.
-- Spring 설정은 별도 CLI에 자동 전달되지 않으므로 CLI에도 `cleanDisabled=true`, schema와 location을 명시한다.
-- 로컬·테스트에서는 앱 시작 migration을 허용하되 운영 DB 접속정보를 사용할 수 없게 분리한다.
+- runner의 Flyway 버전은 애플리케이션 dependency와 같고 `cleanDisabled=true`, baseline 자동화 금지, schema와 location을 코드로 고정한다.
+- 로컬 runtime도 먼저 `dbMigrate`를 실행하고 앱 시작 Flyway는 끈다. 테스트 프로필만 Testcontainers DB에 앱 시작 migration을 허용한다.
+- `prod` 프로필은 시작 시 성공한 V001~V008 이력을 정확히 비교하고 history 부재·실패·누락·초과 version이면 기동을 실패한다.
 
 적용 원칙은 다음과 같다.
 
@@ -234,12 +250,12 @@ spring.flyway.enabled=false
 1. 사전점검과 백업 복원 훈련을 통과한다.
 2. 기존 `member`, `authentications`, `attendance`, `attendance_log`의 스키마와 건수를 기록한다.
 3. `public.flyway_schema_history`가 없고 `member`가 승인된 레거시 형태와 정확히 일치하는지 확인한다.
-4. 운영자가 기존 DB를 **version 0**으로 한 번만 명시적 baseline한다.
-5. V001부터 신규 테이블을 기존 테이블 옆에 생성한다.
+4. `MIGRATION_SOURCE_CLASS=LEGACY_OPERATIONAL` 승인과 read-only preflight가 일치할 때 guarded runner가 **version 0** baseline을 한 번만 명시적으로 수행한다.
+5. 같은 runner가 V001부터 신규 테이블을 기존 테이블 옆에 생성하고 V008에서 고정 종료한 뒤 validate한다.
 
 baseline은 기존 구조가 올바르다는 검증도, 백업도 아니다. baseline 시점의 schema-only dump, 객체 목록과 row count를 별도로 보존한다.
 
-Flyway의 기본 baseline version에 의존하지 않는다. URL과 자격증명은 CLI 인자가 아닌 승인된 비밀 저장소에서 제공하고, 나머지 옵션은 다음과 같이 고정한다.
+Flyway의 기본 baseline version에 의존하지 않는다. URL과 자격증명은 CLI 인자가 아닌 승인된 비밀 저장소에서 제공한다. 아래는 runner가 코드로 고정한 baseline 옵션의 동등한 CLI 표현이며, 운영자가 preflight를 우회해 별도로 실행하는 명령이 아니다.
 
 ```bash
 flyway \
@@ -260,7 +276,7 @@ FROM public.flyway_schema_history
 ORDER BY installed_rank;
 ```
 
-합격값은 `version = '0'`, `type = 'BASELINE'`, `success = TRUE`다. 이미 history 테이블이 있거나 신규 14개 테이블 또는 `attend_set_updated_at()` 함수가 하나라도 있으면 자동으로 처리하지 않고 작업을 중단한다.
+합격값은 `version = '0'`, `type = 'BASELINE'`, `success = TRUE`다. 이미 history 테이블이 있거나 신규 15개 테이블 또는 `attend_set_updated_at()` 함수가 하나라도 있으면 자동으로 처리하지 않고 작업을 중단한다.
 
 ### 5.4 트랜잭션과 인덱스
 
@@ -278,13 +294,15 @@ ORDER BY installed_rank;
 | 버전 | 파일 | 주요 내용 |
 |---|---|---|
 | V001 | `V001__adopt_or_create_member.sql` | `member` 신규 생성 또는 레거시 확장, 기존 출석·로그 FK의 `RESTRICT` 전환 |
-| V002 | `V002__create_organization_and_accounts.sql` | `department`, `account`, `account_department_role` |
+| V002 | `V002__create_organization_and_accounts.sql` | `department`, `account`, `account_credential_token`, `account_department_role` |
 | V003 | `V003__create_membership_card_and_device.sql` | `department_membership`, `nfc_card`, `nfc_card_assignment`, `device` |
 | V004 | `V004__create_attendance_policy.sql` | `attendance_policy_version`, `attendance_band` |
 | V005 | `V005__create_attendance_domain.sql` | `attendance_day`, `attendance_target`, `attendance_record` |
 | V006 | `V006__create_event_and_audit_log.sql` | `tag_event_log`, `audit_log` |
 | V007 | `V007__add_indexes_and_scope_guards.sql` | 복합 FK, 부분 유일 인덱스, 조회·마감 인덱스 |
 | V008 | `V008__add_updated_at_triggers.sql` | 고유 이름의 `attend_set_updated_at()` 함수·trigger와 함수의 `PUBLIC EXECUTE` 회수 |
+
+V002는 비밀번호가 없는 `PENDING_SETUP`, 비밀번호가 설정된 `ACTIVE`, 두 형태를 보존할 수 있는 `DISABLED` 상태와 nullable 비밀번호 필드의 일관성 `CHECK`를 함께 생성한다. `account_credential_token`은 `INVITATION`·`RESET`, 64자 lowercase HMAC-SHA-256 hash, 대상·발급 계정, 최대 30분의 발급·만료 시각과 사용·무효 시각을 저장한다. 계정·목적별 미사용·미무효 token 한 건을 보장하는 부분 유일 인덱스는 V007에서 생성한다. V002 적용과 V007에 분리된 부분 유일성을 포함한 PostgreSQL DB 테스트 통과가 계정 생성·회원가입 초대·reset command의 출시 gate이며, 원문 token 전달 채널 승인은 별도 운영 gate다.
 
 ### 6.1 버전 작성 규칙
 
@@ -302,7 +320,7 @@ ORDER BY installed_rank;
 - 마이그레이션 완료 후 동일 버전 재실행이 아니라 `validate`와 새 DB 재구성으로 검증한다.
 - 기준 DDL의 바깥쪽 `BEGIN`과 `COMMIT`은 각 migration 파일에 복사하지 않고 Flyway의 transaction 경계를 사용한다.
 - 공용 이름 충돌을 피하기 위해 갱신 함수는 `set_updated_at()`이 아니라 `attend_set_updated_at()`을 사용하고 `OR REPLACE`로 기존 함수를 덮어쓰지 않는다.
-- 정책 발행 불변성, 구간과 날짜 정책의 일치, `is_target = TRUE`, 기록이 생긴 날짜의 취소 금지 같은 교차 테이블 규칙은 M2 서비스 트랜잭션과 PostgreSQL 통합 테스트가 완료되기 전까지 운영 쓰기를 허용하지 않는다.
+- 정책 발행 불변성, `is_target = TRUE`, 기록이 생긴 날짜의 취소 금지 같은 교차 테이블 규칙은 M2 서비스 트랜잭션과 PostgreSQL 통합 테스트가 완료되기 전까지 운영 쓰기를 허용하지 않는다. 기록의 날짜–정책–구간–상태 일치는 M1 복합 FK가 우선 방어한다.
 
 ### 6.2 초기 전환에서 하지 않는 작업
 
@@ -392,7 +410,7 @@ legacy_username,import_account,system_role,department_key,department_role,approv
 - bootstrap 사용자명과 레거시 사용자명이 충돌하면 자동 병합하지 않고 이관을 중단한다.
 - 기존 `USER`에는 신규 권한을 자동 부여하지 않는다.
 - MVP에서 필요하지 않은 `USER` 계정은 이관하지 않거나 `DISABLED`로 둔다.
-- `admin/adminpass`, `user/userpass`와 알려진 샘플 해시는 폐기한다.
+- 삭제된 공개 샘플 계정·재사용 가능 비밀번호와 알려진 샘플 해시는 모두 폐기한다.
 - 이관한 운영 계정도 최초 로그인 전 비밀번호를 재설정한다.
 - 사용자명 대소문자 정규화 충돌이 있으면 자동 병합하지 않는다.
 
@@ -423,7 +441,7 @@ legacy_member_id,raw_uid,canonical_uid,verification_method,verified_at,verified_
 6. `O → 0`, `L → 1` 같은 추정 변환은 금지한다.
 7. 형식 오류, 충돌, 소유자 불명 카드는 재태깅 후 관리자가 연결한다.
 
-현재 `data.sql`의 샘플 UID는 실제 카드 UID로 이관하지 않는다.
+제거된 기존 `data.sql`의 샘플 UID는 실제 카드 UID로 이관하지 않는다.
 
 ### 7.4 과거 출석과 로그의 격리
 
@@ -495,7 +513,7 @@ baseline 전에 다음 조건을 추가로 확인한다.
 
 - `member`, `authentications`, `attendance`, `attendance_log` 네 기존 테이블이 모두 `public`에 존재한다.
 - `member`는 현재 코드의 컬럼·타입·PK·`member_id_seq`·`card_uid` unique 구조와 정확히 일치하고 아직 `active`, `updated_at`이 없다.
-- 신규 14개 테이블은 하나도 존재하지 않는다.
+- 신규 15개 테이블은 하나도 존재하지 않는다.
 - 신규 migration과 이름이 충돌하는 함수·trigger·index가 없다.
 - history 테이블이 이미 있으면 새 baseline을 만들지 않고 기존 이력을 별도로 조사한다.
 - 애플리케이션, 테스트 프로세스와 관리 도구가 같은 DB를 사용하고 있지 않다.
@@ -620,8 +638,8 @@ cluster-global 역할 백업에는 비밀번호 해시가 포함될 수 있으�
 |---|---|
 | `migration_owner` | Flyway history와 신규 schema DDL. 웹 애플리케이션에서 사용 금지 |
 | `legacy_writer` | 안전 릴리스가 실제 사용하는 기존 테이블 최소 DML과 sequence 권한. `member`는 전체 SELECT, `name`·`age`·`phone`·`birth`의 column-level INSERT·UPDATE만 허용하고 `card_uid` UPDATE와 물리 DELETE는 금지. 컷오버 시 로그인 또는 쓰기 권한 차단 |
-| `cutover_writer` | bootstrap·importer용 신규 14개 테이블 DML, 신규 identity sequence와 `member_id_seq`의 `USAGE`, 승인 이관에 필요한 `member` 최소 SELECT 및 `active` UPDATE. 레거시 출석·로그 DML과 DDL 금지, 컷오버 후 회수 |
-| `app_runtime` | 신규 14개 테이블의 최소 DML, 신규 identity sequence와 `member_id_seq`의 `USAGE`, `member` 허용 컬럼의 최소 SELECT·INSERT·UPDATE, schema 호환성 확인용 `flyway_schema_history` SELECT. DDL, history 변경, `member` DELETE와 세 레거시 테이블 DML 금지 |
+| `cutover_writer` | bootstrap·importer용 신규 15개 테이블 DML, 신규 identity sequence와 `member_id_seq`의 `USAGE`, 승인 이관에 필요한 `member` 최소 SELECT 및 `active` UPDATE. 레거시 출석·로그 DML과 DDL 금지, 컷오버 후 회수 |
+| `app_runtime` | 신규 15개 테이블의 최소 DML, 신규 identity sequence와 `member_id_seq`의 `USAGE`, `member` 허용 컬럼의 최소 SELECT·INSERT·UPDATE, schema 호환성 확인용 `flyway_schema_history` SELECT. DDL, history 변경, `member` DELETE와 세 레거시 테이블 DML 금지 |
 
 - `PUBLIC`에 불필요한 테이블·sequence·함수 실행 권한을 주지 않는다.
 - DB/schema 소유자가 baseline 전에 `REVOKE CREATE ON SCHEMA public FROM PUBLIC`을 실행하고 `migration_owner`에만 필요한 schema 권한을 부여한다.
@@ -630,7 +648,7 @@ cluster-global 역할 백업에는 비밀번호 해시가 포함될 수 있으�
 - `legacy_writer`에도 table-level `UPDATE ON member`를 주지 않는다. 안전 릴리스가 사용하는 기존 컬럼만 column-level로 허용해 제거한 카드 수정 경로를 DB 권한으로도 차단한다.
 - `member`는 column-level 권한으로 필요한 컬럼만 조회하고 `name`, `phone`, `active`만 INSERT·UPDATE하게 한다. `updated_at`은 trigger만 갱신하며, `age`, `birth`, `card_uid`, 레거시 `created_at`의 runtime 조회·수정과 모든 `member` DELETE는 차단한다.
 - 신규 애플리케이션의 `member` query는 명시적 컬럼 목록을 사용한다. 권한으로 차단한 레거시 컬럼까지 요구하는 `SELECT *` Mapper를 신규 배포물에 남기지 않는다.
-- 애플리케이션 artifact의 요구 schema version과 history를 시작 시 비교하되 `app_runtime`은 `flyway_schema_history`를 읽을 수만 있고 변경할 수 없다. history가 없거나 실패 행이 있거나, 성공한 versioned non-baseline migration을 `installed_rank DESC`로 조회한 최신 version이 release manifest의 승인 target과 다르면 기동을 실패한다. 문자열 `MAX(version)`은 사용하지 않으며 repeatable migration checksum은 runner의 `flyway validate`로 검증한다.
+- 애플리케이션 artifact의 요구 schema version과 history를 시작 시 비교하되 `app_runtime`은 `flyway_schema_history`를 읽을 수만 있고 변경할 수 없다. V008 release는 history 부재, 실패 행, V001~V008의 누락·중복·초과 version에서 기동을 실패한다. 문자열 `MAX(version)`은 사용하지 않고 Flyway `MigrationVersion`으로 전체 적용 순서를 비교하며 checksum은 runner의 `flyway validate`로 검증한다.
 - 신규 테이블, identity sequence와 함수 권한은 재현 가능한 별도 권한 스크립트로 관리한다.
 - 신규 배포물에 세 레거시 테이블 쓰기 Mapper, 기존 `member.card_uid` 수정과 `DELETE FROM member` 경로가 포함되지 않았는지 확인한다.
 - 롤백 때문에 `legacy_writer`가 다시 필요하면 승인 후 제한된 시간 동안만 복구한다.
@@ -661,7 +679,7 @@ cluster-global 역할 백업에는 비밀번호 해시가 포함될 수 있으�
 ### 9.2 2단계: M1 스키마 리허설
 
 1. 새 빈 PostgreSQL DB에 V001~V008을 적용하고 catalog·부정 테스트를 수행한다.
-2. 현재 `schema.sql`과 동일한 `member`, `authentications`, `attendance`, `attendance_log` fixture를 새로 만든다.
+2. 제거된 기존 `schema.sql`과 동일한 `member`, `authentications`, `attendance`, `attendance_log` 테스트 fixture를 만든다.
 3. fixture의 version 0 baseline 사전조건과 결과를 검증한다.
 4. fixture에 V001~V008을 적용한다. `member` 행·PK·원본 컬럼·sequence, `authentications` 전체, `attendance`·`attendance_log` 행과 원본 컬럼이 보존되는지 확인한다. 두 출석 테이블의 `member` FK 삭제 동작이 승인된 `CASCADE → RESTRICT` 변경 외에는 달라지지 않았는지도 확인한다.
 5. fresh 경로와 레거시 채택 경로의 최종 `member` 컬럼·제약이 일치하는지 catalog로 비교한다.
@@ -804,7 +822,8 @@ JOIN attendance_day AS ad
   ON ad.id = ar.attendance_day_id
 JOIN attendance_band AS ab
   ON ab.id = ar.attendance_band_id
-WHERE ab.policy_version_id <> ad.policy_version_id
+WHERE ar.policy_version_id <> ad.policy_version_id
+   OR ab.policy_version_id <> ar.policy_version_id
    OR ab.parent_status <> ar.status;
 
 SELECT ad.id

@@ -42,9 +42,4 @@ public class MemberServiceImpl implements MemberService {
     public void editMem(Member m) {
         mapper.updateMember(m);
     }
-
-    @Override
-    public void deleteMem(Long id) {
-        mapper.deleteMember(id);
-    }
 }

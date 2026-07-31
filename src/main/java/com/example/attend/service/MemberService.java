@@ -14,6 +14,4 @@ public interface MemberService {
     void addMem(Member m);
     //멤버 수정하기
     void editMem(Member m);
-    //멤버 삭제하기
-    void deleteMem(Long id);
 }

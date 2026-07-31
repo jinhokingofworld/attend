@@ -22,13 +22,8 @@
     <update id="updateMember">
         UPDATE member SET name = #{name},
         age = #{age}, phone = #{phone},
-        birth = #{birth}, card_uid = #{cardUid}
+        birth = #{birth}
         WHERE id = #{id}
     </update>
-
-    <delete id="deleteMember">
-        DELETE FROM member WHERE id = #{id}
-    </delete>
 </mapper>
-
 

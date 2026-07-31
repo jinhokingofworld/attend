@@ -94,11 +94,4 @@ public class MemberController {
         return "redirect:/member";
     }
 
-    //멤버 삭제
-    @PostMapping("/delete/{id}")
-    public String delete(@PathVariable Long id, RedirectAttributes attributes) {
-        memberService.deleteMem(id);
-        attributes.addFlashAttribute("message", "회원"+ id + "이 삭제되었습니다.");
-        return "redirect:/member";
-    }
 }
