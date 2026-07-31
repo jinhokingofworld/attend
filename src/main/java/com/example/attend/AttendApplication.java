@@ -3,6 +3,7 @@ package com.example.attend;
 import com.example.attend.config.AttendanceProperties;
 import com.example.attend.config.AdminSecurityProperties;
 import com.example.attend.config.DeviceApiProperties;
+import com.example.attend.config.TrustedProxyProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -18,7 +19,8 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 @EnableConfigurationProperties({
 		AttendanceProperties.class,
 		AdminSecurityProperties.class,
-		DeviceApiProperties.class
+		DeviceApiProperties.class,
+		TrustedProxyProperties.class
 })
 public class AttendApplication {
 

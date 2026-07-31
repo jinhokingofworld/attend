@@ -13,6 +13,7 @@ services:
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?PUBLIC_BASE_URL is required}
       ACCOUNT_TOKEN_PEPPER: ${ACCOUNT_TOKEN_PEPPER:?ACCOUNT_TOKEN_PEPPER is required}
       DEVICE_CREDENTIAL_PEPPER: ${DEVICE_CREDENTIAL_PEPPER:?DEVICE_CREDENTIAL_PEPPER is required}
+      TRUSTED_PROXY_TOKEN: ${TRUSTED_PROXY_TOKEN:?TRUSTED_PROXY_TOKEN is required}
       ADMIN_WRITE_ENABLED: ${ADMIN_WRITE_ENABLED:-false}
       DEVICE_API_ENABLED: ${DEVICE_API_ENABLED:-false}
       ATTENDANCE_SCHEDULER_ENABLED: ${ATTENDANCE_SCHEDULER_ENABLED:-false}
@@ -31,23 +32,6 @@ services:
     security_opt:
       - no-new-privileges:true
 
-  migration:
-    profiles:
-      - migration
-    build:
-      context: .
-      target: migration
-    image: attend-migration:${ATTEND_IMAGE_TAG:-local}
-    environment:
-      FLYWAY_DB_URL: ${FLYWAY_DB_URL:?FLYWAY_DB_URL is required}
-      FLYWAY_DB_USERNAME: ${FLYWAY_DB_USERNAME:?FLYWAY_DB_USERNAME is required}
-      FLYWAY_DB_PASSWORD: ${FLYWAY_DB_PASSWORD:?FLYWAY_DB_PASSWORD is required}
-      MIGRATION_SOURCE_CLASS: ${MIGRATION_SOURCE_CLASS:?MIGRATION_SOURCE_CLASS is required}
-    networks:
-      - private
-    security_opt:
-      - no-new-privileges:true
-
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -57,6 +41,7 @@ services:
     environment:
       PUBLIC_HOST: ${PUBLIC_HOST:?PUBLIC_HOST is required}
       ACME_CONTACT_EMAIL: ${ACME_CONTACT_EMAIL:?ACME_CONTACT_EMAIL is required}
+      TRUSTED_PROXY_TOKEN: ${TRUSTED_PROXY_TOKEN:?TRUSTED_PROXY_TOKEN is required}
     ports:
       - "80:80"
       - "443:443"

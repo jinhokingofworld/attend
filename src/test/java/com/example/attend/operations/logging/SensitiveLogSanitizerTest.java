@@ -32,4 +32,20 @@ class SensitiveLogSanitizerTest {
 						"abc123", "04A1B2C3", "010-1234-5678", "db-password")
 				.contains("token=[REDACTED]", "uid=[REDACTED]");
 	}
+
+	/** Authorization header와 독립 Bearer·Basic 표현에서 credential 전체를 제거한다. */
+	@Test
+	void masksCompleteBearerAndBasicCredentials() {
+		String bearer = SensitiveLogSanitizer.sanitizeText(
+				"Authorization: Bearer top-secret-token");
+		String basic = SensitiveLogSanitizer.sanitizeText(
+				"upstream rejected Basic dXNlcjpwYXNzd29yZA==");
+
+		assertThat(bearer)
+				.isEqualTo("Authorization: [REDACTED]")
+				.doesNotContain("top-secret-token");
+		assertThat(basic)
+				.isEqualTo("upstream rejected Basic [REDACTED]")
+				.doesNotContain("dXNlcjpwYXNzd29yZA==");
+	}
 }

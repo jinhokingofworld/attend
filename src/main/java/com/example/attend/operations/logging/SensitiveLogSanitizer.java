@@ -19,9 +19,14 @@ public final class SensitiveLogSanitizer {
 			"dburl", "datasourceurl", "uid", "phone", "contact"
 	};
 	private static final Pattern NAMED_VALUE = Pattern.compile(
-			"(?i)(password|passwd|token|authorization|device[-_ ]?key|credential|uid|phone|contact)"
+			"(?i)(password|passwd|token|device[-_ ]?key|credential|uid|phone|contact)"
 					+ "(\\s*[=:]\\s*|\\\"\\s*:\\s*\\\")"
 					+ "([^\\s,;}\\]\\\"]+)");
+	private static final Pattern AUTHORIZATION_VALUE = Pattern.compile(
+			"(?i)(\\\"?authorization\\\"?\\s*[=:]\\s*\\\"?)"
+					+ "([^\\r\\n,;}\\]\\\"]+)");
+	private static final Pattern AUTHENTICATION_SCHEME = Pattern.compile(
+			"(?i)\\b(bearer|basic)\\s+[A-Za-z0-9._~+/=-]+");
 	private static final Pattern KOREAN_MOBILE = Pattern.compile(
 			"(?<!\\d)01[016789][- ]?\\d{3,4}[- ]?\\d{4}(?!\\d)");
 	private static final Pattern NFC_UID = Pattern.compile(
@@ -64,7 +69,12 @@ public final class SensitiveLogSanitizer {
 
 	/** 자유 형식 메시지 안의 이름 있는 비밀값, 연락처와 전체 UID를 제거한다. */
 	static String sanitizeText(String input) {
-		Matcher namedMatcher = NAMED_VALUE.matcher(input);
+		String authorizationMasked = AUTHORIZATION_VALUE.matcher(input)
+				.replaceAll(match -> Matcher.quoteReplacement(
+						match.group(1) + REDACTED));
+		String schemeMasked = AUTHENTICATION_SCHEME.matcher(authorizationMasked)
+				.replaceAll("$1 " + REDACTED);
+		Matcher namedMatcher = NAMED_VALUE.matcher(schemeMasked);
 		String namedMasked = namedMatcher.replaceAll(
 				match -> Matcher.quoteReplacement(
 						match.group(1) + match.group(2) + REDACTED));

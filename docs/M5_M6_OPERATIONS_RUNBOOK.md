@@ -13,6 +13,7 @@
 | 결정 | 현재 상태 | 미결정 시 조치 |
 |---|---|---|
 | 공개 DNS hostname과 ACME 담당 이메일 | 미정 | Caddy 기동 금지 |
+| Caddy 전용 32-byte 이상 독립 proxy token | 미정 | 공개 app 기동 금지 |
 | Neon pooled runtime / direct migration·backup 자격증명 | 미정 | DB 작업 금지 |
 | 운영 DB 분류와 이관 승인 | 미정 | guarded migration 금지 |
 | 백업 보유기간·off-host 저장소·접근 담당자·삭제 절차 | 미정 | 실제 데이터 백업 금지 |
@@ -23,11 +24,13 @@
 1. 고정 commit에서 `./gradlew test`를 통과시킨다.
 2. `docker compose -f compose.prod.yaml config --no-env-resolution --quiet`로 누락
    변수와 구문을 확인한다. `config` 전체 출력은 환경값을 렌더링할 수 있으므로 운영
-   terminal·CI log에 출력하지 않는다.
+   terminal·CI log에 출력하지 않는다. 이 runtime 파일은 migration 관리자 변수를
+   요구하지 않는다. Migration은 별도 `compose.migration.yaml`과 별도 secret
+   source로만 실행한다.
 3. 빌드 후 image digest를 배포 기록에 고정한다. `latest`나 재빌드한 동일 tag를
    운영 근거로 사용하지 않는다.
 4. 운영 DB는 `ops/db/roles` 순서로 준비한 뒤 고정 image tag에서
-   `docker compose -f compose.prod.yaml run --rm migration`을 한 번 실행해 V008까지
+   `docker compose -f compose.migration.yaml run --rm migration`을 한 번 실행해 V008까지
    적용한다. 이 컨테이너에만 Neon direct URL과 migration 계정을 주입한다.
 5. runtime 계정에 DDL, `TEMP`, 레거시 DML 권한이 없는지 기존 DB 권한 검사를
    다시 수행한다.
@@ -35,7 +38,10 @@
    `ATTENDANCE_SCHEDULER_ENABLED=false`로 최초 기동한다.
 7. host 내부에서 `127.0.0.1:8081/actuator/health`가 `UP`, 공개 hostname의
    `/actuator/health`는 도달 불가인지 확인한다.
-8. 관리자 운영 화면에 버전·시작 시각·세 flag·V008 상태가 표시되고 URL·비밀값이
+8. Caddy는 외부 `X-Forwarded-For`와 내부 token header를 upstream에서 덮어쓴다.
+   앱은 token이 일치하는 단일 IP만 rate-limit source로 사용하며, app port를 host에
+   publish하지 않는다.
+9. 관리자 운영 화면에 버전·시작 시각·세 flag·V008 상태가 표시되고 URL·비밀값이
    없는지 확인한다.
 
 ## 3. 백업과 복원

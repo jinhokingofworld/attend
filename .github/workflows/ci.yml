@@ -72,6 +72,68 @@ jobs:
             exit 1
           fi
 
+      - name: Validate runtime Compose without migration credentials
+        env:
+          DB_URL: jdbc:postgresql://db.example.test/attend
+          DB_USERNAME: app_runtime
+          DB_PASSWORD: ci-runtime-password
+          PUBLIC_BASE_URL: https://attendance.example.test
+          PUBLIC_HOST: attendance.example.test
+          ACME_CONTACT_EMAIL: operator@example.test
+          ACCOUNT_TOKEN_PEPPER: ci-account-token-pepper-at-least-32-bytes
+          DEVICE_CREDENTIAL_PEPPER: ci-device-pepper-at-least-32-bytes
+          TRUSTED_PROXY_TOKEN: ci-proxy-token-that-is-at-least-32-bytes
+        run: >-
+          docker compose --env-file /dev/null -f compose.prod.yaml config
+          --no-env-resolution --quiet
+
+      - name: Validate migration Compose without runtime credentials
+        env:
+          FLYWAY_DB_URL: jdbc:postgresql://direct-db.example.test/attend
+          FLYWAY_DB_USERNAME: migration_owner
+          FLYWAY_DB_PASSWORD: ci-migration-password
+          MIGRATION_SOURCE_CLASS: NEW_OR_SAMPLE
+        run: >-
+          docker compose --env-file /dev/null -f compose.migration.yaml config
+          --no-env-resolution --quiet
+
+      - name: Build runtime and migration container images
+        run: |
+          docker build --target runtime --tag attend:ci .
+          docker build --target migration --tag attend-migration:ci .
+
+      - name: Validate Caddy configuration
+        run: |
+          docker run --rm \
+            --env PUBLIC_HOST=attendance.example.test \
+            --env ACME_CONTACT_EMAIL=operator@example.test \
+            --env TRUSTED_PROXY_TOKEN=ci-proxy-token-that-is-at-least-32-bytes \
+            --volume "${PWD}/ops/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2-alpine \
+            caddy validate --config /etc/caddy/Caddyfile
+
+      - name: Validate operational shell scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts=(
+            ops/backup/backup.sh
+            ops/backup/restore-verify.sh
+            scripts/device-smoke.sh
+            scripts/pilot-http-simulator.sh
+          )
+          bash -n "${scripts[@]}"
+          shellcheck "${scripts[@]}"
+
+          set +e
+          RESTORE_DATABASE_URL='postgresql://restore.example.test/attend' \
+            RESTORE_DUMP_FILE='build.gradle' \
+            RESTORE_CHECKSUM_FILE='src/test/resources/ops/invalid-backup.sha256' \
+            ./ops/backup/restore-verify.sh
+          restore_status="$?"
+          set -e
+          test "${restore_status}" -eq 5
+
       - name: Upload test reports on failure
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -1,0 +1,13 @@
+services:
+  migration:
+    build:
+      context: .
+      target: migration
+    image: attend-migration:${ATTEND_IMAGE_TAG:-local}
+    environment:
+      FLYWAY_DB_URL: ${FLYWAY_DB_URL:?FLYWAY_DB_URL is required}
+      FLYWAY_DB_USERNAME: ${FLYWAY_DB_USERNAME:?FLYWAY_DB_USERNAME is required}
+      FLYWAY_DB_PASSWORD: ${FLYWAY_DB_PASSWORD:?FLYWAY_DB_PASSWORD is required}
+      MIGRATION_SOURCE_CLASS: ${MIGRATION_SOURCE_CLASS:?MIGRATION_SOURCE_CLASS is required}
+    security_opt:
+      - no-new-privileges:true

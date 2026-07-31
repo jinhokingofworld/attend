@@ -13,6 +13,11 @@ required_command() {
 }
 
 required_command pg_dump
+if ! command -v sha256sum >/dev/null 2>&1 \
+    && ! command -v shasum >/dev/null 2>&1; then
+  printf 'SHA-256 명령(sha256sum 또는 shasum)을 찾을 수 없습니다.\n' >&2
+  exit 2
+fi
 
 backup_database_url="${BACKUP_DATABASE_URL:-}"
 backup_output_dir="${BACKUP_OUTPUT_DIR:-}"
@@ -43,9 +48,15 @@ pg_dump \
 mv "${temporary_dump}" "${final_dump}"
 
 if command -v sha256sum >/dev/null 2>&1; then
-  sha256sum "${final_dump}" >"${checksum_file}"
+  (
+    cd "${backup_output_dir}"
+    sha256sum "$(basename "${final_dump}")"
+  ) >"${checksum_file}"
 else
-  shasum -a 256 "${final_dump}" >"${checksum_file}"
+  (
+    cd "${backup_output_dir}"
+    shasum -a 256 "$(basename "${final_dump}")"
+  ) >"${checksum_file}"
 fi
 
 printf 'backup_file=%s\nchecksum_file=%s\ncompleted_at=%s\n' \

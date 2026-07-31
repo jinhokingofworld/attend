@@ -5,15 +5,15 @@
 set -euo pipefail
 umask 077
 
-for command_name in pg_restore psql; do
-  if ! command -v "${command_name}" >/dev/null 2>&1; then
-    printf '필수 명령을 찾을 수 없습니다: %s\n' "${command_name}" >&2
-    exit 2
-  fi
-done
+if ! command -v sha256sum >/dev/null 2>&1 \
+    && ! command -v shasum >/dev/null 2>&1; then
+  printf 'SHA-256 명령(sha256sum 또는 shasum)을 찾을 수 없습니다.\n' >&2
+  exit 2
+fi
 
 restore_database_url="${RESTORE_DATABASE_URL:-}"
 dump_file="${RESTORE_DUMP_FILE:-}"
+checksum_file="${RESTORE_CHECKSUM_FILE:-${dump_file}.sha256}"
 if [[ -z "${restore_database_url}" || -z "${dump_file}" ]]; then
   printf 'RESTORE_DATABASE_URL과 RESTORE_DUMP_FILE이 필요합니다.\n' >&2
   exit 2
@@ -22,6 +22,37 @@ if [[ ! -f "${dump_file}" ]]; then
   printf '복원 파일을 찾을 수 없습니다: %s\n' "${dump_file}" >&2
   exit 2
 fi
+if [[ ! -f "${checksum_file}" ]]; then
+  printf 'checksum 파일을 찾을 수 없습니다: %s\n' "${checksum_file}" >&2
+  exit 2
+fi
+
+expected_checksum="$(awk 'NR == 1 { print $1 }' "${checksum_file}")"
+checksum_line_count="$(awk 'NF > 0 { count++ } END { print count + 0 }' \
+  "${checksum_file}")"
+if [[ "${checksum_line_count}" != "1" \
+      || ! "${expected_checksum}" =~ ^[0-9A-Fa-f]{64}$ ]]; then
+  printf 'checksum 파일 형식이 올바르지 않습니다.\n' >&2
+  exit 2
+fi
+if command -v sha256sum >/dev/null 2>&1; then
+  actual_checksum="$(sha256sum "${dump_file}" | awk '{ print $1 }')"
+else
+  actual_checksum="$(shasum -a 256 "${dump_file}" | awk '{ print $1 }')"
+fi
+actual_checksum="$(printf '%s' "${actual_checksum}" | tr 'A-F' 'a-f')"
+expected_checksum="$(printf '%s' "${expected_checksum}" | tr 'A-F' 'a-f')"
+if [[ "${actual_checksum}" != "${expected_checksum}" ]]; then
+  printf '백업 checksum이 일치하지 않아 복원을 중단합니다.\n' >&2
+  exit 5
+fi
+
+for command_name in pg_restore psql; do
+  if ! command -v "${command_name}" >/dev/null 2>&1; then
+    printf '필수 명령을 찾을 수 없습니다: %s\n' "${command_name}" >&2
+    exit 2
+  fi
+done
 
 export PGDATABASE="${restore_database_url}"
 relation_count="$(psql --no-psqlrc --tuples-only --quiet --set ON_ERROR_STOP=1 \

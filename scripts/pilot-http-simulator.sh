@@ -41,7 +41,8 @@ run_department() {
   : "${DEVICE_UID:?DEVICE_UID is required}"
   local expected_status="${EXPECTED_FIRST_STATUS:-201}"
   local expected_code="${EXPECTED_FIRST_CODE:-CHECKED_IN}"
-  local request_id="pilot_$(date +%s)_${RANDOM}_${label}"
+  local request_id
+  request_id="pilot_$(date +%s)_${RANDOM}_${label}"
   local payload conflict_payload status replay_status conflict_status
   payload="$(jq -cn --arg uid "${DEVICE_UID}" --arg id "${request_id}" \
     '{uid:$uid,requestId:$id}')"
