@@ -42,9 +42,10 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.time.OffsetDateTime;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
@@ -97,6 +98,9 @@ class M3SecurityIntegrationTest {
 
 	@Autowired
 	private AttendanceDayService attendanceDayService;
+
+	@Autowired
+	private Clock clock;
 
 	private long systemAccountId;
 	private long departmentAccountId;
@@ -276,16 +280,17 @@ class M3SecurityIntegrationTest {
 						.with(user(departmentPrincipal)))
 				.andExpect(status().isOk());
 		attendancePolicyService.publish(departmentActor, departmentId, policyId);
+		LocalDate today = LocalDate.now(clock);
 		long dayId = attendanceDayService.createDay(
 				departmentActor,
 				departmentId,
-				LocalDate.now().plusDays(1),
+				today.plusDays(1),
 				policyId);
 		jdbcTemplate.update("""
 				UPDATE public.attendance_day
-				SET attendance_date = CURRENT_DATE
+				SET attendance_date = ?
 				WHERE id = ?
-				""", dayId);
+				""", today, dayId);
 		mockMvc.perform(get("/admin/departments/" + departmentId
 						+ "/dashboard-data")
 						.with(user(departmentPrincipal)))
