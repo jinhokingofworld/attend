@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>부서 관리</title></head>
+<body>
+<main>
+    <h1>부서</h1>
+    <p th:unless="${writeEnabled}">읽기 전용 모드</p>
+    <a th:if="${writeEnabled}" th:href="@{/admin/system/departments/new}">부서 생성</a>
+    <table>
+        <caption>등록 부서</caption>
+        <thead><tr><th>부서명</th><th>활성 관리자</th><th>장치</th></tr></thead>
+        <tbody>
+        <tr th:each="department : ${departments}">
+            <td><a th:href="@{/admin/system/departments/{id}(id=${department.id})}"
+                   th:text="${department.name}">부서</a></td>
+            <td th:text="${department.administrator_count}">0</td>
+            <td th:text="${department.device_count}">0</td>
+        </tr>
+        </tbody>
+    </table>
+    <p th:if="${#lists.isEmpty(departments)}">등록된 부서가 없습니다.</p>
+    <a th:href="@{/admin/system}">시스템 홈</a>
+</main>
+</body>
+</html>

@@ -1,6 +1,7 @@
 package com.example.attend.attendance.application;
 
 import com.example.attend.access.api.AccountActor;
+import com.example.attend.access.api.AdminWriteAuthorization;
 import com.example.attend.access.api.DepartmentAuthorization;
 import com.example.attend.attendance.infrastructure.mybatis.AttendanceDayMapper;
 import com.example.attend.attendance.infrastructure.mybatis.AttendanceDayRow;
@@ -26,6 +27,7 @@ import java.util.Map;
 public class DepartmentMembershipExclusionService {
 
 	private final DepartmentAuthorization authorization;
+	private final AdminWriteAuthorization writeAuthorization;
 	private final DepartmentLock departmentLock;
 	private final AttendanceDayMapper dayMapper;
 	private final MembershipClosure membershipClosure;
@@ -37,6 +39,7 @@ public class DepartmentMembershipExclusionService {
 	 * 부서 제외 orchestration의 협력 객체를 주입받는다.
 	 */
 	public DepartmentMembershipExclusionService(
+			AdminWriteAuthorization writeAuthorization,
 			DepartmentAuthorization authorization,
 			DepartmentLock departmentLock,
 			AttendanceDayMapper dayMapper,
@@ -45,6 +48,7 @@ public class DepartmentMembershipExclusionService {
 			Clock clock,
 			ZoneId attendanceZone
 	) {
+		this.writeAuthorization = writeAuthorization;
 		this.authorization = authorization;
 		this.departmentLock = departmentLock;
 		this.dayMapper = dayMapper;
@@ -64,6 +68,7 @@ public class DepartmentMembershipExclusionService {
 			long memberId,
 			ExcludeTeacherCommand command
 	) {
+		writeAuthorization.requireEnabled();
 		authorization.requireDepartmentAdmin(actor, departmentId);
 		departmentLock.lockActive(departmentId);
 		Instant occurredAt = clock.instant();

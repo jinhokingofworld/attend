@@ -45,7 +45,7 @@ public final class AuditLogWriter {
 	 * @param reason 관리자 사유, 필요 없으면 {@code null}
 	 */
 	public void writeAccount(
-			long departmentId,
+			Long departmentId,
 			AccountActor actor,
 			Long attendanceDayId,
 			String action,

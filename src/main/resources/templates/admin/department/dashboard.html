@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>오늘의 출석</title></head>
+<body>
+<main>
+    <h1 th:text="|${department.name} · 오늘의 출석|">오늘의 출석</h1>
+    <p th:unless="${writeEnabled}">읽기 전용 모드</p>
+    <nav>
+        <a th:href="@{/admin/departments/{id}/teachers(id=${department.id})}">교사</a>
+        <a th:href="@{/admin/departments/{id}/cards/inbox(id=${department.id})}">카드 등록함</a>
+        <a th:href="@{/admin/departments/{id}/policies(id=${department.id})}">출석 정책</a>
+        <a th:href="@{/admin/departments/{id}/attendance-days(id=${department.id})}">출석 날짜</a>
+        <a th:href="@{/admin/departments/{id}/history(id=${department.id})}">이력</a>
+        <a th:href="@{/admin/workspaces}">작업 공간 전환</a>
+    </nav>
+    <section th:if="${dashboard}">
+        <h2 th:text="${dashboard.attendance_date}">날짜</h2>
+        <p th:text="|정책 ${dashboard.policy_name} · 상태 ${dashboard.status}|">정책</p>
+        <ul>
+            <li th:text="|대상 ${dashboard.target_count}명|">대상</li>
+            <li th:text="|정상 ${dashboard.present_count}명|">정상</li>
+            <li th:text="|지각 ${dashboard.late_count}명|">지각</li>
+            <li th:text="|결석 ${dashboard.absent_count}명|">결석</li>
+        </ul>
+        <a th:href="@{/admin/departments/{departmentId}/attendance-days/{dayId}(departmentId=${department.id},dayId=${dashboard.attendance_day_id})}">상세 보기</a>
+    </section>
+    <p th:unless="${dashboard}">오늘 생성된 출석 날짜가 없습니다.</p>
+</main>
+</body>
+</html>

@@ -1,7 +1,8 @@
 <!DOCTYPE html>
-<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>로그인</title>
 </head>
 <body>
@@ -16,15 +17,29 @@
         <p style="color: blue;">로그아웃 했습니다.</p>
     </div>
 
+    <div th:if="${param.expired}">
+        <p style="color: blue;">세션 사용 시간이 만료되었습니다. 다시 로그인해 주세요.</p>
+    </div>
+
+    <div th:if="${param.limited}">
+        <p style="color: red;">로그인 요청을 처리할 수 없습니다. 잠시 후 다시 시도해 주세요.</p>
+    </div>
+
     <form th:action="@{/authentication}" method="post" th:object="${loginForm}">
         <div><!-- 사용자명 -->
             <label for="usernameInput">사용자명</label>
-            <input id="usernameInput" type="text" th:field="*{usernameInput}">
+            <input id="usernameInput"
+                   type="text"
+                   autocomplete="username"
+                   th:field="*{usernameInput}">
         </div>
 
         <div><!-- 비밀번호 -->
             <label for="passwordInput">비밀번호</label>
-            <input id="passwordInput" type="password" th:field="*{passwordInput}">
+            <input id="passwordInput"
+                   type="password"
+                   autocomplete="current-password"
+                   th:field="*{passwordInput}">
         </div>
         <div>
             <input type="submit" value="로그인">

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>작업 공간 선택</title>
+</head>
+<body>
+<main>
+    <h1>작업 공간 선택</h1>
+    <p th:text="|${principal.username} 계정|">계정</p>
+    <ul>
+        <li th:if="${systemAdmin}">
+            <a th:href="@{/admin/system}">시스템 관리</a>
+        </li>
+        <li th:each="workspace : ${workspaces}">
+            <a th:href="@{/admin/departments/{id}(id=${workspace.department_id})}"
+               th:text="|${workspace.department_name} · 부서 관리|">부서 관리</a>
+        </li>
+    </ul>
+    <p th:if="${!systemAdmin and #lists.isEmpty(workspaces)}">
+        현재 사용할 수 있는 작업 공간이 없습니다.
+    </p>
+    <a th:href="@{/admin/account/password}">내 비밀번호 변경</a>
+    <form th:action="@{/logout}" method="post">
+        <button type="submit">로그아웃</button>
+    </form>
+</main>
+</body>
+</html>

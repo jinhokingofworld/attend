@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>카드 등록함</title></head>
+<body>
+<main>
+    <h1 th:text="|${department.name} · 카드 등록함|">카드 등록함</h1>
+    <p>부서 장치가 수신한 미등록·비활성 카드 태깅을 표시합니다.</p>
+    <p>장치 API가 구현되는 M4 전에는 이벤트가 생성되지 않습니다. 현재는 교사 화면에서 UID를 직접 등록할 수 있습니다.</p>
+    <table>
+        <thead><tr><th>시각</th><th>장치</th><th>카드</th><th>결과</th></tr></thead>
+        <tbody>
+        <tr th:each="event : ${events}">
+            <td th:text="${event.received_at}">시각</td>
+            <td th:text="${event.device_name}">장치</td>
+            <td th:text="${event.masked_uid}">카드</td>
+            <td th:text="${event.result_code}">결과</td>
+        </tr>
+        </tbody>
+    </table>
+    <p th:if="${#lists.isEmpty(events)}">처리할 카드 이벤트가 없습니다.</p>
+    <a th:href="@{/admin/departments/{id}/teachers(id=${department.id})}">교사 관리</a>
+</main>
+</body>
+</html>

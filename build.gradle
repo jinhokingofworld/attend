@@ -56,3 +56,11 @@ tasks.register('dbMigrate', JavaExec) {
 	classpath = sourceSets.main.runtimeClasspath
 	mainClass = 'com.example.attend.database.DatabaseMigrationCli'
 }
+
+tasks.register('bootstrapSystemAdmin', JavaExec) {
+	group = 'database'
+	description = 'Interactively creates the first and only bootstrap SYSTEM_ADMIN.'
+	classpath = sourceSets.main.runtimeClasspath
+	mainClass = 'com.example.attend.access.bootstrap.SystemAdminBootstrapCli'
+	standardInput = System.in
+}

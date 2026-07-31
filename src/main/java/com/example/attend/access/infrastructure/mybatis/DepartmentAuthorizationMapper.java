@@ -10,6 +10,14 @@ import org.apache.ibatis.annotations.Param;
 public interface DepartmentAuthorizationMapper {
 
 	/**
+	 * 계정이 현재 활성 시스템 관리자인지 계산한다.
+	 *
+	 * @param accountId 인증 계정 식별자
+	 * @return 권한이 있으면 1, 없으면 0
+	 */
+	int countActiveSystemAdmin(@Param("accountId") long accountId);
+
+	/**
 	 * 활성 부서와 아직 회수되지 않은 관리자 역할이 함께 존재하는지 계산한다.
 	 *
 	 * @param accountId 인증 계정 식별자

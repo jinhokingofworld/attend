@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>계정 상세</title></head>
+<body>
+<main>
+    <h1 th:text="${account.username}">계정</h1>
+    <p th:if="${message}" th:text="${message}"></p>
+    <p th:if="${error}" th:text="${error}" role="alert"></p>
+    <dl>
+        <dt>상태</dt><dd th:text="${account.status}">상태</dd>
+        <dt>시스템 역할</dt><dd th:text="${account.systemRole ?: '-'}">역할</dd>
+        <dt>비밀번호 변경 시각</dt><dd th:text="${account.passwordChangedAt ?: '-'}">시각</dd>
+    </dl>
+
+    <section th:if="${writeEnabled}">
+        <h2>회원가입·비밀번호</h2>
+        <form th:if="${account.status == 'PENDING_SETUP'}"
+              th:action="@{/admin/system/accounts/{id}/invite(id=${account.id})}"
+              method="post">
+            <button type="submit">회원가입 초대 링크 발급</button>
+        </form>
+        <form th:if="${account.status == 'ACTIVE'}"
+              th:action="@{/admin/system/accounts/{id}/reset-password(id=${account.id})}"
+              method="post">
+            <button type="submit">비밀번호 재설정 링크 발급</button>
+        </form>
+    </section>
+
+    <section>
+        <h2>활성 부서 관리자 권한</h2>
+        <ul>
+            <li th:each="role : ${roles}">
+                <span th:text="${role.department_name}">부서</span>
+                <form th:if="${writeEnabled}" method="post"
+                      th:action="@{/admin/system/accounts/{accountId}/department-roles/{departmentId}/revoke(accountId=${account.id},departmentId=${role.department_id})}">
+                    <button type="submit">권한 회수</button>
+                </form>
+            </li>
+        </ul>
+        <form th:if="${writeEnabled}"
+              th:action="@{/admin/system/accounts/{id}/department-roles(id=${account.id})}"
+              method="post">
+            <label>부서
+                <select name="departmentId" required>
+                    <option th:each="department : ${departments}"
+                            th:value="${department.id}"
+                            th:text="${department.name}">부서</option>
+                </select>
+            </label>
+            <button type="submit">부서 관리자 권한 지정</button>
+        </form>
+    </section>
+
+    <section th:if="${writeEnabled}">
+        <h2>계정 상태</h2>
+        <form th:if="${account.status != 'DISABLED'}"
+              th:action="@{/admin/system/accounts/{id}/disable(id=${account.id})}"
+              method="post">
+            <p>신규 로그인은 즉시 차단되지만 기존 세션은 즉시 만료되지 않을 수 있습니다.</p>
+            <label>확인을 위해 사용자명 재입력
+                <input name="usernameConfirmation" required>
+            </label>
+            <button type="submit">계정 비활성화</button>
+        </form>
+        <form th:if="${account.status == 'DISABLED'}"
+              th:action="@{/admin/system/accounts/{id}/enable(id=${account.id})}"
+              method="post">
+            <button type="submit">계정 다시 활성화</button>
+        </form>
+    </section>
+    <a th:href="@{/admin/system/accounts}">계정 목록</a>
+</main>
+</body>
+</html>

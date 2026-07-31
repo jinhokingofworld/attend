@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>교사 관리</title></head>
+<body>
+<main>
+    <h1 th:text="|${department.name} · 교사|">교사</h1>
+    <p th:if="${message}" th:text="${message}"></p>
+    <p th:if="${error}" th:text="${error}" role="alert"></p>
+    <p th:unless="${writeEnabled}">읽기 전용 모드</p>
+
+    <section th:if="${writeEnabled}">
+        <h2>교사 추가</h2>
+        <form th:action="@{/admin/departments/{id}/teachers(id=${department.id})}" method="post">
+            <label>이름 <input name="name" maxlength="255" required></label>
+            <label>연락처 <input name="phone" maxlength="255"></label>
+            <label>NFC UID(선택) <input name="cardUid" placeholder="A1B2C3D4"></label>
+            <button type="submit">추가</button>
+        </form>
+    </section>
+
+    <article th:each="teacher : ${teachers}">
+        <h2 th:text="${teacher.name}">교사</h2>
+        <p th:text="|연락처: ${teacher['phone'] ?: '-'}|">연락처</p>
+        <p th:text="|카드: ${teacher['masked_uid'] ?: '미등록'}|">카드</p>
+
+        <form th:if="${writeEnabled}" method="post"
+              th:action="@{/admin/departments/{departmentId}/teachers/{memberId}/update(departmentId=${department.id},memberId=${teacher.id})}">
+            <label>이름 <input name="name" th:value="${teacher.name}" required></label>
+            <label>연락처 <input name="phone" th:value="${teacher['phone']}"></label>
+            <button type="submit">정보 수정</button>
+        </form>
+
+        <form th:if="${writeEnabled and teacher['card_id'] == null}" method="post"
+              th:action="@{/admin/departments/{departmentId}/teachers/{memberId}/card/connect(departmentId=${department.id},memberId=${teacher.id})}">
+            <label>새 NFC UID <input name="cardUid" required></label>
+            <button type="submit">카드 연결</button>
+        </form>
+
+        <form th:if="${writeEnabled and teacher['card_id'] != null}" method="post"
+              th:action="@{/admin/departments/{departmentId}/teachers/{memberId}/card/replace(departmentId=${department.id},memberId=${teacher.id})}">
+            <label>교체 NFC UID <input name="cardUid" required></label>
+            <label>사유 <input name="reason" maxlength="500" required></label>
+            <button type="submit">카드 교체</button>
+        </form>
+
+        <form th:if="${writeEnabled and teacher['card_id'] != null}" method="post"
+              th:action="@{/admin/departments/{departmentId}/teachers/{memberId}/card/disconnect(departmentId=${department.id},memberId=${teacher.id})}">
+            <label>카드 처리
+                <select name="disposition">
+                    <option value="AVAILABLE">회수·재사용 가능</option>
+                    <option value="LOST">분실</option>
+                    <option value="RETIRED">폐기</option>
+                </select>
+            </label>
+            <label>사유 <input name="reason" maxlength="500" required></label>
+            <button type="submit">카드 연결 종료</button>
+        </form>
+
+        <form th:if="${writeEnabled}" method="post"
+              th:action="@{/admin/departments/{departmentId}/teachers/{memberId}/exclude(departmentId=${department.id},memberId=${teacher.id})}">
+            <label>활성 카드 처리
+                <select name="cardDisposition">
+                    <option value="AVAILABLE">회수</option>
+                    <option value="LOST">분실</option>
+                    <option value="RETIRED">폐기</option>
+                </select>
+            </label>
+            <label>제외 사유 <input name="reason" maxlength="500" required></label>
+            <button type="submit">부서에서 제외</button>
+        </form>
+    </article>
+    <p th:if="${#lists.isEmpty(teachers)}">활성 교사가 없습니다.</p>
+    <a th:href="@{/admin/departments/{id}(id=${department.id})}">부서 홈</a>
+</main>
+</body>
+</html>

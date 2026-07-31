@@ -1,6 +1,7 @@
 package com.example.attend.attendance.application;
 
 import com.example.attend.access.api.AccountActor;
+import com.example.attend.access.api.AdminWriteAuthorization;
 import com.example.attend.access.api.DepartmentAuthorization;
 import com.example.attend.attendance.infrastructure.mybatis.AttendanceDayMapper;
 import com.example.attend.attendance.infrastructure.mybatis.AttendanceDayRow;
@@ -28,6 +29,7 @@ import java.util.Map;
 public class AttendanceTargetService {
 
 	private final DepartmentAuthorization authorization;
+	private final AdminWriteAuthorization writeAuthorization;
 	private final DepartmentLock departmentLock;
 	private final ActiveMembershipLookup membershipLookup;
 	private final AttendanceDayMapper dayMapper;
@@ -40,6 +42,7 @@ public class AttendanceTargetService {
 	 * 대상자 변경에 필요한 인가·잠금·저장 경계를 주입받는다.
 	 */
 	public AttendanceTargetService(
+			AdminWriteAuthorization writeAuthorization,
 			DepartmentAuthorization authorization,
 			DepartmentLock departmentLock,
 			ActiveMembershipLookup membershipLookup,
@@ -49,6 +52,7 @@ public class AttendanceTargetService {
 			Clock clock,
 			ZoneId attendanceZone
 	) {
+		this.writeAuthorization = writeAuthorization;
 		this.authorization = authorization;
 		this.departmentLock = departmentLock;
 		this.membershipLookup = membershipLookup;
@@ -70,6 +74,7 @@ public class AttendanceTargetService {
 			long memberId,
 			String reason
 	) {
+		writeAuthorization.requireEnabled();
 		reason = requireReason(reason);
 		AttendanceDayRow day = authorizeAndLockDay(actor, departmentId, attendanceDayId);
 		ActiveMembership membership = membershipLookup.lockActive(departmentId, memberId);
@@ -119,6 +124,7 @@ public class AttendanceTargetService {
 			long memberId,
 			String reason
 	) {
+		writeAuthorization.requireEnabled();
 		reason = requireReason(reason);
 		AttendanceDayRow day = authorizeAndLockDay(actor, departmentId, attendanceDayId);
 		AttendanceTargetRow target = recordMapper.lockTarget(

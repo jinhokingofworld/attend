@@ -200,7 +200,7 @@ MVP 구현 기준은 다음과 같다.
 - 새 비밀번호는 12~64 Unicode code point이고 UTF-8 인코딩 결과가 72 byte 이하여야 한다.
 - 현재 BCrypt의 안전한 입력 한계를 넘는 값을 잘라서 저장하지 않고 검증 오류로 거부한다.
 - 대문자·숫자·특수문자 조합을 기계적으로 강제하지 않는다. 공백을 포함한 긴 passphrase를 허용한다.
-- 사용자명, 교회명과 흔한·유출 비밀번호 목록에 포함된 값은 거부한다.
+- MVP에서는 흔한·유출 비밀번호 목록 조회를 적용하지 않는다. 해당 검사는 목록 출처·갱신 책임을 정한 뒤 MVP 이후 보안 강화로 추가한다.
 - 비밀번호 확인 값은 저장·로그하지 않는다.
 - 비밀번호 hash는 Spring `PasswordEncoder`로 만들고 평문·복호화 가능한 암호문을 저장하지 않는다.
 - 비밀번호 변경 성공 시 `password_changed_at`을 갱신하고 보안 감사 이력을 남기되 hash와 평문은 before/after에 넣지 않는다.
@@ -239,8 +239,9 @@ MVP는 영구 계정 잠금을 만들지 않고 token bucket 두 개를 함께 �
 - 시스템 관리자는 계정을 먼저 생성한 뒤 회원가입 초대 token을 발급한다. 초대받지 않은 사용자가 직접 계정을 생성하는 공개 회원가입은 제공하지 않는다.
 - 회원가입 초대와 password reset 원문은 256 bit 난수로 생성하고, DB에는 대상 account, 발급 account, 목적 `INVITATION`·`RESET`, 발급·만료·사용·무효 시각과 64자 lowercase HMAC-SHA-256 hash만 저장한다.
 - 초대·reset token은 최대 30분만 유효하고 계정·목적별 미사용·미무효 token은 한 건만 허용한다. 한 번 성공하거나 새 token을 발급하면 이전 token은 즉시 사용할 수 없어야 하며 원문 token을 DB·감사·application/access log·email 본문에 보관하지 않는다.
-- token을 전달할 승인 채널과 HTTPS URL 정책이 확정되지 않았다면 URL만 임의로 만들지 않는다.
-- V002 migration과 계정 상태·token 제약의 PostgreSQL 부정 테스트가 완료되기 전에는 계정 생성·회원가입 초대·reset command를 비활성화하고 성공 UI를 표시하지 않는다. 전달 채널 승인은 이 DB 출시 gate와 별도다.
+- 발급 화면은 원문 token이 포함된 링크를 한 번만 표시하고 시스템 관리자가 이를 복사해 승인된 1:1 메신저로 직접 전달한다. 애플리케이션은 메신저 계정·연락처를 저장하거나 메신저 API로 자동 발송하지 않는다.
+- 운영 공개 base URL과 HTTPS 정책은 배포 전에 확정한다. 그전에는 운영용 링크를 임의의 localhost·HTTP 주소로 생성하지 않는다.
+- V002 migration과 계정 상태·token 제약의 PostgreSQL 부정 테스트가 완료되기 전에는 계정 생성·회원가입 초대·reset command를 비활성화하고 성공 UI를 표시하지 않는다. 공개 URL·HTTPS 승인은 이 DB 출시 gate와 별도다.
 - 평문 임시 비밀번호를 시스템 관리자가 조회·복사·메일 전송하는 방식은 대체 구현으로 허용하지 않는다.
 
 ---
@@ -829,7 +830,8 @@ PRG(Post/Redirect/Get)를 사용하더라도 성공하지 않은 변경을 성�
 - [ ] application log와 backup 접근자가 별도로 제한됨
 - [ ] 개인정보·event·audit·backup 보유기간이 배포 전에 확정됨
 - [ ] V002 계정·token migration과 PostgreSQL 제약 부정 테스트를 통과함
-- [ ] 회원가입 초대·password reset 원문 token의 전달 채널과 HTTPS URL 정책이 승인됨
+- [x] 회원가입 초대·password reset 원문 token은 관리자가 1회 표시 링크를 복사해 승인된 1:1 메신저로 직접 전달
+- [ ] 운영 공개 base URL과 HTTPS URL 정책이 승인됨
 
 ---
 
@@ -843,7 +845,7 @@ PRG(Post/Redirect/Get)를 사용하더라도 성공하지 않은 변경을 성�
 4. 운영 GRANT script와 실제 DB 권한이 동일함을 확인한다.
 5. `device-api.yaml`과 실제 filter·exception handler의 HTTP/code가 contract test에서 일치한다.
 6. feature flag를 모두 끈 초기 기동과 단계별 controlled restart를 리허설한다.
-7. 민감정보 보유기간, network/TLS, bootstrap 절차와 초대·reset token 전달 채널이 승인되지 않으면 파일럿 운영을 시작하지 않는다.
+7. 민감정보 보유기간, network/TLS, bootstrap 절차와 운영 공개 URL이 승인되지 않으면 파일럿 운영을 시작하지 않는다.
 
 남는 MVP 위험은 다음과 같다.
 

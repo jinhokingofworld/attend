@@ -1,6 +1,7 @@
 package com.example.attend.organization.application;
 
 import com.example.attend.access.api.AccountActor;
+import com.example.attend.access.api.AdminWriteAuthorization;
 import com.example.attend.access.api.DepartmentAuthorization;
 import com.example.attend.audit.application.AuditLogWriter;
 import com.example.attend.common.error.BusinessRuleException;
@@ -23,6 +24,7 @@ import java.util.Map;
 public class TeacherRosterService {
 
 	private final DepartmentAuthorization authorization;
+	private final AdminWriteAuthorization writeAuthorization;
 	private final DepartmentLock departmentLock;
 	private final OrganizationMapper mapper;
 	private final AuditLogWriter auditLogWriter;
@@ -32,12 +34,14 @@ public class TeacherRosterService {
 	 * 교사 등록에 필요한 권한·잠금·저장 경계를 주입받는다.
 	 */
 	public TeacherRosterService(
+			AdminWriteAuthorization writeAuthorization,
 			DepartmentAuthorization authorization,
 			DepartmentLock departmentLock,
 			OrganizationMapper mapper,
 			AuditLogWriter auditLogWriter,
 			Clock clock
 	) {
+		this.writeAuthorization = writeAuthorization;
 		this.authorization = authorization;
 		this.departmentLock = departmentLock;
 		this.mapper = mapper;
@@ -59,6 +63,7 @@ public class TeacherRosterService {
 			long departmentId,
 			AddTeacherCommand command
 	) {
+		writeAuthorization.requireEnabled();
 		authorization.requireDepartmentAdmin(actor, departmentId);
 		departmentLock.lockActive(departmentId);
 		Instant occurredAt = clock.instant();
@@ -127,6 +132,7 @@ public class TeacherRosterService {
 			long memberId,
 			UpdateTeacherCommand command
 	) {
+		writeAuthorization.requireEnabled();
 		authorization.requireDepartmentAdmin(actor, departmentId);
 		departmentLock.lockActive(departmentId);
 		if (mapper.lockActiveMembership(departmentId, memberId) == null

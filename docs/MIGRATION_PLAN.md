@@ -302,7 +302,7 @@ ORDER BY installed_rank;
 | V007 | `V007__add_indexes_and_scope_guards.sql` | 복합 FK, 부분 유일 인덱스, 조회·마감 인덱스 |
 | V008 | `V008__add_updated_at_triggers.sql` | 고유 이름의 `attend_set_updated_at()` 함수·trigger와 함수의 `PUBLIC EXECUTE` 회수 |
 
-V002는 비밀번호가 없는 `PENDING_SETUP`, 비밀번호가 설정된 `ACTIVE`, 두 형태를 보존할 수 있는 `DISABLED` 상태와 nullable 비밀번호 필드의 일관성 `CHECK`를 함께 생성한다. `account_credential_token`은 `INVITATION`·`RESET`, 64자 lowercase HMAC-SHA-256 hash, 대상·발급 계정, 최대 30분의 발급·만료 시각과 사용·무효 시각을 저장한다. 계정·목적별 미사용·미무효 token 한 건을 보장하는 부분 유일 인덱스는 V007에서 생성한다. V002 적용과 V007에 분리된 부분 유일성을 포함한 PostgreSQL DB 테스트 통과가 계정 생성·회원가입 초대·reset command의 출시 gate이며, 원문 token 전달 채널 승인은 별도 운영 gate다.
+V002는 비밀번호가 없는 `PENDING_SETUP`, 비밀번호가 설정된 `ACTIVE`, 두 형태를 보존할 수 있는 `DISABLED` 상태와 nullable 비밀번호 필드의 일관성 `CHECK`를 함께 생성한다. `account_credential_token`은 `INVITATION`·`RESET`, 64자 lowercase HMAC-SHA-256 hash, 대상·발급 계정, 최대 30분의 발급·만료 시각과 사용·무효 시각을 저장한다. 계정·목적별 미사용·미무효 token 한 건을 보장하는 부분 유일 인덱스는 V007에서 생성한다. V002 적용과 V007에 분리된 부분 유일성을 포함한 PostgreSQL DB 테스트 통과가 계정 생성·회원가입 초대·reset command의 출시 gate다. 원문 token은 관리자가 1회 표시 링크를 복사해 승인된 1:1 메신저로 전달하며, 운영 공개 base URL·HTTPS 승인은 별도 운영 gate다.
 
 ### 6.1 버전 작성 규칙
 

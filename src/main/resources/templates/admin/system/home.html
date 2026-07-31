@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>시스템 관리</title></head>
+<body>
+<main>
+    <h1>시스템 관리</h1>
+    <p th:unless="${writeEnabled}">현재 관리자 쓰기가 중지된 읽기 전용 모드입니다.</p>
+    <nav>
+        <a th:href="@{/admin/system/departments}">부서</a>
+        <a th:href="@{/admin/system/accounts}">관리자 계정</a>
+        <a th:href="@{/admin/system/operations}">운영 상태</a>
+        <a th:href="@{/admin/system/audit}">시스템 감사</a>
+        <a th:href="@{/admin/workspaces}">작업 공간 전환</a>
+        <a th:href="@{/admin/account/password}">내 비밀번호 변경</a>
+    </nav>
+    <section>
+        <h2>요약</h2>
+        <p th:text="|부서 ${#lists.size(departments)}개 · 계정 ${#lists.size(accounts)}개|">요약</p>
+        <p>장치 lifecycle 관리는 M4에서 장치 인증과 함께 구현합니다.</p>
+    </section>
+    <form th:action="@{/logout}" method="post"><button type="submit">로그아웃</button></form>
+</main>
+</body>
+</html>

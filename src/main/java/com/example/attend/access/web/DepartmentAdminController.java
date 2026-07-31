@@ -1,0 +1,618 @@
+package com.example.attend.access.web;
+
+import com.example.attend.access.application.AdminWriteGate;
+import com.example.attend.access.application.DepartmentAdminQueryService;
+import com.example.attend.access.security.AccountPrincipal;
+import com.example.attend.attendance.application.AttendanceCorrectionService;
+import com.example.attend.attendance.application.AttendanceDayService;
+import com.example.attend.attendance.application.AttendancePolicyService;
+import com.example.attend.attendance.application.AttendanceTargetService;
+import com.example.attend.attendance.application.DepartmentMembershipExclusionService;
+import com.example.attend.attendance.application.ExcludeTeacherCommand;
+import com.example.attend.attendance.application.ManualAttendanceCommand;
+import com.example.attend.attendance.application.PolicyBandInput;
+import com.example.attend.attendance.application.PolicyDraftCommand;
+import com.example.attend.attendance.domain.AttendanceParentStatus;
+import com.example.attend.common.error.BusinessRuleException;
+import com.example.attend.organization.application.AddTeacherCommand;
+import com.example.attend.organization.application.CardManagementService;
+import com.example.attend.organization.application.TeacherRosterService;
+import com.example.attend.organization.application.UpdateTeacherCommand;
+import com.example.attend.organization.domain.CardDisposition;
+import com.example.attend.organization.domain.NfcUid;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * 기존 M2 조직·출석 서비스를 부서 범위 MVC command와 화면에 연결한다.
+ */
+@Controller
+public final class DepartmentAdminController {
+
+	private final DepartmentAdminQueryService queryService;
+	private final AdminWriteGate writeGate;
+	private final TeacherRosterService teacherService;
+	private final CardManagementService cardService;
+	private final DepartmentMembershipExclusionService exclusionService;
+	private final AttendancePolicyService policyService;
+	private final AttendanceDayService dayService;
+	private final AttendanceTargetService targetService;
+	private final AttendanceCorrectionService correctionService;
+	private final ZoneId attendanceZone;
+
+	/**
+	 * 부서 화면에서 사용하는 M2 application service와 읽기 모델을 주입받는다.
+	 */
+	public DepartmentAdminController(
+			DepartmentAdminQueryService queryService,
+			AdminWriteGate writeGate,
+			TeacherRosterService teacherService,
+			CardManagementService cardService,
+			DepartmentMembershipExclusionService exclusionService,
+			AttendancePolicyService policyService,
+			AttendanceDayService dayService,
+			AttendanceTargetService targetService,
+			AttendanceCorrectionService correctionService,
+			ZoneId attendanceZone) {
+		this.queryService = queryService;
+		this.writeGate = writeGate;
+		this.teacherService = teacherService;
+		this.cardService = cardService;
+		this.exclusionService = exclusionService;
+		this.policyService = policyService;
+		this.dayService = dayService;
+		this.targetService = targetService;
+		this.correctionService = correctionService;
+		this.attendanceZone = attendanceZone;
+	}
+
+	/** 오늘의 출석 집계와 부서 내비게이션을 표시한다. */
+	@GetMapping("/admin/departments/{departmentId}")
+	public String dashboard(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			Model model) {
+		addDepartmentModel(principal, departmentId, model);
+		model.addAttribute("dashboard",
+				queryService.dashboard(principal.toActor(), departmentId));
+		return "admin/department/dashboard";
+	}
+
+	/** 활성 교사와 카드 상태를 표시한다. */
+	@GetMapping("/admin/departments/{departmentId}/teachers")
+	public String teachers(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			Model model) {
+		addDepartmentModel(principal, departmentId, model);
+		model.addAttribute("teachers",
+				queryService.teachers(principal.toActor(), departmentId));
+		return "admin/department/teachers";
+	}
+
+	/** 교사·활성 소속과 선택 카드를 한 트랜잭션으로 추가한다. */
+	@PostMapping("/admin/departments/{departmentId}/teachers")
+	public String addTeacher(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@RequestParam String name,
+			@RequestParam(required = false) String phone,
+			@RequestParam(required = false) String cardUid,
+			RedirectAttributes redirect) {
+		return command(
+				() -> teacherService.addTeacher(
+						principal.toActor(),
+						departmentId,
+						new AddTeacherCommand(
+								name,
+								phone,
+								optionalUid(cardUid))),
+				"교사를 추가했습니다.",
+				teachersPath(departmentId),
+				redirect);
+	}
+
+	/** 부서 범위가 확인된 교사의 허용 필드만 수정한다. */
+	@PostMapping("/admin/departments/{departmentId}/teachers/{memberId}/update")
+	public String updateTeacher(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long memberId,
+			@RequestParam String name,
+			@RequestParam(required = false) String phone,
+			RedirectAttributes redirect) {
+		return command(
+				() -> teacherService.updateTeacher(
+						principal.toActor(),
+						departmentId,
+						memberId,
+						new UpdateTeacherCommand(name, phone)),
+				"교사 정보를 수정했습니다.",
+				teachersPath(departmentId),
+				redirect);
+	}
+
+	/** 교사 소속과 카드를 이력 보존 방식으로 종료한다. */
+	@PostMapping("/admin/departments/{departmentId}/teachers/{memberId}/exclude")
+	public String excludeTeacher(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long memberId,
+			@RequestParam CardDisposition cardDisposition,
+			@RequestParam String reason,
+			RedirectAttributes redirect) {
+		return command(
+				() -> exclusionService.exclude(
+						principal.toActor(),
+						departmentId,
+						memberId,
+						new ExcludeTeacherCommand(
+								List.of(),
+								cardDisposition,
+								reason)),
+				"교사를 부서에서 제외했습니다.",
+				teachersPath(departmentId),
+				redirect);
+	}
+
+	/** 활성 소속 교사에게 사용 가능한 NFC 카드를 연결한다. */
+	@PostMapping("/admin/departments/{departmentId}/teachers/{memberId}/card/connect")
+	public String connectCard(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long memberId,
+			@RequestParam String cardUid,
+			RedirectAttributes redirect) {
+		return command(
+				() -> cardService.connect(
+						principal.toActor(),
+						departmentId,
+						memberId,
+						new NfcUid(cardUid)),
+				"NFC 카드를 연결했습니다.",
+				teachersPath(departmentId),
+				redirect);
+	}
+
+	/** 기존 카드 종료와 새 카드 연결을 원자 처리한다. */
+	@PostMapping("/admin/departments/{departmentId}/teachers/{memberId}/card/replace")
+	public String replaceCard(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long memberId,
+			@RequestParam String cardUid,
+			@RequestParam String reason,
+			RedirectAttributes redirect) {
+		return command(
+				() -> cardService.replace(
+						principal.toActor(),
+						departmentId,
+						memberId,
+						new NfcUid(cardUid),
+						reason),
+				"NFC 카드를 교체했습니다.",
+				teachersPath(departmentId),
+				redirect);
+	}
+
+	/** 카드 연결을 종료하고 선택한 카드 상태를 적용한다. */
+	@PostMapping("/admin/departments/{departmentId}/teachers/{memberId}/card/disconnect")
+	public String disconnectCard(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long memberId,
+			@RequestParam CardDisposition disposition,
+			@RequestParam String reason,
+			RedirectAttributes redirect) {
+		return command(
+				() -> cardService.disconnect(
+						principal.toActor(),
+						departmentId,
+						memberId,
+						disposition,
+						reason),
+				"NFC 카드 연결을 종료했습니다.",
+				teachersPath(departmentId),
+				redirect);
+	}
+
+	/** 부서 장치에서 수신한 미등록 카드 이벤트를 표시한다. */
+	@GetMapping("/admin/departments/{departmentId}/cards/inbox")
+	public String cardInbox(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			Model model) {
+		addDepartmentModel(principal, departmentId, model);
+		model.addAttribute("events",
+				queryService.cardInbox(principal.toActor(), departmentId));
+		return "admin/department/card-inbox";
+	}
+
+	/** 부서의 정책 버전 목록과 초안 생성 form을 표시한다. */
+	@GetMapping("/admin/departments/{departmentId}/policies")
+	public String policies(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			Model model) {
+		addDepartmentModel(principal, departmentId, model);
+		model.addAttribute("policies",
+				queryService.policies(principal.toActor(), departmentId));
+		return "admin/department/policies";
+	}
+
+	/** 한 정책의 단계와 초안 편집 form을 표시한다. */
+	@GetMapping("/admin/departments/{departmentId}/policies/{policyId}")
+	public String policy(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long policyId,
+			Model model) {
+		addDepartmentModel(principal, departmentId, model);
+		model.addAttribute("policy", queryService.policy(
+				principal.toActor(), departmentId, policyId));
+		model.addAttribute("bands", queryService.policyBands(
+				principal.toActor(), departmentId, policyId));
+		return "admin/department/policy-detail";
+	}
+
+	/** 동적 단계 입력으로 정책 초안을 만든다. */
+	@PostMapping("/admin/departments/{departmentId}/policies")
+	public String createPolicy(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@RequestParam String name,
+			@RequestParam @DateTimeFormat(pattern = "HH:mm")
+					LocalTime checkInStartTime,
+			@RequestParam List<String> bandLabel,
+			@RequestParam List<AttendanceParentStatus> bandStatus,
+			@RequestParam @DateTimeFormat(pattern = "HH:mm")
+					List<LocalTime> bandUpperTime,
+			RedirectAttributes redirect) {
+		return command(
+				() -> policyService.createDraft(
+						principal.toActor(),
+						departmentId,
+						new PolicyDraftCommand(
+								name,
+								checkInStartTime,
+								toBands(
+										bandLabel,
+										bandStatus,
+										bandUpperTime))),
+				"출석 정책 초안을 저장했습니다.",
+				policiesPath(departmentId),
+				redirect);
+	}
+
+	/** 발행 전 정책 초안과 단계를 전부 교체한다. */
+	@PostMapping("/admin/departments/{departmentId}/policies/{policyId}/replace")
+	public String replacePolicy(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long policyId,
+			@RequestParam String name,
+			@RequestParam @DateTimeFormat(pattern = "HH:mm")
+					LocalTime checkInStartTime,
+			@RequestParam List<String> bandLabel,
+			@RequestParam List<AttendanceParentStatus> bandStatus,
+			@RequestParam @DateTimeFormat(pattern = "HH:mm")
+					List<LocalTime> bandUpperTime,
+			RedirectAttributes redirect) {
+		return command(
+				() -> policyService.replaceDraft(
+						principal.toActor(),
+						departmentId,
+						policyId,
+						new PolicyDraftCommand(
+								name,
+								checkInStartTime,
+								toBands(
+										bandLabel,
+										bandStatus,
+										bandUpperTime))),
+				"출석 정책 초안을 수정했습니다.",
+				policiesPath(departmentId),
+				redirect);
+	}
+
+	/** 전체 정책 규칙을 검증한 뒤 불변 발행 상태로 전환한다. */
+	@PostMapping("/admin/departments/{departmentId}/policies/{policyId}/publish")
+	public String publishPolicy(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long policyId,
+			RedirectAttributes redirect) {
+		return command(
+				() -> policyService.publish(
+						principal.toActor(), departmentId, policyId),
+				"출석 정책을 발행했습니다.",
+				policiesPath(departmentId),
+				redirect);
+	}
+
+	/** 출석 날짜 목록과 발행 정책 선택 form을 표시한다. */
+	@GetMapping("/admin/departments/{departmentId}/attendance-days")
+	public String attendanceDays(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			Model model) {
+		addDepartmentModel(principal, departmentId, model);
+		model.addAttribute("days",
+				queryService.attendanceDays(principal.toActor(), departmentId));
+		model.addAttribute("publishedPolicies",
+				queryService.publishedPolicies(
+						principal.toActor(), departmentId));
+		return "admin/department/attendance-days";
+	}
+
+	/** 날짜를 만들고 현재 활성 교사를 대상으로 snapshot한다. */
+	@PostMapping("/admin/departments/{departmentId}/attendance-days")
+	public String createAttendanceDay(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+					LocalDate attendanceDate,
+			@RequestParam long policyVersionId,
+			RedirectAttributes redirect) {
+		return command(
+				() -> dayService.createDay(
+						principal.toActor(),
+						departmentId,
+						attendanceDate,
+						policyVersionId),
+				"출석 날짜를 생성했습니다.",
+				daysPath(departmentId),
+				redirect);
+	}
+
+	/** 한 날짜의 대상자와 출석 결과·정정 form을 표시한다. */
+	@GetMapping("/admin/departments/{departmentId}/attendance-days/{dayId}")
+	public String attendanceDay(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long dayId,
+			Model model) {
+		addDepartmentModel(principal, departmentId, model);
+		model.addAttribute("day", queryService.attendanceDay(
+				principal.toActor(), departmentId, dayId));
+		model.addAttribute("rows", queryService.attendanceRows(
+				principal.toActor(), departmentId, dayId));
+		model.addAttribute("teachers", queryService.teachers(
+				principal.toActor(), departmentId));
+		model.addAttribute("publishedPolicies",
+				queryService.publishedPolicies(
+						principal.toActor(), departmentId));
+		return "admin/department/attendance-day";
+	}
+
+	/** 태깅 시작 전 기록 없는 출석 날짜를 취소한다. */
+	@PostMapping("/admin/departments/{departmentId}/attendance-days/{dayId}/cancel")
+	public String cancelDay(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long dayId,
+			@RequestParam String reason,
+			RedirectAttributes redirect) {
+		return command(
+				() -> dayService.cancelDay(
+						principal.toActor(), departmentId, dayId, reason),
+				"출석 날짜를 취소했습니다.",
+				daysPath(departmentId),
+				redirect);
+	}
+
+	/** 시작 전 날짜의 고정 정책을 다른 발행 버전으로 변경한다. */
+	@PostMapping("/admin/departments/{departmentId}/attendance-days/{dayId}/change-policy")
+	public String changeDayPolicy(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long dayId,
+			@RequestParam long policyVersionId,
+			RedirectAttributes redirect) {
+		return command(
+				() -> dayService.changePolicy(
+						principal.toActor(),
+						departmentId,
+						dayId,
+						policyVersionId),
+				"출석 날짜의 정책을 변경했습니다.",
+				dayPath(departmentId, dayId),
+				redirect);
+	}
+
+	/** 시작 전 날짜에 활성 교사를 공식 대상으로 추가한다. */
+	@PostMapping("/admin/departments/{departmentId}/attendance-days/{dayId}/targets/add")
+	public String addTarget(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long dayId,
+			@RequestParam long memberId,
+			@RequestParam String reason,
+			RedirectAttributes redirect) {
+		return command(
+				() -> targetService.addTarget(
+						principal.toActor(),
+						departmentId,
+						dayId,
+						memberId,
+						reason),
+				"출석 대상자를 추가했습니다.",
+				dayPath(departmentId, dayId),
+				redirect);
+	}
+
+	/** 기록 없는 시작 전 대상자를 이력 보존 방식으로 제외한다. */
+	@PostMapping("/admin/departments/{departmentId}/attendance-days/{dayId}/targets/{memberId}/remove")
+	public String removeTarget(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long dayId,
+			@PathVariable long memberId,
+			@RequestParam String reason,
+			RedirectAttributes redirect) {
+		return command(
+				() -> targetService.removeTarget(
+						principal.toActor(),
+						departmentId,
+						dayId,
+						memberId,
+						reason),
+				"출석 대상자를 제외했습니다.",
+				dayPath(departmentId, dayId),
+				redirect);
+	}
+
+	/** 실제 시각 또는 결석 입력을 고정 정책으로 다시 계산해 저장한다. */
+	@PostMapping("/admin/departments/{departmentId}/attendance-days/{dayId}/records/{memberId}/correct")
+	public String correctAttendance(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long dayId,
+			@PathVariable long memberId,
+			@RequestParam(required = false)
+			@DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+					LocalDateTime actualCheckInAt,
+			@RequestParam(defaultValue = "false") boolean markAbsent,
+			@RequestParam(defaultValue = "false") boolean addMissingTarget,
+			@RequestParam(required = false) String note,
+			@RequestParam String reason,
+			RedirectAttributes redirect) {
+		return command(
+				() -> correctionService.correct(
+						principal.toActor(),
+						departmentId,
+						dayId,
+						memberId,
+						new ManualAttendanceCommand(
+								actualCheckInAt == null
+										? null
+										: actualCheckInAt
+												.atZone(attendanceZone)
+												.toInstant(),
+								markAbsent,
+								addMissingTarget,
+								note,
+								reason)),
+				"출석 기록을 저장했습니다.",
+				dayPath(departmentId, dayId),
+				redirect);
+	}
+
+	/** 기존 판정 원천을 바꾸지 않고 출석 비고만 수정한다. */
+	@PostMapping("/admin/departments/{departmentId}/attendance-days/{dayId}/records/{memberId}/note")
+	public String updateNote(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long dayId,
+			@PathVariable long memberId,
+			@RequestParam(required = false) String note,
+			@RequestParam String reason,
+			RedirectAttributes redirect) {
+		return command(
+				() -> correctionService.updateNote(
+						principal.toActor(),
+						departmentId,
+						dayId,
+						memberId,
+						note,
+						reason),
+				"출석 비고를 수정했습니다.",
+				dayPath(departmentId, dayId),
+				redirect);
+	}
+
+	/** 부서 범위 감사와 태깅 이력을 분리해 표시한다. */
+	@GetMapping("/admin/departments/{departmentId}/history")
+	public String history(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			Model model) {
+		addDepartmentModel(principal, departmentId, model);
+		model.addAttribute("history",
+				queryService.history(principal.toActor(), departmentId));
+		model.addAttribute("tagHistory",
+				queryService.tagHistory(principal.toActor(), departmentId));
+		return "admin/department/history";
+	}
+
+	private void addDepartmentModel(
+			AccountPrincipal principal,
+			long departmentId,
+			Model model) {
+		model.addAttribute("principal", principal);
+		model.addAttribute("department", queryService.department(
+				principal.toActor(), departmentId));
+		model.addAttribute("writeEnabled", writeGate.isEnabled());
+	}
+
+	private String command(
+			Runnable command,
+			String successMessage,
+			String redirectPath,
+			RedirectAttributes redirect) {
+		try {
+			writeGate.requireEnabled();
+			command.run();
+			redirect.addFlashAttribute("message", successMessage);
+		} catch (IllegalArgumentException | BusinessRuleException exception) {
+			redirect.addFlashAttribute("error", exception.getMessage());
+		}
+		return "redirect:" + redirectPath;
+	}
+
+	private static List<PolicyBandInput> toBands(
+			List<String> labels,
+			List<AttendanceParentStatus> statuses,
+			List<LocalTime> upperTimes) {
+		if (labels.size() != statuses.size()
+				|| labels.size() != upperTimes.size()) {
+			throw new IllegalArgumentException(
+					"policy band fields must have the same number of rows");
+		}
+		List<PolicyBandInput> bands = new ArrayList<>();
+		for (int index = 0; index < labels.size(); index++) {
+			if (!labels.get(index).isBlank()) {
+				bands.add(new PolicyBandInput(
+						bands.size() + 1,
+						labels.get(index),
+						statuses.get(index),
+						upperTimes.get(index)));
+			}
+		}
+		return List.copyOf(bands);
+	}
+
+	private static NfcUid optionalUid(String raw) {
+		return raw == null || raw.isBlank() ? null : new NfcUid(raw);
+	}
+
+	private static String teachersPath(long departmentId) {
+		return "/admin/departments/" + departmentId + "/teachers";
+	}
+
+	private static String policiesPath(long departmentId) {
+		return "/admin/departments/" + departmentId + "/policies";
+	}
+
+	private static String daysPath(long departmentId) {
+		return "/admin/departments/" + departmentId + "/attendance-days";
+	}
+
+	private static String dayPath(long departmentId, long dayId) {
+		return daysPath(departmentId) + "/" + dayId;
+	}
+}
