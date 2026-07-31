@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+		PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+		"https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.attend.attendance.infrastructure.mybatis.AttendanceStatisticsMapper">
+
+	<select id="selectMemberSummary"
+			resultType="com.example.attend.attendance.infrastructure.mybatis.AttendanceStatisticsSummaryRow">
+		SELECT
+			count(*)::integer AS total_count,
+			count(*) FILTER (WHERE record.status = 'PRESENT')::integer AS present_count,
+			count(*) FILTER (WHERE record.status = 'LATE')::integer AS late_count,
+			count(*) FILTER (WHERE record.status = 'ABSENT')::integer AS absent_count
+		FROM public.attendance_target AS target
+		JOIN public.attendance_day AS day
+		  ON day.id = target.attendance_day_id
+		 AND day.department_id = target.department_id
+		 AND day.status = 'FINALIZED'
+		LEFT JOIN public.attendance_record AS record
+		  ON record.attendance_day_id = target.attendance_day_id
+		 AND record.member_id = target.member_id
+		WHERE target.department_id = #{departmentId}
+		  AND target.member_id = #{memberId}
+		  AND target.is_target
+		  AND day.attendance_date BETWEEN #{fromDate} AND #{toDate}
+	</select>
+
+	<select id="selectMemberLateBands"
+			resultType="com.example.attend.attendance.infrastructure.mybatis.AttendanceBandCountRow">
+		SELECT
+			record.band_sequence_snapshot AS sequence_no,
+			record.band_label_snapshot AS label,
+			count(*)::integer AS count
+		FROM public.attendance_target AS target
+		JOIN public.attendance_day AS day
+		  ON day.id = target.attendance_day_id
+		 AND day.department_id = target.department_id
+		 AND day.status = 'FINALIZED'
+		JOIN public.attendance_record AS record
+		  ON record.attendance_day_id = target.attendance_day_id
+		 AND record.member_id = target.member_id
+		 AND record.status = 'LATE'
+		WHERE target.department_id = #{departmentId}
+		  AND target.member_id = #{memberId}
+		  AND target.is_target
+		  AND day.attendance_date BETWEEN #{fromDate} AND #{toDate}
+		GROUP BY record.band_sequence_snapshot, record.band_label_snapshot
+		ORDER BY record.band_sequence_snapshot, record.band_label_snapshot
+	</select>
+
+</mapper>

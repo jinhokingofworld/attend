@@ -5,7 +5,7 @@
 > 대상 릴리스: 현장 사용 가능한 MVP
 > 기술 기준: Java 21, Spring Boot 3.5.9, MyBatis, PostgreSQL, Arduino
 > 작성 기준일: 2026-07-31
-> 상태: 목표 아키텍처 확정, 구현 전
+> 상태: M1~M2 구현 완료, M3 이후 미구현
 
 ## 0. 결론
 
@@ -143,7 +143,7 @@ POST /api/attendance
 
 이 흐름에는 부서, 출석 정책 버전, 출석 대상 날짜, 대상자 스냅샷, 요청 ID와 자동 마감이 없다.
 
-### 3.3 현재 작업 트리의 DB 기반 상태
+### 3.3 현재 작업 트리의 M1~M2 구현 상태
 
 2026-07-31 M1 DB 기반 작업으로 다음 항목을 구현했다.
 
@@ -154,7 +154,18 @@ POST /api/attendance
 - `member` 물리 삭제 API·Mapper와 `card_uid` 직접 수정 경로 제거
 - PostgreSQL 15에서 fresh, legacy, drift 거부, 부서 scope, 날짜–정책–구간–상태 복합 FK, 부분 unique, token·NULL 부정 제약 검증
 
-레거시 4개 테이블의 기준 구조는 운영 resource가 아니라 `src/test/resources/db/legacy/legacy-schema.sql`에 격리했다. 현재 Mapper와 서비스 대부분은 여전히 레거시 업무 모델을 사용하고 신규 목표 테이블을 사용하지 않는다.
+M2에서는 다음 기능을 신규 기능 패키지와 목표 테이블에 구현했다.
+
+- `Clock`과 `Asia/Seoul`을 사용하는 정책 구간 검증·포함 경계 판정
+- 활성 부서 관리자 인가 계약과 모든 업무 서비스의 `department_id` 범위 강제
+- 교사·소속·NFC 카드 등록, 연결·교체·종료와 부서 제외 원자 트랜잭션
+- 정책 초안 편집, 전체 검증, 발행과 발행 후 application 경로 불변성
+- 출석일 생성, 활성 소속 대상자 snapshot, 시작 전 대상·정책 변경과 날짜 취소
+- 실제 출석 시각 기반 수동 등록·정정, 누락 대상자 원자 추가와 메모 원천 보존
+- 과거 날짜 자동 결석·마감, 재기동 catch-up과 `FINALIZED` 기준 개인 통계
+- 계정·시스템 주체의 감사 로그와 날짜별 멱등 자동 마감 감사
+
+레거시 4개 테이블의 기준 구조는 운영 resource가 아니라 `src/test/resources/db/legacy/legacy-schema.sql`에 격리했다. M2 application service는 신규 목표 테이블만 사용하고 레거시 출석에 이중 쓰지 않는다. 다만 기존 MVC·REST Controller와 로그인 흐름은 아직 레거시 서비스에 연결돼 있으며, M3 관리자 웹과 M4 장치 API에서 신규 application service로 교체해야 한다.
 
 그러나 다음 이유로 안전 릴리스가 완료된 것은 아니다.
 
@@ -165,7 +176,7 @@ POST /api/attendance
 - 운영 runtime은 시작 시 실제 DB 권한을 검사해 schema DDL, 임시 테이블,
   Flyway history 변경, 교사 삭제와 레거시 DML 권한이 있으면 기동을 거부한다.
 - 현재 guarded runner는 Gradle `dbMigrate` 작업으로 제공되며, 운영에서 이를 실행할 고정 컨테이너·배포 job은 아직 없다.
-- 기존 인증·출석 Mapper를 신규 계정·출석 도메인으로 교체하지 않았다.
+- 기존 Controller의 인증·출석 호출 경로를 신규 계정·출석 도메인으로 교체하지 않았다.
 
 ### 3.4 현재 구조에서 유지할 수 없는 부분
 
@@ -979,7 +990,7 @@ Spring Boot Actuator를 도입하면 health endpoint를 외부에 무제한 공�
 - 앱 재시작 뒤 과거 미마감 날짜 복구
 - 새 앱의 레거시 출석·로그 DML 시도
 
-현재 환경의 JDK 21과 PostgreSQL 15 Testcontainers에서 M1 context·migration 테스트 9건은 통과했다. 아직 자동화하지 않은 아래 시나리오와 전체 아키텍처 구현까지 검증됐다는 의미는 아니다.
+현재 환경의 JDK 21과 PostgreSQL 15 Testcontainers에서 M1 context·migration 10건과 M2 domain·application 4건, 총 14건이 통과했다. M2 통합 테스트는 교사·카드 등록, 정책 발행·불변성, 날짜·대상자 snapshot, 시작 전 대상 변경, 수동 판정, 자동 결석·멱등 마감, 통계, 메모 원천 보존과 부서 제외를 한 대표 흐름으로 검증한다. 별도 PostgreSQL 동시성 테스트는 같은 날짜 자동 마감 2건에서 결석·상태·멱등 감사 중복이 없음을 검증한다. 아직 자동화하지 않은 아래 시나리오와 M3 이후 전체 아키텍처까지 검증됐다는 의미는 아니다.
 
 ---
 

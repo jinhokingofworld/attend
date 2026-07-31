@@ -1,6 +1,12 @@
 package com.example.attend;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.time.Clock;
+import java.time.ZoneId;
+
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.test.context.ActiveProfiles;
@@ -28,13 +34,20 @@ class AttendApplicationTests {
 			new PostgreSQLContainer<>("postgres:15-alpine");
 
 	/**
-	 * 애플리케이션 컨텍스트 초기화가 예외 없이 완료되는지를 검증한다.
+	 * 실제 업무 코드에 주입되는 서버 시계다.
+	 */
+	@Autowired
+	private Clock attendanceClock;
+
+	/**
+	 * 애플리케이션 컨텍스트와 출석 업무 시간대 설정을 검증한다.
 	 *
-	 * <p>메서드 본문이 비어 있는 이유는 테스트 메서드 실행 전에 수행되는
-	 * {@link SpringBootTest} 컨텍스트 생성 자체가 검증 대상이기 때문이다.</p>
+	 * <p>컨텍스트 생성 자체가 smoke test의 주 검증 대상이며, 서버 환경이 달라도
+	 * 출석 기준 시간대는 항상 Asia/Seoul이어야 한다.</p>
 	 */
 	@Test
 	void contextLoads() {
+		assertThat(attendanceClock.getZone()).isEqualTo(ZoneId.of("Asia/Seoul"));
 	}
 
 }

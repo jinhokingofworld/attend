@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+		PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+		"https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.attend.attendance.infrastructure.mybatis.AttendancePolicyMapper">
+
+	<select id="selectNextVersionNo" resultType="int">
+		SELECT COALESCE(max(version_no), 0) + 1
+		FROM public.attendance_policy_version
+		WHERE department_id = #{departmentId}
+	</select>
+
+	<select id="insertDraft" resultType="long" affectData="true">
+		INSERT INTO public.attendance_policy_version (
+			department_id,
+			version_no,
+			name,
+			check_in_start_time,
+			status,
+			created_by_account_id
+		)
+		VALUES (
+			#{departmentId},
+			#{versionNo},
+			#{name},
+			#{checkInStartTime},
+			'DRAFT',
+			#{actorAccountId}
+		)
+		RETURNING id
+	</select>
+
+	<insert id="insertBand">
+		INSERT INTO public.attendance_band (
+			policy_version_id,
+			sequence_no,
+			label,
+			parent_status,
+			upper_time
+		)
+		VALUES (
+			#{policyVersionId},
+			#{band.sequenceNo},
+			#{band.label},
+			#{band.parentStatus},
+			#{band.upperTime}
+		)
+	</insert>
+
+	<select id="lockDraft"
+			resultType="com.example.attend.attendance.infrastructure.mybatis.PolicyVersionRow">
+		SELECT id, department_id, name, check_in_start_time, status
+		FROM public.attendance_policy_version
+		WHERE id = #{policyVersionId}
+		  AND department_id = #{departmentId}
+		  AND status = 'DRAFT'
+		FOR UPDATE
+	</select>
+
+	<update id="updateDraft">
+		UPDATE public.attendance_policy_version
+		SET name = #{name},
+			check_in_start_time = #{checkInStartTime}
+		WHERE id = #{policyVersionId}
+		  AND department_id = #{departmentId}
+		  AND status = 'DRAFT'
+	</update>
+
+	<delete id="deleteDraftBands">
+		DELETE FROM public.attendance_band AS band
+		WHERE band.policy_version_id = #{policyVersionId}
+		  AND EXISTS (
+			SELECT 1
+			FROM public.attendance_policy_version AS policy
+			WHERE policy.id = band.policy_version_id
+			  AND policy.status = 'DRAFT'
+		  )
+	</delete>
+
+	<select id="selectBands"
+			resultType="com.example.attend.attendance.domain.AttendanceBand">
+		SELECT id, sequence_no, label, parent_status, upper_time
+		FROM public.attendance_band
+		WHERE policy_version_id = #{policyVersionId}
+		ORDER BY sequence_no
+	</select>
+
+	<update id="publish">
+		UPDATE public.attendance_policy_version
+		SET status = 'PUBLISHED',
+			published_by_account_id = #{actorAccountId},
+			published_at = #{publishedAt}
+		WHERE id = #{policyVersionId}
+		  AND department_id = #{departmentId}
+		  AND status = 'DRAFT'
+	</update>
+
+	<select id="selectPublished"
+			resultType="com.example.attend.attendance.infrastructure.mybatis.PolicyVersionRow">
+		SELECT id, department_id, name, check_in_start_time, status
+		FROM public.attendance_policy_version
+		WHERE id = #{policyVersionId}
+		  AND department_id = #{departmentId}
+		  AND status = 'PUBLISHED'
+	</select>
+
+</mapper>
