@@ -178,7 +178,15 @@ assert_contains "${page}" "출석 통계"
 assert_contains "${page}" "최근 출석 이력"
 assert_contains "${page}" "생년월일"
 assert_contains "${page}" ">수정</a>"
+assert_contains "${page}" "data-attendance-chart"
 assert_not_contains "${page}" "기본정보 저장"
+
+curl --fail --silent --show-error --cookie "${department_cookie}" \
+  --output "${page}" \
+  "${base_url}/admin/departments/${department_id}/teachers/${member_id}?fromDate=2026-01-01&toDate=2026-06-30"
+assert_contains "${page}" 'value="2026-01-01"'
+assert_contains "${page}" 'value="2026-06-30"'
+assert_contains "${page}" "2026-01-01 ~ 2026-06-30"
 
 curl --fail --silent --show-error --cookie "${department_cookie}" \
   --output "${page}" \

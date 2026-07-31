@@ -366,7 +366,19 @@ class M3SecurityIntegrationTest {
 						.with(user(departmentPrincipal)))
 				.andExpect(status().isOk())
 				.andExpect(content().string(containsString(">수정</a>")))
+				.andExpect(content().string(containsString("data-attendance-chart")))
 				.andExpect(content().string(not(containsString("기본정보 저장"))));
+		mockMvc.perform(get("/admin/departments/" + departmentId
+						+ "/teachers/" + memberId
+						+ "?fromDate=2026-01-01&toDate=2026-06-30")
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(content().string(containsString(
+						"value=\"2026-01-01\"")))
+				.andExpect(content().string(containsString(
+						"value=\"2026-06-30\"")))
+				.andExpect(content().string(containsString(
+						"2026-01-01 ~ 2026-06-30")));
 		mockMvc.perform(get("/admin/departments/" + departmentId
 						+ "/teachers/" + memberId + "?edit=true")
 						.with(user(departmentPrincipal)))

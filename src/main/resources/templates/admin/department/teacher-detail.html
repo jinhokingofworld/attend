@@ -113,12 +113,54 @@
             <button type="submit">기간 적용</button>
         </form>
         <p>공식 종료된 출석 날짜만 통계 분모에 포함합니다.</p>
-        <ul class="metric-list">
-            <li th:text="|대상 ${statistics.totalCount}회|">대상</li>
-            <li th:text="|정상 ${statistics.presentCount}회 (${#numbers.formatDecimal(statistics.presentRate(), 1, 1)}%)|">정상</li>
-            <li th:text="|지각 ${statistics.lateCount}회 (${#numbers.formatDecimal(statistics.lateRate(), 1, 1)}%)|">지각</li>
-            <li th:text="|결석 ${statistics.absentCount}회 (${#numbers.formatDecimal(statistics.absentRate(), 1, 1)}%)|">결석</li>
-        </ul>
+        <div class="attendance-chart-layout" data-attendance-chart>
+            <figure class="attendance-donut-figure">
+                <div class="attendance-donut">
+                    <svg viewBox="0 0 100 100" role="img" aria-labelledby="attendance-chart-title attendance-chart-description">
+                        <title id="attendance-chart-title">선택 기간 출석 비율 원형 그래프</title>
+                        <desc id="attendance-chart-description"
+                              th:text="|정상 ${statistics.presentCount}회, 지각 ${statistics.lateCount}회, 결석 ${statistics.absentCount}회|">출석 통계</desc>
+                        <circle class="attendance-donut__background" cx="50" cy="50" r="40"></circle>
+                        <g th:if="${statistics.totalCount > 0}">
+                            <circle class="attendance-donut__segment attendance-donut__segment--present"
+                                    cx="50" cy="50" r="40" pathLength="100"
+                                    th:attr="stroke-dasharray=|${statistics.presentRate()} ${100 - statistics.presentRate()}|"></circle>
+                            <circle class="attendance-donut__segment attendance-donut__segment--late"
+                                    cx="50" cy="50" r="40" pathLength="100"
+                                    th:attr="stroke-dasharray=|${statistics.lateRate()} ${100 - statistics.lateRate()}|,stroke-dashoffset=${-statistics.presentRate()}"></circle>
+                            <circle class="attendance-donut__segment attendance-donut__segment--absent"
+                                    cx="50" cy="50" r="40" pathLength="100"
+                                    th:attr="stroke-dasharray=|${statistics.absentRate()} ${100 - statistics.absentRate()}|,stroke-dashoffset=${-(statistics.presentRate() + statistics.lateRate())}"></circle>
+                        </g>
+                    </svg>
+                    <div class="attendance-donut__center" aria-hidden="true">
+                        <strong th:text="${statistics.totalCount}">0</strong>
+                        <span>대상 횟수</span>
+                    </div>
+                </div>
+                <figcaption th:text="|${fromDate} ~ ${toDate}|">선택 기간</figcaption>
+            </figure>
+
+            <ul class="attendance-chart-metrics" aria-label="출석 상태별 통계">
+                <li>
+                    <span>대상</span>
+                    <strong th:text="|${statistics.totalCount}회|">0회</strong>
+                </li>
+                <li>
+                    <span><i class="attendance-chart-marker attendance-chart-marker--present" aria-hidden="true"></i>정상</span>
+                    <strong th:text="|${statistics.presentCount}회 (${#numbers.formatDecimal(statistics.presentRate(), 1, 1)}%)|">0회</strong>
+                </li>
+                <li>
+                    <span><i class="attendance-chart-marker attendance-chart-marker--late" aria-hidden="true"></i>지각</span>
+                    <strong th:text="|${statistics.lateCount}회 (${#numbers.formatDecimal(statistics.lateRate(), 1, 1)}%)|">0회</strong>
+                </li>
+                <li>
+                    <span><i class="attendance-chart-marker attendance-chart-marker--absent" aria-hidden="true"></i>결석</span>
+                    <strong th:text="|${statistics.absentCount}회 (${#numbers.formatDecimal(statistics.absentRate(), 1, 1)}%)|">0회</strong>
+                </li>
+            </ul>
+        </div>
+        <p th:if="${statistics.totalCount == 0}" class="empty-state">선택 기간에 공식 종료된 출석 기록이 없습니다.</p>
         <h3>지각 단계별</h3>
         <ul>
             <li th:each="band : ${statistics.lateBands}"
