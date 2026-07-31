@@ -10,6 +10,9 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -22,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static com.example.attend.database.DatabaseMigrationRunner.ApprovedSourceClass.LEGACY_OPERATIONAL;
 import static com.example.attend.database.DatabaseMigrationRunner.ApprovedSourceClass.NEW_OR_SAMPLE;
+import static com.example.attend.database.DatabaseMigrationRunner.ApprovedSourceClass.UNKNOWN;
 import static com.example.attend.database.DatabasePreflightInspector.PreflightStatus.FRESH;
 import static com.example.attend.database.DatabasePreflightInspector.PreflightStatus.LEGACY_CANDIDATE;
 import static com.example.attend.database.DatabasePreflightInspector.PreflightStatus.REJECTED;
@@ -67,6 +71,13 @@ class FlywayMigrationTest {
 
         assertThat(inspector.inspect(database.dataSource()).status())
                 .isEqualTo(FRESH);
+
+        assertThatThrownBy(() -> runner.migrate(
+                database.dataSource(),
+                UNKNOWN
+        ))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("UNKNOWN");
 
         assertThatThrownBy(() -> runner.migrate(
                 database.dataSource(),
@@ -1530,6 +1541,120 @@ class FlywayMigrationTest {
     }
 
     /**
+     * migration 계정과 웹 runtime 계정의 실제 PostgreSQL 권한이 분리되는지 검증한다.
+     *
+     * <p>한 테스트 안에서 역할 생성, 레거시 migration, V008 이후 grant와 runtime
+     * guard를 모두 실행한다. runtime의 정상 조회·수정은 허용하면서 DDL, Flyway
+     * history 변경, 교사 삭제와 레거시 출석 쓰기는 권한 오류로 막아야 한다.</p>
+     */
+    @Test
+    void separatesMigrationOwnerFromRuntimeDatabasePrivileges()
+            throws Exception {
+        Database database = createDatabase("roles");
+        String migrationPassword = "test-only-migration-password";
+        String runtimePassword = "test-only-runtime-password";
+
+        try (Connection admin = database.connect();
+             Statement statement = admin.createStatement()) {
+            executeSqlFile(
+                    statement,
+                    "ops/db/roles/001_create_login_roles.sql"
+            );
+            statement.execute("""
+                    ALTER ROLE migration_owner PASSWORD '%s'
+                    """.formatted(migrationPassword));
+            statement.execute("""
+                    ALTER ROLE app_runtime PASSWORD '%s'
+                    """.formatted(runtimePassword));
+            executeSqlFile(
+                    statement,
+                    "ops/db/roles/002_prepare_database_for_migration.sql"
+            );
+        }
+
+        DriverManagerDataSource migrationDataSource =
+                database.dataSource(
+                        "migration_owner",
+                        migrationPassword
+                );
+        try (Connection migrationConnection =
+                     migrationDataSource.getConnection()) {
+            ScriptUtils.executeSqlScript(
+                    migrationConnection,
+                    new ClassPathResource("db/legacy/legacy-schema.sql")
+            );
+        }
+
+        new DatabaseMigrationRunner().migrate(
+                migrationDataSource,
+                LEGACY_OPERATIONAL
+        );
+
+        try (Connection migrationConnection =
+                     migrationDataSource.getConnection();
+             Statement statement =
+                     migrationConnection.createStatement()) {
+            executeSqlFile(
+                    statement,
+                    "ops/db/roles/003_grant_application_privileges.sql"
+            );
+        }
+
+        DriverManagerDataSource runtimeDataSource =
+                database.dataSource("app_runtime", runtimePassword);
+        SchemaVersionGuard.verify(runtimeDataSource);
+        RuntimeDatabasePrivilegeGuard.verify(runtimeDataSource);
+
+        try (Connection runtimeConnection =
+                     runtimeDataSource.getConnection();
+             Statement statement = runtimeConnection.createStatement()) {
+            long memberId = queryLong(statement, """
+                    INSERT INTO public.member (name, phone, active)
+                    VALUES ('권한 테스트 교사', '010-0000-0000', TRUE)
+                    RETURNING id
+                    """);
+            statement.executeUpdate("""
+                    UPDATE public.member
+                    SET phone = '010-1111-1111'
+                    WHERE id = %d
+                    """.formatted(memberId));
+
+            assertPermissionDenied(
+                    statement,
+                    "CREATE TABLE public.runtime_must_not_create (id BIGINT)"
+            );
+            assertPermissionDenied(
+                    statement,
+                    "CREATE TEMP TABLE runtime_temp_must_not_create (id BIGINT)"
+            );
+            assertPermissionDenied(statement, """
+                    UPDATE public.flyway_schema_history
+                    SET success = FALSE
+                    WHERE version = '008'
+                    """);
+            assertPermissionDenied(
+                    statement,
+                    "DELETE FROM public.member WHERE id = " + memberId
+            );
+            assertPermissionDenied(statement, """
+                    INSERT INTO public.attendance (
+                        member_id,
+                        attend_date,
+                        status
+                    )
+                    VALUES (%d, CURRENT_DATE, 'IN_TIME')
+                    """.formatted(memberId));
+        }
+
+        assertThatThrownBy(() ->
+                RuntimeDatabasePrivilegeGuard.verify(
+                        migrationDataSource
+                ))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("incompatible");
+    }
+
+    /**
      * 제약조건 자체만 시험할 때 사용할 표준 Flyway 설정을 만든다.
      *
      * @param database 테스트가 소유한 독립 데이터베이스
@@ -1689,6 +1814,41 @@ class FlywayMigrationTest {
     }
 
     /**
+     * 프로젝트의 운영 SQL 파일 전체를 JDBC statement 하나로 실행한다.
+     *
+     * @param statement SQL을 실행할 statement
+     * @param relativePath 저장소 루트 기준 SQL 파일 경로
+     * @throws Exception 파일을 읽거나 SQL을 실행하지 못할 때
+     */
+    private static void executeSqlFile(
+            Statement statement,
+            String relativePath
+    ) throws Exception {
+        String sql = Files.readString(
+                Path.of(relativePath),
+                StandardCharsets.UTF_8
+        );
+        statement.execute(sql);
+    }
+
+    /**
+     * SQL이 PostgreSQL 권한 부족으로 거부되는지 확인한다.
+     *
+     * @param statement 제한된 runtime 계정의 statement
+     * @param sql 거부되어야 하는 SQL
+     */
+    private static void assertPermissionDenied(
+            Statement statement,
+            String sql
+    ) {
+        assertThatThrownBy(() -> statement.execute(sql))
+                .isInstanceOf(SQLException.class)
+                .satisfies(throwable -> assertThat(
+                        ((SQLException) throwable).getSQLState()
+                ).isEqualTo("42501"));
+    }
+
+    /**
      * 테스트 데이터베이스 접속정보를 한 값으로 묶는다.
      *
      * @param url 테스트 데이터베이스 JDBC URL
@@ -1706,6 +1866,20 @@ class FlywayMigrationTest {
                     postgres.getUsername(),
                     postgres.getPassword()
             );
+        }
+
+        /**
+         * 지정한 DB 역할로 연결되는 DataSource를 만든다.
+         *
+         * @param username 테스트할 PostgreSQL 역할 이름
+         * @param password 해당 역할의 테스트 전용 비밀번호
+         * @return 지정한 역할 자격증명을 사용하는 DataSource
+         */
+        private DriverManagerDataSource dataSource(
+                String username,
+                String password
+        ) {
+            return new DriverManagerDataSource(url, username, password);
         }
 
         /**

@@ -4,6 +4,10 @@ import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 
 import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 
 import static com.example.attend.database.DatabasePreflightInspector.PreflightStatus.ALREADY_MANAGED;
 import static com.example.attend.database.DatabasePreflightInspector.PreflightStatus.FRESH;
@@ -69,6 +73,12 @@ public final class DatabaseMigrationRunner {
             DataSource dataSource,
             ApprovedSourceClass approvedSourceClass
     ) {
+        if (approvedSourceClass == ApprovedSourceClass.UNKNOWN) {
+            throw new IllegalStateException(
+                    "UNKNOWN source classification cannot authorize migration"
+            );
+        }
+
         DatabasePreflightInspector.PreflightResult preflight =
                 preflightInspector.inspect(dataSource);
 
@@ -95,6 +105,8 @@ public final class DatabaseMigrationRunner {
             );
         }
 
+        verifyMigrationPrivileges(dataSource, preflight.status());
+
         Flyway flyway = Flyway.configure()
                 .dataSource(dataSource)
                 .locations("classpath:db/migration")
@@ -120,6 +132,116 @@ public final class DatabaseMigrationRunner {
     }
 
     /**
+     * migration 연결이 스키마를 변경할 권한과 레거시 객체 소유권을 가졌는지 확인한다.
+     *
+     * <p>특히 레거시 경로는 {@code baseline()}이 먼저 별도 commit된다. 객체를
+     * 변경할 권한이 없는 연결로 baseline부터 기록하면 V001 실패 뒤에 잘못된
+     * version 0 history만 남을 수 있으므로, 실제 쓰기 전에 권한을 읽기 전용으로
+     * 검사한다.</p>
+     *
+     * @param dataSource migration 전용 데이터소스
+     * @param status 읽기 전용 사전검사가 판정한 DB 상태
+     * @throws IllegalStateException schema 변경 권한이 없거나 레거시 객체를
+     *                               소유한 역할의 구성원이 아닐 때
+     */
+    private static void verifyMigrationPrivileges(
+            DataSource dataSource,
+            DatabasePreflightInspector.PreflightStatus status
+    ) {
+        boolean canCreateInPublic = queryBoolean(dataSource, """
+                SELECT has_schema_privilege(
+                           current_user,
+                           'public',
+                           'USAGE'
+                       )
+                   AND has_schema_privilege(
+                           current_user,
+                           'public',
+                           'CREATE'
+                       )
+                """);
+        if (!canCreateInPublic) {
+            throw new IllegalStateException(
+                    "Migration connection cannot create objects in public schema"
+            );
+        }
+
+        if (status != LEGACY_CANDIDATE) {
+            return;
+        }
+
+        boolean ownsLegacyObjects = queryBoolean(dataSource, """
+                WITH required_owners AS (
+                    SELECT relation.relowner AS owner_oid
+                    FROM pg_catalog.pg_class AS relation
+                    JOIN pg_catalog.pg_namespace AS namespace
+                      ON namespace.oid = relation.relnamespace
+                    WHERE namespace.nspname = 'public'
+                      AND relation.relname = ANY (
+                        ARRAY[
+                          'member',
+                          'authentications',
+                          'attendance',
+                          'attendance_log',
+                          'member_id_seq',
+                          'attendance_attend_id_seq',
+                          'attendance_log_id_seq'
+                        ]
+                      )
+                      AND relation.relkind IN ('r', 'S')
+
+                    UNION ALL
+
+                    SELECT data_type.typowner AS owner_oid
+                    FROM pg_catalog.pg_type AS data_type
+                    JOIN pg_catalog.pg_namespace AS namespace
+                      ON namespace.oid = data_type.typnamespace
+                    WHERE namespace.nspname = 'public'
+                      AND data_type.typname = ANY (
+                        ARRAY['role', 'attend_status']
+                      )
+                      AND data_type.typtype = 'e'
+                )
+                SELECT count(*) = 9
+                   AND bool_and(
+                       pg_catalog.pg_has_role(
+                           current_user,
+                           owner_oid,
+                           'MEMBER'
+                       )
+                   )
+                FROM required_owners
+                """);
+        if (!ownsLegacyObjects) {
+            throw new IllegalStateException(
+                    "Migration connection does not own all accepted legacy objects"
+            );
+        }
+    }
+
+    /**
+     * migration 안전조건을 판정하는 단일 boolean SQL을 실행한다.
+     *
+     * @param dataSource 검사할 데이터소스
+     * @param sql 한 행·한 boolean 열을 반환하는 SQL
+     * @return 첫 행의 boolean 결과
+     * @throws IllegalStateException 권한 검사를 완료할 수 없을 때
+     */
+    private static boolean queryBoolean(DataSource dataSource, String sql) {
+        try (Connection connection = dataSource.getConnection();
+             Statement statement = connection.createStatement();
+             ResultSet resultSet = statement.executeQuery(sql)) {
+            resultSet.next();
+            return resultSet.getBoolean(1);
+        } catch (SQLException exception) {
+            throw new IllegalStateException(
+                    "Migration privilege preflight could not be completed",
+                    exception
+            );
+        }
+    }
+
+    /**
      * 운영 책임자가 승인할 수 있는 원본 DB 유형이다.
      */
     public enum ApprovedSourceClass {
@@ -131,6 +253,11 @@ public final class DatabaseMigrationRunner {
         /**
          * 기존 네 개 레거시 테이블과 데이터를 보존해야 하는 운영 DB다.
          */
-        LEGACY_OPERATIONAL
+        LEGACY_OPERATIONAL,
+
+        /**
+         * 실제 용도를 확인하지 못해 어떤 migration도 승인할 수 없는 DB다.
+         */
+        UNKNOWN
     }
 }
