@@ -100,10 +100,12 @@ public class SecurityConfig {
         http
                 .authorizeHttpRequests(authz -> authz
                         .requestMatchers(
+								"/",
                                 "/login",
                                 "/authentication",
                                 "/account/setup",
                                 "/account/password-reset",
+								"/css/**",
                                 "/error",
 								"/actuator/health",
 								"/actuator/health/**").permitAll()

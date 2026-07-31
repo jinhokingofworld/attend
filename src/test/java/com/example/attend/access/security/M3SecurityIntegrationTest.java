@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
 import com.example.attend.access.domain.AccountSystemRole;
 import com.example.attend.access.application.CredentialTokenService;
@@ -187,6 +188,12 @@ class M3SecurityIntegrationTest {
 		AccountPrincipal departmentPrincipal = (AccountPrincipal)
 				userDetailsService.loadUserByUsername(DEPARTMENT_USERNAME);
 
+		mockMvc.perform(get("/"))
+				.andExpect(status().is3xxRedirection())
+				.andExpect(redirectedUrl("/admin"));
+		mockMvc.perform(get("/login"))
+				.andExpect(status().isOk())
+				.andExpect(view().name("login"));
 		mockMvc.perform(get("/admin"))
 				.andExpect(status().is3xxRedirection());
 

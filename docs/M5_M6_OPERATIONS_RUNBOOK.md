@@ -74,6 +74,12 @@ DB migration을 되돌리거나 dump를 운영 DB 위에 덮어쓰지 않는다.
 
 ## 5. M6 실기기 시험
 
+하드웨어가 없는 개발 단계에서는
+[LOCAL_HTTP_DEMO.md](./LOCAL_HTTP_DEMO.md)의 loopback 전용 Compose와 Postman
+컬렉션으로 두 부서의 credential, 최초 기록, 멱등 replay와 requestId 충돌을 먼저
+검증한다. 이 검증은 NFC 판독·LED·TLS·실제 성능 증거가 아니므로 M6 완료 근거로
+계상하지 않는다.
+
 펌웨어 대상과 설치 절차는 `firmware/attend-nfc/README.md`를 따른다. Arduino 확보
 전에는 `scripts/pilot-http-simulator.sh`로 준비된 서로 다른 두 부서의 최초 기록,
 멱등 replay, requestId 충돌을 확인할 수 있다. 이 결과는 서버 계약 증거일 뿐

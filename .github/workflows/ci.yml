@@ -97,6 +97,9 @@ jobs:
           docker compose --env-file /dev/null -f compose.migration.yaml config
           --no-env-resolution --quiet
 
+      - name: Validate local hardware-free demo Compose
+        run: docker compose --env-file /dev/null -f compose.local.yaml config --quiet
+
       - name: Build runtime and migration container images
         run: |
           docker build --target runtime --tag attend:ci .
@@ -120,6 +123,7 @@ jobs:
             ops/backup/backup.sh
             ops/backup/restore-verify.sh
             scripts/device-smoke.sh
+            scripts/local-http-demo.sh
             scripts/pilot-http-simulator.sh
           )
           bash -n "${scripts[@]}"

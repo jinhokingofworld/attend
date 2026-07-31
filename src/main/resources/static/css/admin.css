@@ -1,0 +1,202 @@
+:root {
+    color-scheme: light;
+    --background: #f4f7fb;
+    --surface: #ffffff;
+    --text: #172033;
+    --muted: #617089;
+    --primary: #2557a7;
+    --primary-dark: #173f7d;
+    --border: #d9e1ec;
+    --danger: #b42318;
+    --success: #067647;
+    font-family: Pretendard, "Noto Sans KR", system-ui, sans-serif;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: var(--background);
+    color: var(--text);
+    line-height: 1.55;
+}
+
+main {
+    width: min(1120px, calc(100% - 32px));
+    margin: 32px auto;
+    padding: 32px;
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: var(--surface);
+    box-shadow: 0 14px 36px rgb(31 50 81 / 8%);
+}
+
+h1,
+h2,
+h3 {
+    line-height: 1.25;
+}
+
+h1 {
+    margin-top: 0;
+}
+
+h2 {
+    margin-top: 28px;
+    font-size: 1.2rem;
+}
+
+a {
+    color: var(--primary);
+    font-weight: 650;
+    text-underline-offset: 3px;
+}
+
+nav,
+main > ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 20px 0;
+    padding: 0;
+    list-style: none;
+}
+
+nav a,
+main > ul a {
+    display: inline-block;
+    padding: 9px 13px;
+    border-radius: 10px;
+    background: #edf3fc;
+    text-decoration: none;
+}
+
+section,
+article {
+    margin: 20px 0;
+    padding: 20px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: #fbfcfe;
+}
+
+form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 12px;
+    margin: 14px 0;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+}
+
+label {
+    display: grid;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 0.92rem;
+    font-weight: 650;
+}
+
+input,
+select,
+textarea,
+button {
+    min-height: 42px;
+    border: 1px solid #bdc9d9;
+    border-radius: 9px;
+    padding: 8px 11px;
+    background: #fff;
+    color: var(--text);
+    font: inherit;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    outline: 3px solid rgb(37 87 167 / 18%);
+    border-color: var(--primary);
+}
+
+button,
+input[type="submit"] {
+    border-color: var(--primary);
+    background: var(--primary);
+    color: #fff;
+    cursor: pointer;
+    font-weight: 700;
+}
+
+button:hover,
+input[type="submit"]:hover {
+    background: var(--primary-dark);
+}
+
+table {
+    width: 100%;
+    margin: 18px 0;
+    border-collapse: collapse;
+}
+
+caption {
+    margin-bottom: 10px;
+    text-align: left;
+    font-weight: 750;
+}
+
+th,
+td {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    vertical-align: top;
+}
+
+th {
+    background: #f2f5fa;
+}
+
+[role="alert"] {
+    color: var(--danger);
+    font-weight: 700;
+}
+
+.login-shell {
+    width: min(440px, calc(100% - 32px));
+    margin-top: 10vh;
+}
+
+.login-shell form {
+    display: grid;
+}
+
+.login-shell label,
+.login-shell input {
+    width: 100%;
+}
+
+@media (max-width: 720px) {
+    main {
+        width: min(100% - 20px, 1120px);
+        margin: 10px auto;
+        padding: 20px;
+    }
+
+    form,
+    form label,
+    input,
+    select,
+    textarea,
+    button {
+        width: 100%;
+    }
+
+    table {
+        display: block;
+        overflow-x: auto;
+    }
+}

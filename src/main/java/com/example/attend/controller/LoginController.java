@@ -13,7 +13,7 @@ public class LoginController {
 
     @GetMapping("/login")
     public String showLogin(@ModelAttribute LoginForm form) {
-        return "/login";
+        return "login";
     }
 
     //회원가입
