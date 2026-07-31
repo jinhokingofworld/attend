@@ -1,3 +1,12 @@
+/*
+ * 배포 금지 레거시 예제
+ *
+ * 이 파일은 M4 장치 계약을 구현하지 않는다. X-Device-Code/X-Device-Key,
+ * requestId, 4·7·10-byte UID canonical JSON, HTTPS 인증서 검증, timeout·재시도와
+ * 전체 응답 parsing이 없고 sendAttendRequest의 int 값을 %s로 다루는 결함도 있다.
+ * 실제 Arduino를 확보한 뒤 docs/device-api.yaml 기준으로 새 펌웨어를 작성해야 한다.
+ */
+
 #include <SPI.h>
 #include <MFRC522.h>
 #include <WiFiNINA.h>

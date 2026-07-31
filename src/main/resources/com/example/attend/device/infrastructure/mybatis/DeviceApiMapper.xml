@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+		PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+		"https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.attend.device.infrastructure.mybatis.DeviceApiMapper">
+
+	<select id="lockCredentialByCode"
+			resultType="com.example.attend.device.infrastructure.mybatis.DeviceCredentialRow">
+		SELECT id, department_id, credential_hash, credential_version
+		FROM public.device
+		WHERE device_code = #{deviceCode}
+		FOR UPDATE
+	</select>
+
+	<update id="updateLastSeen">
+		UPDATE public.device
+		SET last_seen_at = #{seenAt}
+		WHERE id = #{deviceId}
+		  AND credential_version = #{credentialVersion}
+	</update>
+
+	<select id="lockRuntimeDevice"
+			resultType="com.example.attend.device.infrastructure.mybatis.DeviceRuntimeRow">
+		SELECT id, department_id, credential_version, status
+		FROM public.device
+		WHERE id = #{deviceId}
+		  AND department_id = #{departmentId}
+		FOR UPDATE
+	</select>
+
+	<select id="selectRuntimeDevice"
+			resultType="com.example.attend.device.infrastructure.mybatis.DeviceRuntimeRow">
+		SELECT id, department_id, credential_version, status
+		FROM public.device
+		WHERE id = #{deviceId}
+		  AND department_id = #{departmentId}
+	</select>
+
+	<update id="markCredentialTested">
+		UPDATE public.device
+		SET credential_tested_version = credential_version,
+			credential_tested_at = #{testedAt}
+		WHERE id = #{deviceId}
+		  AND status = 'INACTIVE'
+		  AND credential_version = #{credentialVersion}
+	</update>
+
+</mapper>

@@ -282,7 +282,7 @@ class M3SecurityIntegrationTest {
 
 		MvcResult deviceResult = mockMvc.perform(
 						post("/api/v1/device/tag-events"))
-				.andExpect(status().isUnauthorized())
+				.andExpect(status().isServiceUnavailable())
 				.andReturn();
 		assertThat(deviceResult.getRequest().getSession(false)).isNull();
 	}

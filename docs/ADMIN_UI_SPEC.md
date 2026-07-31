@@ -947,7 +947,7 @@ GET  /admin/system/devices/{deviceId}/credential-once
 
 새 장치는 항상 `INACTIVE`로 생성한다. 서버가 고엔트로피 비밀키를 생성하고 hash만 DB에 저장한다.
 
-성공 후 원문 비밀키는 서버 세션의 짧은 one-time 전달 객체를 통해 한 번만 보여준다. URL, query parameter, cookie, flash message와 로그에 원문을 넣지 않는다. `GET .../credential-once`는 전달 객체를 session에서 원자적으로 제거해 request-scoped view model로 옮긴 뒤 렌더링한다. 렌더링 실패, 새로고침 또는 다시 방문으로 객체가 없으면 원문을 재생성·재조회하지 않고 키 교체 절차를 안내한다.
+성공 후 원문 비밀키는 서버 세션의 최대 10분 one-time 전달 객체를 통해 한 번만 보여준다. URL, query parameter, cookie, flash message와 로그에 원문을 넣지 않는다. `GET .../credential-once`는 전달 객체를 session에서 원자적으로 제거해 request-scoped view model로 옮긴 뒤 렌더링한다. 10분 만료, 렌더링 실패, 새로고침 또는 다시 방문으로 객체가 없으면 원문을 재생성·재조회하지 않고 키 교체 절차를 안내한다.
 
 1회 응답에는 최소 `Cache-Control: no-store`를 설정한다. 호환성을 위해 `no-cache, must-revalidate`와 `Pragma: no-cache`를 함께 적용할 수 있다. 원문을 `localStorage`, `sessionStorage`, service worker cache나 브라우저 history state에 복사하지 않는다. 뒤로가기에서도 캐시된 원문이 다시 렌더링되지 않아야 한다.
 

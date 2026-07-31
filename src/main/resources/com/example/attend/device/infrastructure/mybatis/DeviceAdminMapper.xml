@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+		PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+		"https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.attend.device.infrastructure.mybatis.DeviceAdminMapper">
+
+	<sql id="adminColumns">
+		device.id,
+		device.department_id,
+		department.name AS department_name,
+		device.device_code,
+		device.name,
+		device.credential_version,
+		device.status,
+		device.credential_issued_at,
+		device.credential_tested_version,
+		device.credential_tested_at,
+		device.last_seen_at
+	</sql>
+
+	<select id="selectDevices"
+			resultType="com.example.attend.device.infrastructure.mybatis.DeviceAdminRow">
+		SELECT <include refid="adminColumns"/>
+		FROM public.device AS device
+		JOIN public.department AS department
+		  ON department.id = device.department_id
+		ORDER BY department.name, device.name, device.id
+	</select>
+
+	<select id="selectDevice"
+			resultType="com.example.attend.device.infrastructure.mybatis.DeviceAdminRow">
+		SELECT <include refid="adminColumns"/>
+		FROM public.device AS device
+		JOIN public.department AS department
+		  ON department.id = device.department_id
+		WHERE device.id = #{deviceId}
+	</select>
+
+	<select id="selectDepartmentId" resultType="long">
+		SELECT department_id
+		FROM public.device
+		WHERE id = #{deviceId}
+	</select>
+
+	<select id="lockDevice"
+			resultType="com.example.attend.device.infrastructure.mybatis.DeviceAdminRow">
+		SELECT <include refid="adminColumns"/>
+		FROM public.device AS device
+		JOIN public.department AS department
+		  ON department.id = device.department_id
+		WHERE device.id = #{deviceId}
+		  AND device.department_id = #{departmentId}
+		FOR UPDATE OF device
+	</select>
+
+	<select id="insertDevice" resultType="long" affectData="true">
+		INSERT INTO public.device (
+			department_id,
+			device_code,
+			name,
+			credential_hash,
+			credential_version,
+			status,
+			credential_issued_at
+		)
+		VALUES (
+			#{departmentId},
+			#{deviceCode},
+			#{name},
+			#{credentialHash},
+			1,
+			'INACTIVE',
+			#{issuedAt}
+		)
+		RETURNING id
+	</select>
+
+	<update id="activate">
+		UPDATE public.device
+		SET status = 'ACTIVE'
+		WHERE id = #{deviceId}
+		  AND status = 'INACTIVE'
+		  AND credential_tested_version = credential_version
+		  AND credential_tested_at &gt;= credential_issued_at
+	</update>
+
+	<update id="deactivate">
+		UPDATE public.device
+		SET status = 'INACTIVE',
+			credential_tested_version = NULL,
+			credential_tested_at = NULL
+		WHERE id = #{deviceId}
+		  AND status = 'ACTIVE'
+	</update>
+
+	<update id="rotateCredential">
+		UPDATE public.device
+		SET credential_hash = #{credentialHash},
+			credential_version = credential_version + 1,
+			status = 'INACTIVE',
+			credential_issued_at = #{issuedAt},
+			credential_tested_version = NULL,
+			credential_tested_at = NULL
+		WHERE id = #{deviceId}
+		  AND status IN ('INACTIVE', 'ACTIVE')
+	</update>
+
+	<update id="revoke">
+		UPDATE public.device
+		SET status = 'REVOKED',
+			credential_tested_version = NULL,
+			credential_tested_at = NULL
+		WHERE id = #{deviceId}
+		  AND status IN ('INACTIVE', 'ACTIVE')
+	</update>
+
+</mapper>
