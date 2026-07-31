@@ -54,7 +54,7 @@
 
 | 기술 주체 | 사용 시점 | 허용 범위 | 금지 |
 |---|---|---|---|
-| `app_runtime` | 운영 Spring Boot process | 신규 14개 테이블의 필요한 DML, `member` 허용 컬럼, sequence 사용, Flyway history 읽기 | DDL, Flyway history 변경, `member` 삭제, 레거시 3개 테이블 DML |
+| `app_runtime` | 운영 Spring Boot process | 신규 15개 테이블의 필요한 DML, `member` 허용 컬럼, sequence 사용, Flyway history 읽기 | DDL, Flyway history 변경, `member` 삭제, 레거시 3개 테이블 DML |
 | `migration_owner` | 배포 전 고정 Flyway runner | 승인 migration, schema·history 관리, `info`·`validate` | 웹 runtime 사용, 평상시 애플리케이션 접속 |
 | `cutover_writer` | 승인된 컷오버 시간 | bootstrap·importer의 최소 DML | DDL, 레거시 출석·로그 DML, 컷오버 후 로그인 |
 | `legacy_writer` | 안전 릴리스와 승인된 rollback 시간 | 기존 앱에 필요한 제한 DML | `member.card_uid` 변경, `member` 삭제, 컷오버 후 상시 로그인 |
@@ -65,7 +65,9 @@
 
 ### 2.3 계정 상태와 세션의 한계
 
-- `account.status = 'ACTIVE'`인 계정만 새로 로그인할 수 있다.
+- `account.status = 'PENDING_SETUP'`인 계정은 `password_hash`와 `password_changed_at`이 모두 `NULL`이며 로그인할 수 없다.
+- `account.status = 'ACTIVE'`인 계정은 `password_hash`와 `password_changed_at`이 모두 존재해야 하며 이 상태의 계정만 새로 로그인할 수 있다.
+- `DISABLED`는 두 비밀번호 필드가 모두 `NULL`이거나 모두 존재하는 조합만 허용하고 새 로그인을 거부한다.
 - `DISABLED`, 존재하지 않는 사용자명과 비밀번호 불일치는 외부에 같은 로그인 실패 문구를 반환한다.
 - MVP는 계정 비활성화·비밀번호 재설정 직후 기존 세션을 찾아 강제 만료하지 않는다.
 - 이 한계를 숨기지 않고 세션 유휴 만료 30분, 절대 만료 8시간을 적용한다.
@@ -203,7 +205,7 @@ MVP 구현 기준은 다음과 같다.
 - 비밀번호 hash는 Spring `PasswordEncoder`로 만들고 평문·복호화 가능한 암호문을 저장하지 않는다.
 - 비밀번호 변경 성공 시 `password_changed_at`을 갱신하고 보안 감사 이력을 남기되 hash와 평문은 before/after에 넣지 않는다.
 
-현재 `account` schema에는 회원가입 초대 상태나 일회용 초대·reset token을 표현하는 컬럼이 없다. 따라서 “시스템 관리자가 임시 비밀번호를 발급하고 다음 로그인에 강제 변경한다”는 기능을 현 schema만으로 안전하게 구현했다고 간주할 수 없다. 배포 전 bootstrap·회원가입 초대·reset 전달 절차와 필요한 schema를 확정해야 하며, 임시 비밀번호를 DB·로그·전자우편에 평문 보관하는 임시 구현은 금지한다.
+V002 목표 스키마는 비밀번호가 없는 `PENDING_SETUP`, 비밀번호가 설정된 `ACTIVE`, 두 이전 상태에서 전환 가능한 `DISABLED`를 상태·nullable hash·변경 시각의 `CHECK`로 결합한다. 회원가입 초대와 reset은 별도 `account_credential_token` 행으로 관리하고, 원문 token 대신 별도 pepper를 사용한 HMAC-SHA-256 결과만 64자 lowercase 16진수로 저장한다. 이 모델이 있어도 시스템 관리자가 평문 임시 비밀번호를 발급하거나 DB·로그·전자우편에 보관하는 경로는 금지한다.
 
 ### 5.2 로그인 시도 제한
 
@@ -235,10 +237,10 @@ MVP는 영구 계정 잠금을 만들지 않고 token bucket 두 개를 함께 �
 - 최초 `SYSTEM_ADMIN`은 승인된 maintenance window에서 `cutover_writer` 또는 별도 제한 CLI로 한 번만 bootstrap한다. 비밀번호는 운영자가 interactive input으로 직접 넣고 process argument·환경변수·shell history·로그에 남기지 않는다.
 - 첫 계정 생성이 성공하면 같은 bootstrap entry point는 추가 계정을 만들 수 없게 닫는다. 이후 계정과 권한은 인증된 시스템 관리자 절차를 따른다.
 - 시스템 관리자는 계정을 먼저 생성한 뒤 회원가입 초대 token을 발급한다. 초대받지 않은 사용자가 직접 계정을 생성하는 공개 회원가입은 제공하지 않는다.
-- 회원가입 초대와 password reset은 최소 128 bit 난수 token, token hash, 발급·만료·사용 시각과 대상 account를 저장할 모델이 있어야 한다.
-- 초대·reset token은 최대 30분만 유효하고 한 번 성공하거나 새 token을 발급하면 이전 token은 즉시 무효다. 원문 token을 DB·감사·application/access log·email 본문에 보관하지 않는다.
+- 회원가입 초대와 password reset 원문은 256 bit 난수로 생성하고, DB에는 대상 account, 발급 account, 목적 `INVITATION`·`RESET`, 발급·만료·사용·무효 시각과 64자 lowercase HMAC-SHA-256 hash만 저장한다.
+- 초대·reset token은 최대 30분만 유효하고 계정·목적별 미사용·미무효 token은 한 건만 허용한다. 한 번 성공하거나 새 token을 발급하면 이전 token은 즉시 사용할 수 없어야 하며 원문 token을 DB·감사·application/access log·email 본문에 보관하지 않는다.
 - token을 전달할 승인 채널과 HTTPS URL 정책이 확정되지 않았다면 URL만 임의로 만들지 않는다.
-- 현재 `account` schema에는 위 token과 초대 대기 상태가 없다. 필요한 Flyway migration과 테스트가 완료되기 전에는 계정 생성·회원가입 초대·reset command를 비활성화하고 성공 UI를 표시하지 않는다.
+- V002 migration과 계정 상태·token 제약의 PostgreSQL 부정 테스트가 완료되기 전에는 계정 생성·회원가입 초대·reset command를 비활성화하고 성공 UI를 표시하지 않는다. 전달 채널 승인은 이 DB 출시 gate와 별도다.
 - 평문 임시 비밀번호를 시스템 관리자가 조회·복사·메일 전송하는 방식은 대체 구현으로 허용하지 않는다.
 
 ---
@@ -401,6 +403,7 @@ IDOR 방지를 위해 자식 ID만으로 조회하지 않는다. 예를 들어 r
 |---|---|---|
 | `department` | `SELECT`, `INSERT` | MVP 상태 변경·`DELETE` |
 | `account` | 필요한 컬럼 `SELECT`, `INSERT`, 상태·hash 관련 column `UPDATE` | `DELETE`, hash 조회 화면 노출 |
+| `account_credential_token` | 발급·검증에 필요한 최소 `SELECT`, `INSERT`, 사용·무효 시각 `UPDATE` | `DELETE`, 원문 token 저장, 일반 목록·화면의 hash 노출 |
 | `account_department_role` | `SELECT`, `INSERT`, `revoked_at` 등 종료 column `UPDATE` | `DELETE` |
 | `member` | `id,name,phone,active,updated_at` SELECT; `name,phone,active` INSERT·UPDATE | `age,birth,card_uid,created_at` runtime 접근, 모든 `DELETE` |
 | `department_membership` | `SELECT`, `INSERT`, 종료 metadata column `UPDATE` | 부서·구성원 FK 변경, `DELETE` |
@@ -711,8 +714,8 @@ PRG(Post/Redirect/Get)를 사용하더라도 성공하지 않은 변경을 성�
 | `SEC-AUTH-09` | 정상 logout 뒤 기존 cookie 재사용 | 인증 실패 |
 | `SEC-AUTH-10` | idle 30분·absolute 8시간 경계 | 만료 후 재인증 요구 |
 | `SEC-AUTH-11` | fresh DB·artifact·migration으로 최초 기동 | 공개 기본 계정·비밀번호·공통 hash가 없고 승인 bootstrap 없이는 로그인 가능한 계정이 생기지 않음 |
-| `SEC-AUTH-12` | 회원가입 초대 token의 재사용·만료·교체·DB/log 검사 | 구현됐다면 hash만 저장, 최대 30분·1회성·새 발급 시 구 token 무효; 모델 미구현이면 계정 생성·초대 command와 성공 UI 비활성 |
-| `SEC-AUTH-13` | password reset token 재사용·만료·평문 임시 비밀번호 경로 | 구현됐다면 최대 30분·1회성이고 평문/token은 DB·audit·log에 없음; 모델 미구현이면 reset command 비활성 |
+| `SEC-AUTH-12` | 회원가입 초대 token의 재사용·만료·교체·DB/log 검사 | `INVITATION` hash만 저장, 최대 30분·1회성, 새 발급 시 구 token 무효; 유효 token 수락과 비밀번호 설정·`ACTIVE` 전환·사용 시각 기록은 원자 처리되고 원문은 DB·audit·log에 없음 |
+| `SEC-AUTH-13` | password reset token 재사용·만료·교체·평문 임시 비밀번호 경로 | `RESET` hash만 저장, 최대 30분·1회성, 새 발급 시 구 token 무효; 유효 token 소비와 비밀번호 변경은 원자 처리되고 평문 비밀번호·원문 token은 DB·audit·log에 없음 |
 
 기존 세션 강제 만료가 MVP 범위 밖이라는 사실도 별도 인수 테스트와 운영 문서에서 명시한다. 계정 비활성화 직후 기존 세션이 즉시 사라진다고 잘못 테스트해서는 안 된다.
 
@@ -825,7 +828,8 @@ PRG(Post/Redirect/Get)를 사용하더라도 성공하지 않은 변경을 성�
 - [ ] 로그인·장치 rate limit이 여러 인스턴스를 쓰는 경우에도 일관되게 동작함
 - [ ] application log와 backup 접근자가 별도로 제한됨
 - [ ] 개인정보·event·audit·backup 보유기간이 배포 전에 확정됨
-- [ ] bootstrap·회원가입 초대·password reset 전달 절차와 필요한 schema가 확정됨
+- [ ] V002 계정·token migration과 PostgreSQL 제약 부정 테스트를 통과함
+- [ ] 회원가입 초대·password reset 원문 token의 전달 채널과 HTTPS URL 정책이 승인됨
 
 ---
 
@@ -839,7 +843,7 @@ PRG(Post/Redirect/Get)를 사용하더라도 성공하지 않은 변경을 성�
 4. 운영 GRANT script와 실제 DB 권한이 동일함을 확인한다.
 5. `device-api.yaml`과 실제 filter·exception handler의 HTTP/code가 contract test에서 일치한다.
 6. feature flag를 모두 끈 초기 기동과 단계별 controlled restart를 리허설한다.
-7. 민감정보 보유기간, network/TLS, bootstrap·reset 절차가 승인되지 않으면 파일럿 운영을 시작하지 않는다.
+7. 민감정보 보유기간, network/TLS, bootstrap 절차와 초대·reset token 전달 채널이 승인되지 않으면 파일럿 운영을 시작하지 않는다.
 
 남는 MVP 위험은 다음과 같다.
 

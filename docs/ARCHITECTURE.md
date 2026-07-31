@@ -103,15 +103,15 @@ Attend MVP는 **단일 Spring Boot 애플리케이션으로 배포하는 모듈�
 
 | 영역 | 현재 상태 |
 |---|---|
-| 언어·런타임 | Java 21 설정. 조사 환경에는 Java Runtime이 없어 테스트 실행은 확인하지 못함 |
+| 언어·런타임 | Java 21 |
 | 애플리케이션 | Spring Boot 3.5.9 단일 Gradle 프로젝트 |
 | 웹 | Spring MVC, Thymeleaf |
 | 보안 | Spring Security form login, 단일 filter chain |
 | 데이터 접근 | MyBatis interface + XML Mapper |
 | DB | PostgreSQL |
-| 스키마 초기화 | `schema.sql`, `data.sql`이 애플리케이션 resource에 존재 |
+| 스키마 변경 | Spring SQL 초기화 차단, Flyway V001~V008 명시 실행 |
 | 펌웨어 | `RFID.ino`, MFRC522, WiFiNINA |
-| 테스트 | `contextLoads()` 한 건 |
+| 테스트 | Spring context와 PostgreSQL 15 Testcontainers migration·제약 테스트 |
 
 현재 패키지는 `controller`, `service`, `repository`, `entity`처럼 기술 계층별로 구성되어 있다. `Member`와 `Attendance` 객체가 DB 매핑, 서비스와 화면 전달에 함께 사용되므로 입력 DTO, 업무 모델과 저장 모델의 경계가 약하다.
 
@@ -126,7 +126,8 @@ flowchart LR
     API --> S
     S --> M["MyBatis XML Mapper"]
     M --> LDB[("저장소 기준 레거시 PostgreSQL 스키마<br>4개 테이블")]
-    INIT["schema.sql + data.sql"] -->|"애플리케이션 시작 시 실행 가능"| LDB
+    FLY["Flyway V001~V008<br>명시적 migration 실행"] --> TDB[("기존 member + 신규 목표 테이블")]
+    LDB --- TDB
     NFC["Arduino 펌웨어"] -. "경로·본문·인증·응답 처리 불일치" .-> API
 ```
 
@@ -142,22 +143,26 @@ POST /api/attendance
 
 이 흐름에는 부서, 출석 정책 버전, 출석 대상 날짜, 대상자 스냅샷, 요청 ID와 자동 마감이 없다.
 
-### 3.3 현재 작업 트리의 설정 상태
+### 3.3 현재 작업 트리의 DB 기반 상태
 
-2026-07-31 조사 시 작업 트리의 `application.properties`에는 다음 미완료 변경이 존재한다.
+2026-07-31 M1 DB 기반 작업으로 다음 항목을 구현했다.
 
-- DB URL이 `${DB_URL:jdbc:postgresql://localhost:5432/attenddb}`로 외부화됨
-- SQL 초기화 기본값이 `${SQL_INIT_MODE:never}`로 변경됨
+- 운영 classpath에서 파괴적 `schema.sql`, 샘플 `data.sql` 제거
+- `spring.sql.init.mode=never` 고정과 운영 프로필의 필수 DB 접속정보
+- 웹 runtime 기본 Flyway 비활성화와 테스트 프로필의 명시적 활성화
+- fresh·정확한 레거시 DB만 허용하는 Flyway V001~V008
+- `member` 물리 삭제 API·Mapper와 `card_uid` 직접 수정 경로 제거
+- PostgreSQL 15에서 fresh, legacy, drift 거부, 부서 scope, 날짜–정책–구간–상태 복합 FK, 부분 unique, token·NULL 부정 제약 검증
 
-두 값은 현재 미커밋 작업 트리 기준이다. 조사 시점의 `HEAD`에는 localhost 고정 URL과 `spring.sql.init.mode=always`가 남아 있다. 또한 실제 연결 DB의 객체·버전·데이터는 조회하지 않았으며, 이 문서의 레거시 4개 테이블 설명은 저장소의 `schema.sql`과 Mapper를 기준으로 한다.
+레거시 4개 테이블의 기준 구조는 운영 resource가 아니라 `src/test/resources/db/legacy/legacy-schema.sql`에 격리했다. 현재 Mapper와 서비스 대부분은 여전히 레거시 업무 모델을 사용하고 신규 목표 테이블을 사용하지 않는다.
 
 그러나 다음 이유로 안전 릴리스가 완료된 것은 아니다.
 
-- 파괴적인 `schema.sql`과 공개 샘플 `data.sql`이 배포 resource에 남아 있다.
-- 환경변수 오설정으로 SQL 초기화를 다시 활성화할 수 있다.
-- `DELETE FROM member`와 `card_uid` 직접 수정 경로가 남아 있다.
-- 빌드 artifact 검사와 두 번의 재시작 검증이 수행되지 않았다.
-- Flyway migration과 runtime DB 권한 분리가 아직 구현되지 않았다.
+- 실제 운영 DB의 성격과 기존 데이터는 아직 확인하지 않았다.
+- 운영 복제본의 백업 복원, migration 반복과 앱 연속 재시작 검증이 남아 있다.
+- `migration_owner`, `app_runtime`, `cutover_writer`, `legacy_writer` 권한 스크립트가 아직 없다.
+- 현재 guarded runner는 Gradle `dbMigrate` 작업으로 제공되며, 운영에서 이를 실행할 고정 컨테이너·배포 job은 아직 없다.
+- 기존 인증·출석 Mapper를 신규 계정·출석 도메인으로 교체하지 않았다.
 
 ### 3.4 현재 구조에서 유지할 수 없는 부분
 
@@ -798,8 +803,8 @@ PostgreSQL 기본 `READ COMMITTED`와 명시적 행 잠금·유일 제약을 사
 - 배포 전 별도 runner가 승인된 target version까지 migration
 - 웹 애플리케이션 DB 계정은 DDL 권한 없음
 - 애플리케이션 artifact에는 지원하는 최소·최대 schema version을 기록한다. MVP에서는 두 값을 같은 승인 target version으로 두고, runtime은 시작 시 `flyway_schema_history`에 대한 읽기 전용 검사로 일치 여부를 확인한다.
-- runtime 검사는 history 부재, `success = FALSE` 행 존재, 성공한 versioned non-baseline migration 부재를 모두 실패로 판정한다.
-- 현재 version은 `MAX(version)` 문자열 비교가 아니라 `version IS NOT NULL`, `type <> 'BASELINE'`, `success = TRUE`인 행을 `installed_rank DESC`로 정렬한 첫 행에서 구한다. 그 version이 release manifest의 승인 target과 정확히 같아야 한다.
+- V008 release의 runtime 검사는 history 부재, `success = FALSE` 행, V001~V008 중 누락·중복·초과 version을 모두 실패로 판정한다.
+- version 문자열에 `MAX`를 사용하지 않고 Flyway `MigrationVersion`으로 해석한 적용 순서 전체를 artifact의 V001~V008 목록과 정확히 비교한다.
 - repeatable migration은 현재 version 계산에서 제외하고 checksum·누락 여부는 배포 runner의 `flyway validate`로 검증한다.
 - 위 조건이 맞지 않으면 readiness 경고만 내는 것이 아니라 쓰기 요청을 받을 수 없도록 기동을 실패한다.
 - Spring SQL init과 Flyway를 함께 사용하지 않음
@@ -823,10 +828,10 @@ PostgreSQL 기본 `READ COMMITTED`와 명시적 행 잠금·유일 제약을 사
 
 | 프로필 | DB | Flyway | SQL init | scheduler | 장치 API |
 |---|---|---:|---:|---:|---:|
-| local | 전용 로컬 PostgreSQL | 활성 | 비활성 | 기본 비활성 | 선택 |
+| local runtime | 전용 로컬 PostgreSQL | 비활성, 먼저 `dbMigrate` 실행 | 비활성 | 기본 비활성 | 선택 |
 | test | Testcontainers PostgreSQL | 활성 | 비활성 | 비활성, 테스트가 직접 호출 | 테스트별 활성 |
 | prod runtime | 운영 PostgreSQL, `app_runtime` | 비활성 | 비활성 | feature flag | feature flag |
-| migration job | 운영 PostgreSQL, `migration_owner` | 활성 | 비활성 | 해당 없음 | 해당 없음 |
+| migration job | direct PostgreSQL, `migration_owner` | guarded `dbMigrate` runner | 비활성 | 해당 없음 | 해당 없음 |
 
 ### 10.3 운영 feature flag
 
@@ -971,7 +976,7 @@ Spring Boot Actuator를 도입하면 health endpoint를 외부에 무제한 공�
 - 앱 재시작 뒤 과거 미마감 날짜 복구
 - 새 앱의 레거시 출석·로그 DML 시도
 
-현재 조사 환경에는 Java Runtime이 없어 Gradle 테스트를 실행하지 못했다. 문서 작성 완료가 구현 검증 완료를 의미하지 않는다.
+현재 환경의 JDK 21과 PostgreSQL 15 Testcontainers에서 M1 context·migration 테스트 9건은 통과했다. 아직 자동화하지 않은 아래 시나리오와 전체 아키텍처 구현까지 검증됐다는 의미는 아니다.
 
 ---
 

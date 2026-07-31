@@ -193,6 +193,9 @@ DB의 `TEXT`가 무제한에 가깝더라도 웹 입력은 운영상 필요한 �
 | `CANCELED` | 취소 |
 | 정책 `DRAFT` | 초안 |
 | 정책 `PUBLISHED` | 발행됨 |
+| 계정 `PENDING_SETUP` | 초대 대기 |
+| 계정 `ACTIVE` | 활성 |
+| 계정 `DISABLED` | 비활성 |
 | 카드 `AVAILABLE` | 연결 가능 |
 | 카드 `ACTIVE` | 사용 중 |
 | 카드 `LOST` | 분실 |
@@ -398,11 +401,11 @@ POST /admin/system/accounts/{accountId}/reset-password
 
 계정 생성 필드는 사용자명과 `SYSTEM_ADMIN` 부여 여부다. 부서 권한은 생성 후 별도 작업으로 부여한다. 시스템 관리자는 계정을 먼저 만든 뒤 회원가입 초대 토큰을 발급하며, 초대받지 않은 사용자가 직접 계정을 만드는 공개 회원가입은 제공하지 않는다. 초대받은 사용자의 비밀번호 설정을 위해 평문 임시 비밀번호를 관리자가 저장·메일 전송하는 방식은 사용하지 않는다.
 
-현재 목표 스키마의 `account.password_hash`는 필수이고 상태는 `ACTIVE`·`DISABLED`뿐이다. 일회용 회원가입 초대·비밀번호 재설정 token의 hash·만료·사용 시각, `PENDING_SETUP` 또는 `must_change_password` 상태는 없다. 따라서 일반 계정 생성·회원가입 초대 수락·비밀번호 재설정 UI를 운영 가능 상태로 만들기 전에 만료되는 1회용 token을 hash로 저장하는 별도 모델을 보안·DB 문서에서 확정하고 필요한 migration을 추가해야 한다.
+V002 목표 스키마는 `account.password_hash`를 nullable로 두고 `PENDING_SETUP`, `ACTIVE`, `DISABLED` 상태와 비밀번호 hash·변경 시각의 조합을 `CHECK`로 제한한다. 새 일반 계정은 두 비밀번호 필드가 `NULL`인 `PENDING_SETUP`으로 생성한다. 유효한 `INVITATION` token 수락과 비밀번호 설정이 한 트랜잭션에서 성공할 때만 hash·변경 시각을 저장하고 계정을 `ACTIVE`로 전환한다. `account_credential_token`에는 원문이 아니라 64자 lowercase HMAC-SHA-256 hash와 대상·발급자·발급·만료·사용·무효 시각만 저장하며 유효기간은 최대 30분이다.
 
 승인된 운영자 CLI에서 사용자가 비밀번호를 즉시 입력하는 절차는 fresh DB의 **최초 `SYSTEM_ADMIN` 1회 bootstrap 전용**이다. bootstrap을 닫은 뒤의 일반 계정 생성·회원가입 초대·reset 대안으로 재사용하지 않는다.
 
-token 선결 조건이 완료되기 전에는 일반 계정의 웹 생성·회원가입 초대·재설정 command를 활성화하거나 `회원가입 초대 완료`, `비밀번호 재설정 완료`를 표시해서는 안 된다. 평문 임시 비밀번호를 DB·메일·감사 로그에 보관하는 임시 구현도 금지한다.
+V002 migration과 계정 상태·token 제약의 PostgreSQL 부정 테스트가 완료되기 전에는 일반 계정의 웹 생성·회원가입 초대·재설정 command를 활성화하거나 `회원가입 초대 완료`, `비밀번호 재설정 완료`를 표시해서는 안 된다. 이 DB 출시 gate와 별개로 원문 token 전달 채널·HTTPS URL 정책은 운영 전에 승인되어야 한다. 평문 임시 비밀번호를 DB·메일·감사 로그에 보관하는 임시 구현도 금지한다.
 
 비활성화 확인 화면에는 다음을 표시한다.
 
@@ -411,9 +414,9 @@ token 선결 조건이 완료되기 전에는 일반 계정의 웹 생성·회�
 - 신규 로그인이 즉시 차단됨
 - MVP에서는 이미 발급된 세션의 즉시 강제 만료를 보장하지 않음
 
-현재 로그인한 자기 계정 비활성화와 마지막 활성 `SYSTEM_ADMIN` 비활성화는 거부한다. 재활성화는 기존 권한을 자동 추가하지 않고 남아 있는 활성 권한만 다시 사용할 수 있게 한다.
+현재 로그인한 자기 계정 비활성화와 마지막 활성 `SYSTEM_ADMIN` 비활성화는 거부한다. 재활성화할 때 비밀번호 필드가 모두 `NULL`이면 `PENDING_SETUP`, 두 필드가 모두 존재하면 `ACTIVE`로 되돌린다. 기존 권한을 자동 추가하지 않고 남아 있는 활성 권한만 다시 사용할 수 있게 한다.
 
-비밀번호 재설정 화면은 확정된 1회용 token을 발급하고 승인된 전달 절차를 안내하는 기능만 제공한다. token 없는 별도 reset 경로를 대안으로 두지 않는다. 원문 비밀번호를 URL, flash message, application log, 이메일과 감사 before/after에 넣지 않는다. 위 선결 모델이 구현되지 않았다면 버튼 대신 `안전한 재설정 절차가 아직 구성되지 않았습니다.`를 표시하고 쓰기 endpoint도 제공하지 않는다.
+비밀번호 재설정 화면은 `RESET` 목적의 1회용 token을 발급하고 승인된 전달 절차를 안내하는 기능만 제공한다. token 없는 별도 reset 경로를 대안으로 두지 않는다. 원문 비밀번호를 URL, flash message, application log, 이메일과 감사 before/after에 넣지 않는다. V002 migration 또는 필수 DB 테스트가 완료되지 않았다면 버튼 대신 `안전한 재설정 절차가 아직 구성되지 않았습니다.`를 표시하고 쓰기 endpoint도 제공하지 않는다.
 
 **빈·오류 상태**
 
@@ -1194,7 +1197,7 @@ feature flag는 환경 설정과 controlled restart로만 바꾸므로 toggle·�
 
 아래 값은 UI 구조를 막지는 않지만 실제 배포 전에 관련 문서에서 확정해야 한다.
 
-1. 회원가입 초대·비밀번호 재설정을 위한 만료형 token 모델과 승인된 전달 채널. 제한 CLI는 fresh DB의 최초 `SYSTEM_ADMIN` 1회 bootstrap에만 사용하며 일반 계정 초대·reset 대안으로 사용하지 않음
+1. 회원가입 초대·비밀번호 재설정 원문 token의 승인된 전달 채널과 HTTPS URL 정책. 제한 CLI는 fresh DB의 최초 `SYSTEM_ADMIN` 1회 bootstrap에만 사용하며 일반 계정 초대·reset 대안으로 사용하지 않음
 2. 흔한·유출 비밀번호 금지 목록의 제공 방식과 갱신 책임
 3. 장치 수·설치 위치와 장치별 표시명
 4. 설치 장치별로 확정된 4·7·10-byte UID를 구분자 없는 대문자 16진수로 실제 읽고 전송하는 현장 호환성

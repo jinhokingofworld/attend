@@ -17,7 +17,7 @@ Attend MVP는 화면이 열리고 NFC 요청 한 건이 성공하는 것만으�
 3. 재시도, 동시 요청, 서버 재시작과 자동 마감 경합에도 최종 결과가 일관된다.
 4. 배포·마이그레이션·복구 과정이 운영 데이터를 삭제하거나 샘플 데이터로 덮어쓰지 않는다.
 
-현재 코드의 `contextLoads()` 한 건은 위 조건을 검증하지 못한다. 이 문서의 필수 게이트를 통과하기 전에는 실제 출석 업무에 사용하지 않는다.
+단일 `contextLoads()`만으로는 위 조건을 검증할 수 없다. M1은 별도의 PostgreSQL 15 migration·제약 테스트를 추가했지만, 이 문서의 나머지 필수 게이트를 통과하기 전에는 실제 출석 업무에 사용하지 않는다.
 
 ---
 
@@ -127,6 +127,7 @@ H2는 PostgreSQL 부분 인덱스, constraint, `ON CONFLICT`, lock과 transactio
 - `SYSTEM_ADMIN` 한 명
 - A 전용, B 전용, A+B 겸임 `DEPARTMENT_ADMIN`
 - 관리자 권한이 없는 활성 계정
+- 비밀번호가 없는 `PENDING_SETUP` 계정과 비밀번호 설정 전·후 각각의 `DISABLED` 계정
 - 부서별 활성 교사 3명과 종료된 소속 1명
 - `AVAILABLE`, `ACTIVE`, `LOST`, `RETIRED` 카드
 - `INACTIVE`, `ACTIVE`, `REVOKED` 장치
@@ -397,7 +398,7 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | DB-CST-011 | DB에는 8~32자 짝수 대문자 UID 저장, API에는 4·7·10-byte만 입력 | DB의 이력 호환 범위와 외부 API allowlist를 각각 통과 |
 | DB-CST-012 | record가 없는 target 또는 `is_target = FALSE`를 참조 | FK 없는 target은 DB 거부, 비활성 target은 service가 거부 |
 | DB-CST-013 | `PRESENT`·`LATE`의 시각·band snapshot 누락 또는 `ABSENT`에 값 존재 | CHECK 위반 |
-| DB-CST-014 | record band가 날짜 고정 정책 밖이거나 parent status와 불일치 | application transaction 거부, record 없음 |
+| DB-CST-014 | record policy가 날짜 고정 정책과 다르거나 band가 해당 정책 밖이거나 parent status와 불일치 | 복합 FK 위반, record 없음 |
 | DB-CST-015 | 소속·assignment 종료 metadata의 처리자·시각·사유 일부만 입력 | all-or-none CHECK 위반 |
 | DB-CST-016 | A부서 child를 B부서 day·device·membership에 연결 | 복합 FK 위반 |
 | DB-CST-017 | 허용 목록 밖 tag event result code 또는 `SERVER_ERROR` 저장 | CHECK 위반 |
@@ -407,6 +408,11 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | DB-CST-021 | 부모 부서·계정·교사·카드·정책·날짜 물리 삭제 | `ON DELETE RESTRICT` 위반 |
 | DB-CST-022 | `updated_at` 대상 행 update | trigger가 DB 시각으로 값을 전진시키고 PUBLIC 함수 실행 권한은 없음 |
 | DB-CST-023 | 시험 version·시각 중 하나만 입력, 현재 credential version과 다른 시험 version, 발급 전 시험 시각 또는 시험 증거 없는 `ACTIVE` 상태 입력 | credential 시험 증거·활성화 CHECK 위반 |
+| DB-CST-024 | `PENDING_SETUP`에 비밀번호 필드 입력, `ACTIVE`에서 hash·변경 시각 누락 또는 `DISABLED`에서 두 필드 중 하나만 입력 | 계정 상태·비밀번호 일관성 CHECK 위반 |
+| DB-CST-025 | token 목적·64자 lowercase hex hash·발급/만료/사용/무효 시각 규칙 위반 또는 사용·무효 동시 입력 | token CHECK 위반 |
+| DB-CST-026 | 없는 대상·발급 계정 참조, 중복 `token_hash` 또는 같은 계정·목적의 미사용·미무효 token 2건 입력 | FK, token hash unique 또는 활성 token 부분 unique 위반 |
+| DB-CST-027 | `NFC + ABSENT` 또는 `AUTO_ABSENCE + PRESENT/LATE` 조합 입력 | 판정 원천·상태 일관성 CHECK 위반 |
+| DB-CST-028 | tag event의 `nfc_card_id`와 원문 `uid`가 서로 다른 카드 식별 | 카드 ID–UID 복합 FK 위반 |
 
 ### 10.2 Mapper
 
@@ -427,6 +433,8 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 
 세부 절차는 `MIGRATION_PLAN.md`를 따르고 다음을 자동 또는 리허설 증적으로 남긴다.
 
+계정 생성·회원가입 초대·reset command의 DB 출시 gate는 V002를 적용하고 V007에 분리된 활성 token 부분 유일성까지 반영한 실제 PostgreSQL에서 `DB-CST-024~026`의 정상·위반 조합을 모두 검증하는 것이다. 원문 token 전달 채널과 HTTPS URL 정책의 운영 승인은 이 DB gate와 별도로 추적한다.
+
 | ID | 환경·작업 | 합격 기준 |
 |---|---|---|
 | MIG-FRESH-001 | 완전히 빈 DB에 V001~V008 적용 | baseline 행 없이 전체 목표 schema 생성 |
@@ -435,16 +443,18 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | MIG-SAFE-002 | 승인된 `LEGACY_OPERATIONAL` fixture | 사전조건 통과 후 명시적 version 0 `BASELINE` 정확히 한 행, PK·행·sequence 보존 |
 | MIG-SAFE-003 | `UNKNOWN` 분류 DB | 삭제·baseline·migration·이관 없이 중단 |
 | MIG-SAFE-004 | 기존 Flyway history가 있는 DB에서 새 baseline 시도 | 자동 추정하지 않고 중단, 기존 history 불변 |
-| MIG-SAFE-005 | 신규 14개 테이블·`attend_set_updated_at()`·이름 충돌 객체 중 하나 선존재 | baseline·migration 전 무변경 실패 |
+| MIG-SAFE-005 | 신규 15개 테이블·`attend_set_updated_at()`·이름 충돌 객체 중 하나 선존재 | baseline·migration 전 무변경 실패 |
 | MIG-SAFE-006 | 레거시 네 테이블 누락, 제3의 `member` 구조 또는 활성 writer 존재 | 사전점검 실패, DDL·data 변경 없음 |
 | MIG-SAFE-007 | `baselineOnMigrate=true` 또는 version 0이 아닌 자동 baseline 설정 | 배포 설정 검사 실패 |
+| MIG-SAFE-008 | 제거된 기존 seed의 알려진 password-hash fingerprint가 사용자명·권한과 무관하게 존재 | 원문·hash 노출 없이 read-only preflight 거부, history·계정 행 불변; V001 직접 호출도 거부 |
+| MIG-SAFE-009 | fresh DB에 `LEGACY_OPERATIONAL` 또는 legacy DB에 `NEW_OR_SAMPLE` 승인 입력 | source class 불일치로 migration 전 거부 |
 | MIG-RUNNER-001 | 실패 가능한 transactional migration | 전체 rollback, 성공 history 없음 |
 | MIG-RUNNER-002 | 적용 파일 checksum 변경 | runner의 `flyway validate` 실패, 배포 중단 |
 | MIG-RUNNER-003 | pending·out-of-order·repeatable checksum 불일치 | runner의 `info`·`validate` gate 실패 |
 | MIG-RUNNER-004 | 운영 runner에서 `clean` 시도 | `cleanDisabled=true`로 거부 |
-| MIG-RUNTIME-001 | history의 최신 성공 versioned non-baseline 행이 release manifest target과 일치 | runtime 기동 허용 |
-| MIG-RUNTIME-002 | history 없음·실패 행 존재·성공 versioned 행 없음·target 불일치 각각 | runtime이 쓰기 받기 전에 fail fast |
-| MIG-RUNTIME-003 | 설치 순서와 문자열 정렬이 다른 version fixture(예: `9`, `10`) | 문자열 `MAX(version)`이 아니라 최신 `installed_rank` 행으로 판정 |
+| MIG-RUNTIME-001 | 성공한 versioned history가 V001~V008과 정확히 일치 | runtime 기동 허용 |
+| MIG-RUNTIME-002 | history 없음·실패 행·version 누락·V008 미만·승인 target 초과 각각 | runtime이 쓰기 받기 전에 fail fast |
+| MIG-RUNTIME-003 | `001` 같은 표시 형식과 숫자 version 비교 | 문자열 `MAX(version)`이 아니라 Flyway `MigrationVersion`으로 판정 |
 | MIG-RUNTIME-004 | `migration_owner` credential을 웹 runtime에 설정 | 설정 검증 실패 |
 | MIG-GRANT-001 | `app_runtime` DDL·history write·member DELETE·legacy DML | table·column·sequence·function 권한으로 거부 |
 | MIG-RESTART-001 | 앱 두 번 재시작 | DROP·sample insert·row count 변화 없음 |
@@ -575,7 +585,7 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 |---|---|
 | `SEC-CHAIN-01~06` | 두 filter chain의 순서·stateless 경계·CSRF 범위·상호 인증 차단 |
 | `SEC-WEB-01~12` | 미인증·CSRF·GET command·역할 분리·권한 회수·정렬 주입·write flag |
-| `SEC-AUTH-01~13` | 동일 로그인 실패·두 rate bucket·session fixation·logout·두 만료 경계와 안전한 bootstrap·회원가입 초대·reset gate |
+| `SEC-AUTH-01~13` | 동일 로그인 실패·두 rate bucket·session fixation·logout·두 만료 경계, 안전한 bootstrap과 V002 기반 회원가입 초대·reset 계약 |
 | `SEC-IDOR-DEPARTMENT-01` | 다른 부서 namespace와 목록 진입 |
 | `SEC-IDOR-TEACHER-01`, `SEC-IDOR-CARD-01`, `SEC-IDOR-INBOX-01` | 교사·카드·등록함의 실제 다른 부서 ID |
 | `SEC-IDOR-POLICY-01`, `SEC-IDOR-DAY-01`, `SEC-IDOR-RECORD-01` | 정책·날짜·대상자·기록 조회와 command |
@@ -616,7 +626,7 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | ID | 화면 | 핵심 검증 |
 |---|---|---|
 | UI-001 | 로그인·비밀번호 | 오류, 잠금/제한, logout, session |
-| UI-002 | 부서·계정·권한 | 세 작업 분리, 유효한 중간 상태, 역할 회수 |
+| UI-002 | 부서·계정·권한 | `PENDING_SETUP` 초대·`ACTIVE` 전환, 세 작업 분리, 유효한 중간 상태, 역할 회수 |
 | UI-003 | 대시보드 | 동적 지각 단계, 미출석/결석 구분, 최근 event |
 | UI-004 | 교사 목록·상세 | 부서 scope, 활성 소속, 카드·출석 이력 |
 | UI-005 | 교사 추가·카드 연결 | 미등록 카드 선택, 전체 rollback 오류 |
@@ -705,14 +715,15 @@ LED·부저 패턴이 확정되기 전에는 code별 기대 신호를 `TBD`로 �
 ```text
 시스템 관리자 생성
 → 부서 생성
-→ 계정 생성
+→ 계정 생성(PENDING_SETUP)
+→ INVITATION token 발급·수락과 비밀번호 설정(ACTIVE)
 → 부서 관리자 권한 부여
 → INACTIVE 장치와 키 생성
 → credential test
 → ACTIVE 전환
 ```
 
-각 단계는 독립 transaction이며 아직 관리자 없는 부서와 아직 부서 권한 없는 계정이 유효한 중간 상태여야 한다.
+각 화살표 단계는 독립 transaction이며 아직 관리자 없는 부서와 아직 부서 권한 없는 `PENDING_SETUP` 계정이 유효한 중간 상태여야 한다. token 수락 단계 내부의 token 소비·비밀번호 저장·`ACTIVE` 전환은 한 transaction이다.
 
 ### E2E-02 정상 출석일
 
@@ -883,4 +894,4 @@ check-in 중 DB 실패
 - 5~20명 규모 최소 4회 파일럿에서 복구 불가능한 데이터 유실과 잘못된 교사 연결 0건
 - 남은 P2·P3는 영향·우회·담당자·기한이 기록됨
 
-현재 조사 환경에는 Java Runtime이 없어 이 문서 작성 시 Gradle 테스트를 실행하지 못했다. 문서 완료는 구현 또는 테스트 통과를 의미하지 않는다.
+현재 환경의 JDK 21과 PostgreSQL 15 Testcontainers에서 M1 context·migration 테스트 9건은 통과했다. 이는 위 MVP 출시 조건 전체의 통과를 의미하지 않는다.

@@ -59,6 +59,18 @@ erDiagram
         timestamptz updated_at
     }
 
+    ACCOUNT_CREDENTIAL_TOKEN {
+        bigint id PK
+        bigint account_id FK
+        varchar purpose
+        varchar token_hash UK
+        bigint issued_by_account_id FK
+        timestamptz issued_at
+        timestamptz expires_at
+        timestamptz consumed_at
+        timestamptz revoked_at
+    }
+
     ACCOUNT_DEPARTMENT_ROLE {
         bigint id PK
         bigint account_id FK
@@ -180,6 +192,7 @@ erDiagram
     ATTENDANCE_RECORD {
         bigint id PK
         bigint attendance_day_id FK
+        bigint policy_version_id FK
         bigint member_id FK
         bigint attendance_band_id FK
         varchar status
@@ -229,6 +242,8 @@ erDiagram
 
     ACCOUNT ||--o{ ACCOUNT_DEPARTMENT_ROLE : "has"
     DEPARTMENT ||--o{ ACCOUNT_DEPARTMENT_ROLE : "grants"
+    ACCOUNT ||--o{ ACCOUNT_CREDENTIAL_TOKEN : "receives"
+    ACCOUNT ||--o{ ACCOUNT_CREDENTIAL_TOKEN : "issues"
 
     MEMBER ||--o{ DEPARTMENT_MEMBERSHIP : "joins"
     DEPARTMENT ||--o{ DEPARTMENT_MEMBERSHIP : "contains"
@@ -273,10 +288,15 @@ erDiagram
 | 테이블 | 역할 | 핵심 제약 |
 |---|---|---|
 | `department` | 교회 내 독립 운영 부서 | 이름 유일, 물리 삭제 금지 |
-| `account` | 관리자 로그인 계정 | 사용자명 대소문자 무시 유일, 비밀번호 해시 저장 |
+| `account` | 관리자 로그인 계정과 회원가입 초대 진행 상태 | 사용자명 대소문자 무시 유일, 상태와 nullable 비밀번호 hash·변경 시각의 일관성 |
+| `account_credential_token` | 회원가입 초대와 비밀번호 재설정용 일회성 token | `INVITATION`·`RESET`, lowercase HMAC-SHA-256 hash, 계정·목적별 활성 token 최대 한 건 |
 | `account_department_role` | 계정의 부서별 관리자 권한과 이력 | 동일 계정·부서·역할의 활성 권한은 한 건 |
 
 `account.system_role`은 `SYSTEM_ADMIN` 또는 `NULL`만 허용한다. 부서 관리자 권한은 `account`에 직접 넣지 않고 `account_department_role`로 분리해 한 관리자가 여러 부서를 담당할 수 있게 한다.
+
+`account.status`는 `PENDING_SETUP`, `ACTIVE`, `DISABLED`만 허용한다. `PENDING_SETUP`은 `password_hash`와 `password_changed_at`이 모두 `NULL`이어야 하고, `ACTIVE`는 두 값이 모두 있어야 한다. `DISABLED`는 초대 대기 중 비활성화된 계정과 비밀번호 설정 후 비활성화된 계정을 모두 보존하기 위해 두 값이 모두 `NULL`이거나 모두 존재하는 조합만 허용한다. 따라서 비밀번호가 없는 계정이 로그인 가능한 상태가 되거나 hash와 변경 시각 중 하나만 저장되는 중간 상태는 DB `CHECK`로 거부된다.
+
+`account_credential_token.purpose`는 회원가입 초대 `INVITATION`과 비밀번호 재설정 `RESET`으로 제한한다. 서버는 원문 token을 저장하지 않고 별도 pepper를 사용한 HMAC-SHA-256 결과를 64자 lowercase 16진수 `token_hash`로 저장한다. 대상 계정, 발급 관리자, 발급·만료·사용·무효 시각을 보존하고 만료 시각은 발급 후 최대 30분까지만 허용한다. 사용과 무효는 동시에 기록할 수 없으며, 사용 시각은 유효기간 안이어야 하고 무효 시각은 발급 시각보다 빠를 수 없다. `(account_id, purpose)`별 미사용·미무효 token은 부분 유일 인덱스로 최대 한 건만 허용하므로 새 token 발급 서비스는 기존 활성 token 무효화와 새 행 생성을 한 트랜잭션으로 처리한다.
 
 ### 3.2 구성원, 소속, NFC 카드, 장치
 
@@ -284,7 +304,7 @@ erDiagram
 |---|---|---|
 | `member` | 출석 대상 구성원의 기준 정보. 기존 테이블 재사용 | 이름 필수, 연락처 선택, 부서 제외 시 물리 삭제 금지 |
 | `department_membership` | 구성원의 부서 소속 이력 | MVP에서 구성원별 활성 소속 최대 한 건, 소속 제외 처리 관리자·사유 보존 |
-| `nfc_card` | 물리 NFC 카드 | 정규화한 UID 전역 유일 |
+| `nfc_card` | 물리 NFC 카드 | 정규화한 UID 전역 유일, 이벤트의 카드 ID–UID 복합 참조 기준 |
 | `nfc_card_assignment` | 카드와 부서 소속 구성원의 연결 이력 | 카드별·구성원별 활성 연결 각각 최대 한 건, 자기 부서 활성 소속만 연결 |
 | `device` | Arduino/NFC 단말기와 인증정보 | 장치 코드 유일, 한 부서에 고정 귀속, `ACTIVE`는 현재 key의 시험 증거 필수 |
 
@@ -328,7 +348,7 @@ MVP에서 `device.department_id`는 생성 후 불변이다. 다른 부서로 �
 |---|---|---|
 | `attendance_day` | 부서별 출석 대상 날짜와 적용 정책 | `(department_id, attendance_date)` 유일 |
 | `attendance_target` | 날짜 등록 시점의 대상자 스냅샷과 사후 누락자 추가 이력 | `(attendance_day_id, member_id)` 기본키 |
-| `attendance_record` | 대상자의 최종 정상·지각·결석 상태 | `(attendance_day_id, member_id)` 유일 및 대상자 FK |
+| `attendance_record` | 대상자의 최종 정상·지각·결석 상태 | `(attendance_day_id, member_id)` 유일, 대상자 FK와 날짜–정책–구간–상태 복합 FK |
 
 `attendance_day.status`에는 `SCHEDULED`, `FINALIZED`, `CANCELED`만 저장한다. `OPEN`은 저장하지 않는다.
 
@@ -339,13 +359,14 @@ MVP에서 `device.department_id`는 생성 후 불변이다. 다른 부서로 �
 - `ABSENT`이면 `checked_in_at`, `attendance_band_id`, 구간 스냅샷은 `NULL`이다.
 - 참조한 구간은 해당 출석 날짜의 정책 버전에 속하고, 구간의 `parent_status`는 기록의 상태와 같아야 한다.
 - 현재 판정 원천은 `NFC`, `AUTO_ABSENCE`, `MANUAL` 중 하나다.
+- `NFC`는 `PRESENT`·`LATE`, `AUTO_ABSENCE`는 `ABSENT`에만 사용하고, 관리자가 상태에 영향을 주는 등록·정정을 하면 `MANUAL`을 사용한다.
 - 상태에 영향을 주는 수동 등록·정정은 `source = 'MANUAL'`로 바꾸고 처리 관리자 ID를 남긴다. 메모만 수정할 때는 기존 `source`를 유지한다.
 - `PRESENT`·`LATE` 수동 등록·정정에는 실제 출석 시각이 필수다. 서버는 이 시각이 해당 출석 날짜와 소속 기간 `[department_membership.joined_at, ended_at)` 안인지 검증한다. `ended_at IS NULL`이면 현재도 소속 중이다.
 - `PRESENT`·`LATE` 상태와 구간은 관리자가 임의 선택하지 않고, 입력한 실제 출석 시각과 해당 날짜에 고정된 정책으로 서버가 계산한다. `ABSENT` 수동 정정은 출석 시각과 구간을 `NULL`로 저장한다.
 - 소속 기간 검증을 통과한 누락자는 `CANCELED`가 아닌 날짜에서 활성 `attendance_target`과 `MANUAL` 기록을 같은 트랜잭션으로 추가한다. 대상자만 추가하는 부분 성공은 허용하지 않는다.
 - 정정 시 기존 행을 삭제하지 않고 갱신하며, 변경 전후 값과 사유를 `audit_log`에 남긴다.
 
-구간과 날짜 정책의 일치, `is_target = TRUE`, 출석 기록이 생긴 날짜의 취소 금지, 태깅 시작 후 일반 정책·대상자 변경 금지와 누락자 사후 수동 등록 예외는 여러 테이블과 현재 시각을 함께 확인해야 하므로 서비스 트랜잭션 또는 DB 트리거에서 검증한다.
+구간과 날짜 정책 및 구간 `parent_status`의 일치는 복합 FK로 보장한다. `is_target = TRUE`, 출석 기록이 생긴 날짜의 취소 금지, 태깅 시작 후 일반 정책·대상자 변경 금지와 누락자 사후 수동 등록 예외는 여러 테이블과 현재 시각을 함께 확인해야 하므로 서비스 트랜잭션 또는 DB 트리거에서 검증한다.
 
 ### 3.5 태깅 및 감사 로그
 
@@ -444,8 +465,12 @@ attendance_policy_version:
 
 attendance_day:
     UNIQUE (id, department_id)
+    UNIQUE (id, policy_version_id)
     FOREIGN KEY (policy_version_id, department_id)
         REFERENCES attendance_policy_version (id, department_id)
+
+attendance_band:
+    UNIQUE (id, policy_version_id, parent_status)
 
 department_membership:
     UNIQUE (id, department_id, member_id)
@@ -464,6 +489,8 @@ device:
     UNIQUE (id, department_id)
 
 tag_event_log:
+    FOREIGN KEY (nfc_card_id, uid)
+        REFERENCES nfc_card (id, uid)
     FOREIGN KEY (device_id, department_id)
         REFERENCES device (id, department_id)
     FOREIGN KEY (attendance_day_id, department_id)
@@ -479,6 +506,10 @@ audit_log:
 
 attendance_record:
     UNIQUE (id, attendance_day_id)
+    FOREIGN KEY (attendance_day_id, policy_version_id)
+        REFERENCES attendance_day (id, policy_version_id)
+    FOREIGN KEY (attendance_band_id, policy_version_id, status)
+        REFERENCES attendance_band (id, policy_version_id, parent_status)
 ```
 
 `tag_event_log`와 `audit_log`는 `attendance_day_id`가 있으면 `department_id`도 반드시 있도록 `CHECK`를 둔다. 후속 기능에서 장치가 작업 주체인 감사 로그를 사용한다면 `department_id`가 필수이며 `(actor_device_id, department_id)` 복합 FK로 장치 부서와 감사 범위를 일치시킨다. MVP의 일반 태깅은 이 감사 행을 만들지 않는다. `tag_event_log.attendance_record_id`가 있으면 `attendance_day_id`도 필수다. 위 복합 FK로 A부서 이벤트나 감사 이력이 B부서 출석 날짜·기록을 참조하지 못하게 한다.
@@ -494,12 +525,14 @@ attendance_record:
 | `account_department_role(department_id, account_id)` | 부서 관리자 권한 확인 |
 | `department_membership(department_id, member_id) WHERE ended_at IS NULL` | 날짜 대상자 스냅샷 생성 |
 | `nfc_card_assignment(department_id, member_id) WHERE unassigned_at IS NULL` | 부서별 활성 카드 연결 조회 |
+| `nfc_card_assignment(nfc_card_id)`, `nfc_card_assignment(member_id)` | 종료 이력을 포함한 카드·교사 FK 검사 |
 | `device(department_id, status)` | 부서별 장치 관리 |
 | `attendance_policy_version(department_id, status, version_no DESC)` | 최신 발행 정책 조회 |
 | `attendance_band(policy_version_id, sequence_no)` | 정책 구간 순서 조회 |
 | `attendance_day(attendance_date, id) WHERE status = 'SCHEDULED'` | 과거 미마감 날짜 탐색 |
 | `attendance_day(policy_version_id, attendance_date DESC)` | 정책 적용 날짜 조회 |
 | `attendance_target(member_id, attendance_day_id) WHERE is_target` | 개인 통계 분모 계산 |
+| `attendance_target(member_id)` | 비활성 이력을 포함한 교사 FK 검사 |
 | `attendance_record(member_id, attendance_day_id, status)` | 개인 상태·기간 통계 |
 | `tag_event_log(department_id, received_at DESC)` | 부서 최근 태깅 조회 |
 | `tag_event_log(department_id, received_at DESC) WHERE result_code = 'UNKNOWN_UID'` | 미등록 카드 등록함 |
@@ -596,6 +629,7 @@ flowchart LR
 ```sql
 INSERT INTO attendance_record (
     attendance_day_id,
+    policy_version_id,
     member_id,
     status,
     source,
@@ -604,6 +638,7 @@ INSERT INTO attendance_record (
 )
 SELECT
     atg.attendance_day_id,
+    :policyVersionId,
     atg.member_id,
     'ABSENT',
     'AUTO_ABSENCE',
@@ -640,7 +675,7 @@ Spring 스케줄러는 실행 계기만 제공한다. 결석 생성과 날짜 �
 - 고정 PostgreSQL enum인 `IN_TIME`, `TIME_OUT`, `MISS`
 - `data.sql`에 포함된 공개 샘플 계정과 비밀번호
 
-현재 `data.sql`의 샘플 UID에는 16진수가 아닌 문자가 포함되어 있다. 이를 임의 변환해 실제 카드 UID로 이관하지 말고, 개발 샘플로 폐기하거나 비활성 레거시 값으로 격리한 뒤 실제 카드를 다시 태깅해 등록한다.
+제거된 기존 `data.sql`의 샘플 UID에는 16진수가 아닌 문자가 포함되어 있었다. 이를 임의 변환해 실제 카드 UID로 이관하지 말고, 개발 샘플로 폐기하거나 비활성 레거시 값으로 격리한 뒤 실제 카드를 다시 태깅해 등록한다.
 
 기존 `member`의 전환 규칙은 다음과 같다.
 
@@ -652,7 +687,7 @@ Spring 스케줄러는 실행 계기만 제공한다. 결석 생성과 날짜 �
 6. 애플리케이션에서 구성원을 물리 삭제하지 않으며 기존 출석·로그 FK의 `ON DELETE CASCADE`도 `RESTRICT`로 교체한다.
 7. 초기 전환에서는 기존 `created_at`의 타입이나 값을 변환하지 않는다. 시간대가 없는 원본 시각은 참고 정보로만 취급한다.
 
-현재 저장소의 `data.sql`은 샘플이므로 운영 데이터로 간주하지 않는다. 별도로 배포된 DB에 실제 운영 `member` 데이터가 있으면 승인된 행만 활성 구성원과 부서 소속으로 전환하고 기존 PK를 그대로 사용한다.
+저장소에서 제거한 기존 `data.sql`의 내용은 샘플이므로 운영 데이터로 간주하지 않는다. 별도로 배포된 DB에 실제 운영 `member` 데이터가 있으면 승인된 행만 활성 구성원과 부서 소속으로 전환하고 기존 PK를 그대로 사용한다.
 
 기존 데이터에는 과거 날짜의 부서, 출석 정책과 출석 대상자별 최종 상태가 완전하게 존재하지 않는다. 누락 행을 결석으로 해석할 근거가 없고 기존 정상·지각 상태를 신규 정책 구간에 연결할 수도 없다. 따라서 MVP에서는 과거 `attendance`와 `attendance_log`를 신규 출석 테이블로 이관하지 않고 별도의 읽기 전용 레거시 이력으로만 보존한다.
 

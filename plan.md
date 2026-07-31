@@ -34,7 +34,7 @@
 - 아직 적용된 Flyway 이력이 없으면 회원가입 초대·비밀번호 재설정 토큰 모델을 V002에 포함한다. 외부 DB에 V002가 이미 성공 적용된 사실이 확인되면 기존 파일을 수정하지 않고 V009로 추가한다.
 - 운영 migration은 동일 커밋의 migration을 포함한 고정 Flyway 컨테이너가 Neon direct URL로 실행한다. 웹 애플리케이션에서는 Flyway를 끄고 요구 schema version만 검사한다.
 - `migration_owner`, `app_runtime`, `cutover_writer` 권한을 분리하고 웹 계정에는 DDL·Flyway history·레거시 DML 권한을 주지 않는다.
-- DB를 `NEW_OR_SAMPLE`, `LEGACY_OPERATIONAL`, `UNKNOWN`으로 자동 분류하고 `UNKNOWN`에서는 아무것도 변경하지 않는다.
+- 운영 책임자가 DB를 `NEW_OR_SAMPLE`, `LEGACY_OPERATIONAL`, `UNKNOWN`으로 승인하고, read-only preflight가 빈 DB·정확한 레거시 DB·기존 Flyway 관리 DB 여부를 독립 검증한다. 승인과 기술 상태가 다르거나 `UNKNOWN`이면 아무것도 변경하지 않는다.
 - 완료 조건은 빈 DB·레거시 fixture migration, 잘못된 schema 전체 rollback, 재시작 데이터 불변, 복합 FK·부분 unique·`RESTRICT` 부정 테스트 통과다.
 
 ### M2. 조직·출석 도메인
