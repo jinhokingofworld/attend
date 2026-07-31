@@ -7,6 +7,7 @@ import com.example.attend.access.api.AccountActor;
 import com.example.attend.attendance.domain.AttendanceParentStatus;
 import com.example.attend.attendance.domain.AttendanceStatus;
 import com.example.attend.common.error.BusinessRuleException;
+import com.example.attend.common.error.DepartmentAccessDeniedException;
 import com.example.attend.common.error.ResourceNotFoundException;
 import com.example.attend.organization.application.AddTeacherCommand;
 import com.example.attend.organization.application.TeacherRegistrationResult;
@@ -328,6 +329,25 @@ class M2ApplicationIntegrationTest {
 				FROM public.attendance_day
 				WHERE id = ?
 				""", dayId)).isEqualTo("FINALIZED");
+	}
+
+	/**
+	 * 사용자 입력 날짜가 잘못되어도 부서 권한 검사를 우회하지 않는지 검증한다.
+	 */
+	@Test
+	void authorizesDepartmentBeforeValidatingAttendanceDate() {
+		clock.setInstant(atSeoul(
+				LocalDate.of(2026, 8, 1),
+				LocalTime.of(8, 0)));
+		TestAuthority targetDepartment = createAuthority();
+		TestAuthority unauthorizedAccount = createAuthority();
+
+		assertThatThrownBy(() -> dayService.createDay(
+				new AccountActor(unauthorizedAccount.accountId()),
+				targetDepartment.departmentId(),
+				LocalDate.of(2026, 7, 31),
+				1L))
+				.isInstanceOf(DepartmentAccessDeniedException.class);
 	}
 
 	/**

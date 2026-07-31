@@ -73,10 +73,11 @@ public class AttendanceDayService {
 			long policyVersionId
 	) {
 		writeAuthorization.requireEnabled();
+		authorization.requireDepartmentAdmin(actor, departmentId);
 		if (attendanceDate == null || attendanceDate.isBefore(LocalDate.now(clock))) {
 			throw new BusinessRuleException("attendance day cannot be in the past");
 		}
-		authorizeAndLock(actor, departmentId);
+		departmentLock.lockActive(departmentId);
 		PolicyVersionRow policy = requirePublishedPolicy(departmentId, policyVersionId);
 		if (attendanceDate.equals(LocalDate.now(clock))) {
 			Instant start = ZonedDateTime.of(
