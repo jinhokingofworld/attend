@@ -1,3 +1,10 @@
+-- Composite foreign keys are department-boundary guards: repeated IDs must
+-- describe one consistent department/member/day, not merely existing rows.
+-- Partial unique indexes preserve ended/revoked history while allowing only one
+-- current relationship. Ordinary indexes cover common lookups and referencing
+-- FK columns because PostgreSQL does not create those indexes automatically.
+
+-- Cross-scope integrity -------------------------------------------------------
 ALTER TABLE public.nfc_card_assignment
     ADD CONSTRAINT fk_card_assignment_membership
         FOREIGN KEY (membership_id, department_id, member_id)
@@ -44,6 +51,9 @@ ALTER TABLE public.audit_log
         REFERENCES public.attendance_day (id, department_id)
         ON DELETE RESTRICT;
 
+-- Active-history uniqueness --------------------------------------------------
+-- Expiry alone does not close a credential token; consumed_at or revoked_at must
+-- be set before another active token of the same purpose can be issued.
 CREATE UNIQUE INDEX uq_account_credential_token_active
     ON public.account_credential_token (account_id, purpose)
     WHERE consumed_at IS NULL AND revoked_at IS NULL;
@@ -72,6 +82,9 @@ CREATE UNIQUE INDEX uq_membership_one_active_per_member
     ON public.department_membership (member_id)
     WHERE ended_at IS NULL;
 
+-- The preceding global rule currently limits a member to one active department.
+-- This scoped index is logically redundant for uniqueness, but also provides a
+-- useful department/member access path.
 CREATE UNIQUE INDEX uq_membership_active_in_department
     ON public.department_membership (department_id, member_id)
     WHERE ended_at IS NULL;
@@ -98,6 +111,7 @@ CREATE UNIQUE INDEX uq_member_one_active_card
     ON public.nfc_card_assignment (member_id)
     WHERE unassigned_at IS NULL;
 
+-- Foreign-key and read-path indexes ------------------------------------------
 CREATE INDEX idx_card_assignment_department_member
     ON public.nfc_card_assignment (department_id, member_id);
 

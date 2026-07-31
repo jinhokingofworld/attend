@@ -26,15 +26,38 @@ import static com.example.attend.database.DatabasePreflightInspector.PreflightSt
 import static com.example.attend.database.DatabasePreflightInspector.PreflightStatus.LEGACY_CANDIDATE;
 import static com.example.attend.database.DatabasePreflightInspector.PreflightStatus.REJECTED;
 
+/**
+ * 실제 PostgreSQL 15에서 V001~V008 migration의 안전성과 핵심 제약조건을 검증한다.
+ *
+ * <p>H2 같은 대체 DB로는 PostgreSQL catalog, partial unique index, 복합 외래 키,
+ * SQLSTATE가 실제 운영 DB와 같다고 보장할 수 없다. 따라서 Testcontainers로
+ * PostgreSQL을 실행하고 테스트마다 독립 데이터베이스를 만들어 서로의 스키마와
+ * 데이터를 공유하지 않게 한다.</p>
+ */
 @Testcontainers
 class FlywayMigrationTest {
 
+    /**
+     * 운영 실행기와 테스트용 Flyway가 함께 사용하는 migration 경로다.
+     */
     private static final String MIGRATION_LOCATION = "classpath:db/migration";
 
+    /**
+     * 이 테스트 클래스의 모든 테스트가 공유하는 PostgreSQL 서버 컨테이너다.
+     *
+     * <p>서버 프로세스만 공유하고 각 테스트의 데이터베이스는
+     * {@link #createDatabase(String)}가 별도로 생성한다.</p>
+     */
     @Container
     static final PostgreSQLContainer<?> postgres =
             new PostgreSQLContainer<>("postgres:15-alpine");
 
+    /**
+     * 빈 DB가 올바르게 분류되고 V008까지 정확히 한 번 적용되는지 검증한다.
+     *
+     * <p>잘못된 운영자 승인값에서는 history조차 만들지 않아야 하며, 같은
+     * migration을 다시 실행해도 결과가 바뀌지 않는 멱등성도 함께 확인한다.</p>
+     */
     @Test
     void migratesFreshDatabaseToTheCompleteTargetSchema() throws Exception {
         Database database = createDatabase("fresh");
@@ -107,6 +130,12 @@ class FlywayMigrationTest {
         }
     }
 
+    /**
+     * 관리자 계정의 초기 상태와 회원가입 초대 토큰의 일회성 규칙을 검증한다.
+     *
+     * <p>서비스 코드가 실수하더라도 DB가 계정 상태 조합, 토큰 hash 형식,
+     * 30분 수명, 발급자 참조, 소비·폐기 시각, 활성 토큰 중복을 거부해야 한다.</p>
+     */
     @Test
     void enforcesPendingAccountAndOneTimeInvitationTokenConstraints() throws Exception {
         Database database = createDatabase("token");
@@ -466,6 +495,13 @@ class FlywayMigrationTest {
         }
     }
 
+    /**
+     * 부서 경계를 넘는 참조와 “현재 활성 행은 하나” 규칙을 검증한다.
+     *
+     * <p>복합 외래 키가 소속·카드·장치·출석정책의 부서 범위를 지키는지,
+     * partial unique index가 과거 이력은 보존하면서 현재 배정 중복만 막는지,
+     * 상태별 CHECK 제약이 잘못된 조합을 차단하는지 실제 SQL로 확인한다.</p>
+     */
     @Test
     void enforcesDepartmentScopeAndActiveHistoryUniqueness() throws Exception {
         Database database = createDatabase("scope");
@@ -1089,6 +1125,13 @@ class FlywayMigrationTest {
         }
     }
 
+    /**
+     * 정확한 레거시 DB를 채택해도 기존 행과 기본 키가 보존되는지 검증한다.
+     *
+     * <p>사전검사 승인 전에는 baseline history를 만들지 않으며, 승인 후에는
+     * 기존 교사 ID를 유지하고 sequence만 다음 안전한 값으로 이동한다. 또한
+     * 과거 출석 이력을 교사 삭제가 연쇄 삭제하지 못하도록 FK를 제한한다.</p>
+     */
     @Test
     void adoptsExactLegacySchemaWithoutChangingRowsOrPrimaryKeys() throws Exception {
         Database database = createDatabase("legacy");
@@ -1217,6 +1260,12 @@ class FlywayMigrationTest {
         }
     }
 
+    /**
+     * 레거시 외래 키가 이미 {@code ON DELETE RESTRICT}인 경우도 안전하게 채택한다.
+     *
+     * <p>V001은 허용된 두 출발 형태를 구분하되 최종 결과는 항상 같은 삭제
+     * 제한으로 수렴해야 한다.</p>
+     */
     @Test
     void acceptsAnExactLegacySchemaWhoseForeignKeysAreAlreadyRestricted()
             throws Exception {
@@ -1272,6 +1321,12 @@ class FlywayMigrationTest {
         }
     }
 
+    /**
+     * 이름만 같은 알 수 없는 {@code member} 테이블을 레거시로 추측하지 않는지 검증한다.
+     *
+     * <p>거부된 DB에서는 기존 행을 수정하지 않고, 새 업무 테이블과 Flyway
+     * history도 만들지 않는 fail-closed 동작이 핵심이다.</p>
+     */
     @Test
     void rejectsUnknownMemberShapeWithoutCreatingFlywayHistory()
             throws Exception {
@@ -1325,6 +1380,13 @@ class FlywayMigrationTest {
         }
     }
 
+    /**
+     * 과거에 공개됐던 샘플 자격증명이 남은 DB를 두 방어선에서 거부한다.
+     *
+     * <p>정상 실행 경로의 사전검사가 baseline 전에 차단하고, 누군가 실행기를
+     * 우회해 Flyway를 직접 호출해도 V001 자체가 첫 구조 변경 전에 다시
+     * 차단하는지 검증한다.</p>
+     */
     @Test
     void rejectsFormerPublicSampleHashBeforeBaselineAndInsideV001()
             throws Exception {
@@ -1403,6 +1465,12 @@ class FlywayMigrationTest {
         }
     }
 
+    /**
+     * 애플리케이션 시작 검사가 정확히 성공한 V001~V008만 허용하는지 검증한다.
+     *
+     * <p>history 없음, 구버전, 실패 처리된 migration, 애플리케이션보다 앞선
+     * 버전을 모두 거부하고 정확한 버전 목록만 통과시킨다.</p>
+     */
     @Test
     void acceptsOnlyTheExactSuccessfulSchemaAtApplicationStartup()
             throws Exception {
@@ -1461,6 +1529,12 @@ class FlywayMigrationTest {
         }
     }
 
+    /**
+     * 제약조건 자체만 시험할 때 사용할 표준 Flyway 설정을 만든다.
+     *
+     * @param database 테스트가 소유한 독립 데이터베이스
+     * @return 운영 설정과 같은 안전 옵션을 적용한 Flyway 인스턴스
+     */
     private static Flyway flyway(Database database) {
         return Flyway.configure()
                 .dataSource(database.url(), postgres.getUsername(), postgres.getPassword())
@@ -1475,6 +1549,15 @@ class FlywayMigrationTest {
                 .load();
     }
 
+    /**
+     * 공유 PostgreSQL 서버 안에 테스트 전용 데이터베이스를 만든다.
+     *
+     * <p>prefix 뒤에 UUID를 붙여 병렬 실행과 재실행에서도 이름 충돌을 피한다.</p>
+     *
+     * @param prefix 실패 로그에서 테스트 목적을 식별할 짧은 이름
+     * @return 새 데이터베이스의 JDBC URL을 가진 값 객체
+     * @throws SQLException 데이터베이스 생성에 실패할 때
+     */
     private static Database createDatabase(String prefix) throws SQLException {
         String databaseName = "attend_" + prefix + "_"
                 + UUID.randomUUID().toString().replace("-", "");
@@ -1495,6 +1578,14 @@ class FlywayMigrationTest {
         return new Database(url);
     }
 
+    /**
+     * 단일 정수 값을 반환하는 SQL을 실행한다.
+     *
+     * @param connection 사용할 JDBC 연결
+     * @param sql 한 행·한 열을 반환하는 조회문
+     * @return 첫 행의 첫 번째 정수 값
+     * @throws SQLException 조회가 실패할 때
+     */
     private static int queryInt(Connection connection, String sql) throws SQLException {
         try (Statement statement = connection.createStatement();
              ResultSet resultSet = statement.executeQuery(sql)) {
@@ -1503,6 +1594,14 @@ class FlywayMigrationTest {
         }
     }
 
+    /**
+     * 기존 statement로 INSERT ... RETURNING 같은 단일 long 값을 읽는다.
+     *
+     * @param statement 현재 테스트 흐름에서 재사용할 statement
+     * @param sql 한 행·한 열을 반환하는 SQL
+     * @return 첫 행의 첫 번째 long 값
+     * @throws SQLException 조회가 실패할 때
+     */
     private static long queryLong(Statement statement, String sql) throws SQLException {
         try (ResultSet resultSet = statement.executeQuery(sql)) {
             resultSet.next();
@@ -1510,6 +1609,14 @@ class FlywayMigrationTest {
         }
     }
 
+    /**
+     * 기존 statement로 단일 문자열 값을 조회한다.
+     *
+     * @param statement 현재 테스트 흐름에서 재사용할 statement
+     * @param sql 한 행·한 열을 반환하는 SQL
+     * @return 첫 행의 첫 번째 문자열이며 SQL {@code NULL}이면 {@code null}
+     * @throws SQLException 조회가 실패할 때
+     */
     private static String queryString(Statement statement, String sql) throws SQLException {
         try (ResultSet resultSet = statement.executeQuery(sql)) {
             resultSet.next();
@@ -1517,6 +1624,14 @@ class FlywayMigrationTest {
         }
     }
 
+    /**
+     * 연결에서 새 statement를 열어 단일 문자열 값을 조회한다.
+     *
+     * @param connection 사용할 JDBC 연결
+     * @param sql 한 행·한 열을 반환하는 SQL
+     * @return 첫 행의 첫 번째 문자열이며 SQL {@code NULL}이면 {@code null}
+     * @throws SQLException 조회가 실패할 때
+     */
     private static String queryString(Connection connection, String sql)
             throws SQLException {
         try (Statement statement = connection.createStatement()) {
@@ -1524,6 +1639,14 @@ class FlywayMigrationTest {
         }
     }
 
+    /**
+     * 한 열의 여러 행을 집합으로 읽어 순서와 무관하게 비교할 수 있게 한다.
+     *
+     * @param connection 사용할 JDBC 연결
+     * @param sql 여러 행의 문자열 한 열을 반환하는 SQL
+     * @return 중복을 제거한 문자열 집합
+     * @throws SQLException 조회가 실패할 때
+     */
     private static Set<String> queryStrings(Connection connection, String sql)
             throws SQLException {
         try (Statement statement = connection.createStatement();
@@ -1536,6 +1659,18 @@ class FlywayMigrationTest {
         }
     }
 
+    /**
+     * SQL이 예상한 PostgreSQL 제약조건 때문에 실패했는지 확인한다.
+     *
+     * <p>단순히 “예외가 발생했다”만 검사하면 문법 오류나 연결 장애도 테스트를
+     * 통과시킬 수 있다. SQLSTATE와 제약조건 이름을 함께 비교해 의도한 DB 규칙이
+     * 실제 실패 원인인지 증명한다.</p>
+     *
+     * @param statement SQL을 실행할 statement
+     * @param sql 실패해야 하는 SQL
+     * @param expectedSqlState 예상 PostgreSQL SQLSTATE
+     * @param expectedConstraint 실패를 일으켜야 하는 제약조건 이름
+     */
     private static void assertConstraintViolation(
             Statement statement,
             String sql,
@@ -1553,8 +1688,18 @@ class FlywayMigrationTest {
                 });
     }
 
+    /**
+     * 테스트 데이터베이스 접속정보를 한 값으로 묶는다.
+     *
+     * @param url 테스트 데이터베이스 JDBC URL
+     */
     private record Database(String url) {
 
+        /**
+         * 사전검사기와 migration 실행기에 전달할 DataSource를 만든다.
+         *
+         * @return 테스트 컨테이너 계정을 사용하는 DataSource
+         */
         private DriverManagerDataSource dataSource() {
             return new DriverManagerDataSource(
                     url,
@@ -1563,6 +1708,12 @@ class FlywayMigrationTest {
             );
         }
 
+        /**
+         * 직접 SQL 검증에 사용할 JDBC 연결을 연다.
+         *
+         * @return 호출자가 닫아야 하는 새 연결
+         * @throws SQLException 연결에 실패할 때
+         */
         private Connection connect() throws SQLException {
             return DriverManager.getConnection(
                     url,

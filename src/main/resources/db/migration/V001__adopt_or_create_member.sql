@@ -4,6 +4,10 @@
 -- Any partial or structurally different schema is rejected before alteration.
 -- The BEGIN keywords below delimit PL/pgSQL bodies; this file intentionally
 -- contains no top-level transaction control because Flyway owns that boundary.
+--
+-- DatabasePreflightInspector intentionally parses the first DO $v001$ block,
+-- its $v001$; end marker, and the exact ACCESS EXCLUSIVE lock literal below.
+-- Changing those boundaries must also update the Java preflight inspector.
 
 DO $v001$
 DECLARE
@@ -221,6 +225,10 @@ BEGIN
                 'V001 rejected legacy schema: legacy tables must not use or participate in table inheritance';
         END IF;
 
+        -- This lock closes the time-of-check/time-of-use gap: no concurrent DDL
+        -- can change the four tables between exact catalog validation and ALTER.
+        -- Preflight replaces only this lock level in memory and then relies on
+        -- its READ ONLY transaction to stop at the first following write.
         EXECUTE
             'LOCK TABLE public.member, public.authentications, public.attendance, public.attendance_log IN ACCESS EXCLUSIVE MODE';
 
@@ -898,6 +906,8 @@ BEGIN
                 'V001 rejected legacy data: member_id_seq cannot advance beyond the maximum BIGINT member id';
         END IF;
 
+        -- Preserve every legacy row and primary key. Only the new operational
+        -- columns and checks are added; the sequence is repaired after this block.
         EXECUTE $alter_member$
             ALTER TABLE public.member
                 ADD COLUMN active BOOLEAN NOT NULL DEFAULT FALSE,
@@ -908,6 +918,8 @@ BEGIN
                     CHECK (phone IS NULL OR char_length(btrim(phone)) > 0)
         $alter_member$;
 
+        -- Attendance history must outlive accidental member deletion, so former
+        -- CASCADE foreign keys are tightened to RESTRICT without renaming them.
         IF attendance_fk_delete_action = 'c' THEN
             EXECUTE pg_catalog.format(
                 'ALTER TABLE public.attendance DROP CONSTRAINT %I',
@@ -942,6 +954,8 @@ COMMENT ON COLUMN public.member.created_at IS
 COMMENT ON COLUMN public.member.card_uid IS
     'Legacy migration evidence only; nfc_card and nfc_card_assignment are the operational source of truth.';
 
+-- Explicit legacy IDs can leave BIGSERIAL behind max(member.id). Advance only
+-- when necessary so the next insert cannot collide with a preserved legacy row.
 DO $member_sequence_guard$
 DECLARE
     maximum_member_id BIGINT;
