@@ -1,0 +1,328 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+		PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+		"https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.attend.access.infrastructure.mybatis.AccountAdministrationMapper">
+
+	<select id="selectDepartments" resultType="map">
+		SELECT department.id,
+		       department.name,
+		       department.active,
+		       department.created_at,
+		       count(DISTINCT role_assignment.id)
+		           FILTER (WHERE role_assignment.revoked_at IS NULL) AS administrator_count,
+		       count(DISTINCT device.id) AS device_count
+		FROM public.department AS department
+		LEFT JOIN public.account_department_role AS role_assignment
+		  ON role_assignment.department_id = department.id
+		 AND role_assignment.role = 'DEPARTMENT_ADMIN'
+		LEFT JOIN public.device AS device
+		  ON device.department_id = department.id
+		GROUP BY department.id
+		ORDER BY lower(department.name), department.id
+	</select>
+
+	<select id="selectDepartment" resultType="map">
+		SELECT department.id,
+		       department.name,
+		       department.active,
+		       department.created_at,
+		       count(DISTINCT role_assignment.id)
+		           FILTER (WHERE role_assignment.revoked_at IS NULL) AS administrator_count,
+		       count(DISTINCT device.id) AS device_count
+		FROM public.department AS department
+		LEFT JOIN public.account_department_role AS role_assignment
+		  ON role_assignment.department_id = department.id
+		 AND role_assignment.role = 'DEPARTMENT_ADMIN'
+		LEFT JOIN public.device AS device
+		  ON device.department_id = department.id
+		WHERE department.id = #{departmentId}
+		GROUP BY department.id
+	</select>
+
+	<select id="insertDepartment" resultType="long" affectData="true">
+		INSERT INTO public.department(name)
+		VALUES (#{name})
+		RETURNING id
+	</select>
+
+	<select id="selectDepartmentAdministrators" resultType="map">
+		SELECT account.id,
+		       account.username,
+		       account.status,
+		       role_assignment.assigned_at
+		FROM public.account_department_role AS role_assignment
+		JOIN public.account AS account
+		  ON account.id = role_assignment.account_id
+		WHERE role_assignment.department_id = #{departmentId}
+		  AND role_assignment.role = 'DEPARTMENT_ADMIN'
+		  AND role_assignment.revoked_at IS NULL
+		ORDER BY lower(account.username), account.id
+	</select>
+
+	<select id="selectDepartmentDevices" resultType="map">
+		SELECT id, device_code, name, status, last_seen_at
+		FROM public.device
+		WHERE department_id = #{departmentId}
+		ORDER BY lower(name), id
+	</select>
+
+	<select id="selectAccounts" resultType="map">
+		SELECT account.id,
+		       account.username,
+		       account.system_role,
+		       account.status,
+		       account.password_changed_at,
+		       account.created_at,
+		       coalesce(
+		           string_agg(
+		               department.name,
+		               ', ' ORDER BY lower(department.name))
+		               FILTER (WHERE role_assignment.revoked_at IS NULL),
+		           '') AS department_names
+		FROM public.account AS account
+		LEFT JOIN public.account_department_role AS role_assignment
+		  ON role_assignment.account_id = account.id
+		 AND role_assignment.role = 'DEPARTMENT_ADMIN'
+		LEFT JOIN public.department AS department
+		  ON department.id = role_assignment.department_id
+		GROUP BY account.id
+		ORDER BY lower(account.username), account.id
+	</select>
+
+	<select id="selectAccount"
+			resultType="com.example.attend.access.infrastructure.mybatis.AccountAdministrationRow">
+		SELECT id, username, password_hash, system_role, status,
+		       password_changed_at, created_at
+		FROM public.account
+		WHERE id = #{accountId}
+	</select>
+
+	<select id="lockAccount"
+			resultType="com.example.attend.access.infrastructure.mybatis.AccountAdministrationRow">
+		SELECT id, username, password_hash, system_role, status,
+		       password_changed_at, created_at
+		FROM public.account
+		WHERE id = #{accountId}
+		FOR UPDATE
+	</select>
+
+	<select id="insertPendingAccount" resultType="long" affectData="true">
+		INSERT INTO public.account(username, system_role, status)
+		VALUES (#{username}, #{systemRole}, 'PENDING_SETUP')
+		RETURNING id
+	</select>
+
+	<select id="countOtherActiveSystemAdmins" resultType="int">
+		SELECT count(*)
+		FROM public.account
+		WHERE id != #{accountId}
+		  AND status = 'ACTIVE'
+		  AND system_role = 'SYSTEM_ADMIN'
+	</select>
+
+	<update id="disableAccount">
+		UPDATE public.account
+		SET status = 'DISABLED'
+		WHERE id = #{accountId}
+		  AND status IN ('PENDING_SETUP', 'ACTIVE')
+	</update>
+
+	<update id="enableAccount">
+		UPDATE public.account
+		SET status = CASE
+		        WHEN password_hash IS NULL THEN 'PENDING_SETUP'
+		        ELSE 'ACTIVE'
+		    END
+		WHERE id = #{accountId}
+		  AND status = 'DISABLED'
+	</update>
+
+	<select id="selectAccountDepartmentRoles" resultType="map">
+		SELECT role_assignment.id,
+		       role_assignment.department_id,
+		       department.name AS department_name,
+		       role_assignment.assigned_at
+		FROM public.account_department_role AS role_assignment
+		JOIN public.department AS department
+		  ON department.id = role_assignment.department_id
+		WHERE role_assignment.account_id = #{accountId}
+		  AND role_assignment.role = 'DEPARTMENT_ADMIN'
+		  AND role_assignment.revoked_at IS NULL
+		ORDER BY lower(department.name), department.id
+	</select>
+
+	<select id="countActiveRole" resultType="int">
+		SELECT count(*)
+		FROM public.account_department_role
+		WHERE account_id = #{accountId}
+		  AND department_id = #{departmentId}
+		  AND role = 'DEPARTMENT_ADMIN'
+		  AND revoked_at IS NULL
+	</select>
+
+	<select id="insertDepartmentRole" resultType="long" affectData="true">
+		INSERT INTO public.account_department_role(
+		    account_id,
+		    department_id,
+		    role,
+		    assigned_by_account_id,
+		    assigned_at)
+		SELECT #{accountId},
+		       department.id,
+		       'DEPARTMENT_ADMIN',
+		       #{actorAccountId},
+		       #{assignedAt}
+		FROM public.department AS department
+		WHERE department.id = #{departmentId}
+		  AND department.active
+		RETURNING id
+	</select>
+
+	<update id="revokeDepartmentRole">
+		UPDATE public.account_department_role
+		SET revoked_at = #{revokedAt}
+		WHERE account_id = #{accountId}
+		  AND department_id = #{departmentId}
+		  AND role = 'DEPARTMENT_ADMIN'
+		  AND revoked_at IS NULL
+	</update>
+
+	<select id="selectWorkspaces" resultType="map">
+		SELECT department.id AS department_id,
+		       department.name AS department_name
+		FROM public.account_department_role AS role_assignment
+		JOIN public.department AS department
+		  ON department.id = role_assignment.department_id
+		 AND department.active
+		WHERE role_assignment.account_id = #{accountId}
+		  AND role_assignment.role = 'DEPARTMENT_ADMIN'
+		  AND role_assignment.revoked_at IS NULL
+		ORDER BY lower(department.name), department.id
+	</select>
+
+	<select id="selectSystemOperations" resultType="map">
+		SELECT
+		    (SELECT count(*)
+		     FROM public.attendance_day
+		     WHERE status = 'SCHEDULED'
+		       AND attendance_date &lt; CURRENT_DATE) AS overdue_day_count,
+		    (SELECT count(*)
+		     FROM public.department
+		     WHERE active) AS active_department_count,
+		    (SELECT count(*)
+		     FROM public.device
+		     WHERE status = 'ACTIVE') AS active_device_count,
+		    (SELECT count(*)
+		     FROM public.device
+		     WHERE status = 'INACTIVE') AS inactive_device_count,
+		    (SELECT count(*)
+		     FROM public.device
+		     WHERE status = 'REVOKED') AS revoked_device_count
+	</select>
+
+	<select id="selectSystemAudit" resultType="map">
+		SELECT audit.id,
+		       audit.department_id,
+		       audit.action,
+		       audit.target_type,
+		       audit.target_id,
+		       audit.reason,
+		       audit.occurred_at,
+		       account.username AS actor_username
+		FROM public.audit_log AS audit
+		LEFT JOIN public.account AS account
+		  ON account.id = audit.actor_account_id
+		WHERE audit.action IN (
+		    'SYSTEM_ADMIN_BOOTSTRAPPED',
+		    'DEPARTMENT_CREATED',
+		    'ACCOUNT_CREATED',
+		    'ACCOUNT_DISABLED',
+		    'ACCOUNT_ENABLED',
+		    'ACCOUNT_INVITATION_ISSUED',
+		    'ACCOUNT_PASSWORD_RESET_ISSUED',
+		    'DEPARTMENT_ROLE_ASSIGNED',
+		    'DEPARTMENT_ROLE_REVOKED')
+		ORDER BY audit.occurred_at DESC, audit.id DESC
+		LIMIT 200
+	</select>
+
+	<update id="revokeActiveTokens">
+		UPDATE public.account_credential_token
+		SET revoked_at = #{revokedAt}
+		WHERE account_id = #{accountId}
+		  AND purpose = #{purpose}
+		  AND consumed_at IS NULL
+		  AND revoked_at IS NULL
+	</update>
+
+	<select id="insertCredentialToken" resultType="long" affectData="true">
+		INSERT INTO public.account_credential_token(
+		    account_id,
+		    purpose,
+		    token_hash,
+		    issued_by_account_id,
+		    issued_at,
+		    expires_at)
+		VALUES (
+		    #{accountId},
+		    #{purpose},
+		    #{tokenHash},
+		    #{issuerAccountId},
+		    #{issuedAt},
+		    #{expiresAt})
+		RETURNING id
+	</select>
+
+	<select id="lockCredentialToken"
+			resultType="com.example.attend.access.infrastructure.mybatis.CredentialTokenRow">
+		SELECT token.id AS token_id,
+		       token.account_id,
+		       account.status AS account_status,
+		       token.expires_at
+		FROM public.account_credential_token AS token
+		JOIN public.account AS account
+		  ON account.id = token.account_id
+		WHERE token.token_hash = #{tokenHash}
+		  AND token.purpose = #{purpose}
+		  AND token.consumed_at IS NULL
+		  AND token.revoked_at IS NULL
+		FOR UPDATE OF token, account
+	</select>
+
+	<update id="activateInvitedAccount">
+		UPDATE public.account
+		SET password_hash = #{passwordHash},
+		    password_changed_at = #{changedAt},
+		    status = 'ACTIVE'
+		WHERE id = #{accountId}
+		  AND status = 'PENDING_SETUP'
+		  AND password_hash IS NULL
+	</update>
+
+	<update id="resetActiveAccountPassword">
+		UPDATE public.account
+		SET password_hash = #{passwordHash},
+		    password_changed_at = #{changedAt}
+		WHERE id = #{accountId}
+		  AND status = 'ACTIVE'
+		  AND password_hash IS NOT NULL
+	</update>
+
+	<update id="consumeCredentialToken">
+		UPDATE public.account_credential_token
+		SET consumed_at = #{consumedAt}
+		WHERE id = #{tokenId}
+		  AND consumed_at IS NULL
+		  AND revoked_at IS NULL
+	</update>
+
+	<update id="updateOwnPassword">
+		UPDATE public.account
+		SET password_hash = #{passwordHash},
+		    password_changed_at = #{changedAt}
+		WHERE id = #{accountId}
+		  AND status = 'ACTIVE'
+	</update>
+
+</mapper>

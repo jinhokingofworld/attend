@@ -433,7 +433,7 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 
 세부 절차는 `MIGRATION_PLAN.md`를 따르고 다음을 자동 또는 리허설 증적으로 남긴다.
 
-계정 생성·회원가입 초대·reset command의 DB 출시 gate는 V002를 적용하고 V007에 분리된 활성 token 부분 유일성까지 반영한 실제 PostgreSQL에서 `DB-CST-024~026`의 정상·위반 조합을 모두 검증하는 것이다. 원문 token 전달 채널과 HTTPS URL 정책의 운영 승인은 이 DB gate와 별도로 추적한다.
+계정 생성·회원가입 초대·reset command의 DB 출시 gate는 V002를 적용하고 V007에 분리된 활성 token 부분 유일성까지 반영한 실제 PostgreSQL에서 `DB-CST-024~026`의 정상·위반 조합을 모두 검증하는 것이다. 원문 token은 관리자가 1회 표시 링크를 복사해 승인된 1:1 메신저로 전달하며, 운영 공개 base URL과 HTTPS 정책의 승인은 이 DB gate와 별도로 추적한다.
 
 | ID | 환경·작업 | 합격 기준 |
 |---|---|---|

@@ -1,6 +1,7 @@
 package com.example.attend.attendance.application;
 
 import com.example.attend.access.api.AccountActor;
+import com.example.attend.access.api.AdminWriteAuthorization;
 import com.example.attend.access.api.DepartmentAuthorization;
 import com.example.attend.attendance.domain.AttendanceBand;
 import com.example.attend.attendance.domain.AttendanceDecision;
@@ -36,6 +37,7 @@ import java.util.Map;
 public class AttendanceCorrectionService {
 
 	private final DepartmentAuthorization authorization;
+	private final AdminWriteAuthorization writeAuthorization;
 	private final DepartmentLock departmentLock;
 	private final AttendanceDayMapper dayMapper;
 	private final AttendancePolicyMapper policyMapper;
@@ -49,6 +51,7 @@ public class AttendanceCorrectionService {
 	 * 수동 정정 유스케이스의 협력 객체를 주입받는다.
 	 */
 	public AttendanceCorrectionService(
+			AdminWriteAuthorization writeAuthorization,
 			DepartmentAuthorization authorization,
 			DepartmentLock departmentLock,
 			AttendanceDayMapper dayMapper,
@@ -58,6 +61,7 @@ public class AttendanceCorrectionService {
 			Clock clock,
 			ZoneId attendanceZone
 	) {
+		this.writeAuthorization = writeAuthorization;
 		this.authorization = authorization;
 		this.departmentLock = departmentLock;
 		this.dayMapper = dayMapper;
@@ -79,6 +83,7 @@ public class AttendanceCorrectionService {
 			long memberId,
 			ManualAttendanceCommand command
 	) {
+		writeAuthorization.requireEnabled();
 		authorization.requireDepartmentAdmin(actor, departmentId);
 		departmentLock.lockActive(departmentId);
 		AttendanceDayRow day = dayMapper.lockDay(departmentId, attendanceDayId);
@@ -172,6 +177,7 @@ public class AttendanceCorrectionService {
 			String note,
 			String reason
 	) {
+		writeAuthorization.requireEnabled();
 		note = normalizeNote(note);
 		reason = normalizeReason(reason);
 		authorization.requireDepartmentAdmin(actor, departmentId);

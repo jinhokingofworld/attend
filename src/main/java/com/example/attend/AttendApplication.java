@@ -1,6 +1,7 @@
 package com.example.attend;
 
 import com.example.attend.config.AttendanceProperties;
+import com.example.attend.config.AdminSecurityProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -13,7 +14,10 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
  * 실제 업무 로직은 이 클래스에 두지 않고 각 도메인 서비스로 분리한다.</p>
  */
 @SpringBootApplication
-@EnableConfigurationProperties(AttendanceProperties.class)
+@EnableConfigurationProperties({
+		AttendanceProperties.class,
+		AdminSecurityProperties.class
+})
 public class AttendApplication {
 
 	/**

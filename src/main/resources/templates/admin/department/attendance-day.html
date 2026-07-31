@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>출석 날짜 상세</title></head>
+<body>
+<main>
+    <h1 th:text="|${department.name} · ${day.attendance_date}|">출석 날짜</h1>
+    <p th:if="${message}" th:text="${message}"></p>
+    <p th:if="${error}" th:text="${error}" role="alert"></p>
+    <p th:text="|정책 ${day.policy_name} · 상태 ${day.status}|">상태</p>
+    <p th:unless="${writeEnabled}">읽기 전용 모드</p>
+
+    <form th:if="${writeEnabled and day.status == 'SCHEDULED'}" method="post"
+          th:action="@{/admin/departments/{departmentId}/attendance-days/{dayId}/cancel(departmentId=${department.id},dayId=${day.id})}">
+        <label>취소 사유 <input name="reason" maxlength="500" required></label>
+        <button type="submit">날짜 취소</button>
+    </form>
+    <form th:if="${writeEnabled and day.status == 'SCHEDULED'}" method="post"
+          th:action="@{/admin/departments/{departmentId}/attendance-days/{dayId}/change-policy(departmentId=${department.id},dayId=${day.id})}">
+        <label>고정 정책 변경
+            <select name="policyVersionId">
+                <option th:each="policy : ${publishedPolicies}"
+                        th:value="${policy.id}"
+                        th:text="|v${policy.version_no} · ${policy.name}|">정책</option>
+            </select>
+        </label>
+        <button type="submit">정책 변경</button>
+    </form>
+
+    <section th:if="${writeEnabled}">
+        <h2>대상자 추가</h2>
+        <form method="post"
+              th:action="@{/admin/departments/{departmentId}/attendance-days/{dayId}/targets/add(departmentId=${department.id},dayId=${day.id})}">
+            <select name="memberId">
+                <option th:each="teacher : ${teachers}" th:value="${teacher.id}"
+                        th:text="${teacher.name}">교사</option>
+            </select>
+            <input name="reason" maxlength="500" placeholder="추가 사유" required>
+            <button type="submit">대상 추가</button>
+        </form>
+    </section>
+
+    <article th:each="row : ${rows}">
+        <h2 th:text="${row.name}">교사</h2>
+        <p th:text="|대상 ${row.is_target ? '예' : '아니요'} · 결과 ${row['status'] ?: '미기록'} · 단계 ${row['band_label_snapshot'] ?: '-'}|">결과</p>
+        <p th:text="|실제 시각 ${row['checked_in_at'] ?: '-'} · 비고 ${row['note'] ?: '-'}|">기록</p>
+
+        <form th:if="${writeEnabled and row.is_target}" method="post"
+              th:action="@{/admin/departments/{departmentId}/attendance-days/{dayId}/records/{memberId}/correct(departmentId=${department.id},dayId=${day.id},memberId=${row.member_id})}">
+            <label>실제 출석 시각 <input type="datetime-local" name="actualCheckInAt" required></label>
+            <label>비고 <input name="note" maxlength="1000"></label>
+            <label>사유 <input name="reason" maxlength="500" required></label>
+            <button type="submit">출석 등록·정정</button>
+        </form>
+        <form th:if="${writeEnabled and row.is_target}" method="post"
+              th:action="@{/admin/departments/{departmentId}/attendance-days/{dayId}/records/{memberId}/correct(departmentId=${department.id},dayId=${day.id},memberId=${row.member_id})}">
+            <input type="hidden" name="markAbsent" value="true">
+            <label>결석 정정 사유 <input name="reason" maxlength="500" required></label>
+            <button type="submit">결석으로 정정</button>
+        </form>
+        <form th:if="${writeEnabled and row['record_id'] != null}" method="post"
+              th:action="@{/admin/departments/{departmentId}/attendance-days/{dayId}/records/{memberId}/note(departmentId=${department.id},dayId=${day.id},memberId=${row.member_id})}">
+            <label>비고 <input name="note" maxlength="1000" th:value="${row['note']}"></label>
+            <label>수정 사유 <input name="reason" maxlength="500" required></label>
+            <button type="submit">비고만 수정</button>
+        </form>
+        <form th:if="${writeEnabled and row.is_target and row['record_id'] == null}" method="post"
+              th:action="@{/admin/departments/{departmentId}/attendance-days/{dayId}/targets/{memberId}/remove(departmentId=${department.id},dayId=${day.id},memberId=${row.member_id})}">
+            <label>제외 사유 <input name="reason" maxlength="500" required></label>
+            <button type="submit">대상 제외</button>
+        </form>
+    </article>
+    <a th:href="@{/admin/departments/{id}/attendance-days(id=${department.id})}">출석 날짜 목록</a>
+</main>
+</body>
+</html>

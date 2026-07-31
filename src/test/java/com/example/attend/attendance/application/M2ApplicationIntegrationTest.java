@@ -48,7 +48,7 @@ import java.util.concurrent.Future;
  * 교사·카드, 정책 발행, 날짜 snapshot, 수동 출석, 자동 결석, 통계와 부서 제외의
  * 핵심 원자성을 확인한다.</p>
  */
-@SpringBootTest
+@SpringBootTest(properties = "attendance.admin.write-enabled=true")
 @ActiveProfiles("test")
 @Testcontainers
 @Import(M2ApplicationIntegrationTest.FixedClockConfiguration.class)

@@ -1,6 +1,7 @@
 package com.example.attend.attendance.application;
 
 import com.example.attend.access.api.AccountActor;
+import com.example.attend.access.api.AdminWriteAuthorization;
 import com.example.attend.access.api.DepartmentAuthorization;
 import com.example.attend.attendance.infrastructure.mybatis.AttendanceDayMapper;
 import com.example.attend.attendance.infrastructure.mybatis.AttendanceDayRow;
@@ -28,6 +29,7 @@ import java.util.Map;
 public class AttendanceDayService {
 
 	private final DepartmentAuthorization authorization;
+	private final AdminWriteAuthorization writeAuthorization;
 	private final DepartmentLock departmentLock;
 	private final AttendancePolicyMapper policyMapper;
 	private final AttendanceDayMapper dayMapper;
@@ -39,6 +41,7 @@ public class AttendanceDayService {
 	 * 출석일 유스케이스의 협력 객체를 주입받는다.
 	 */
 	public AttendanceDayService(
+			AdminWriteAuthorization writeAuthorization,
 			DepartmentAuthorization authorization,
 			DepartmentLock departmentLock,
 			AttendancePolicyMapper policyMapper,
@@ -47,6 +50,7 @@ public class AttendanceDayService {
 			Clock clock,
 			ZoneId attendanceZone
 	) {
+		this.writeAuthorization = writeAuthorization;
 		this.authorization = authorization;
 		this.departmentLock = departmentLock;
 		this.policyMapper = policyMapper;
@@ -68,6 +72,7 @@ public class AttendanceDayService {
 			LocalDate attendanceDate,
 			long policyVersionId
 	) {
+		writeAuthorization.requireEnabled();
 		if (attendanceDate == null || attendanceDate.isBefore(LocalDate.now(clock))) {
 			throw new BusinessRuleException("attendance day cannot be in the past");
 		}
@@ -121,6 +126,7 @@ public class AttendanceDayService {
 			long attendanceDayId,
 			String reason
 	) {
+		writeAuthorization.requireEnabled();
 		reason = requireReason(reason);
 		authorizeAndLock(actor, departmentId);
 		AttendanceDayRow day = requireDay(departmentId, attendanceDayId);
@@ -156,6 +162,7 @@ public class AttendanceDayService {
 			long attendanceDayId,
 			long newPolicyVersionId
 	) {
+		writeAuthorization.requireEnabled();
 		authorizeAndLock(actor, departmentId);
 		AttendanceDayRow day = requireDay(departmentId, attendanceDayId);
 		requireBeforeCheckIn(day, clock.instant());

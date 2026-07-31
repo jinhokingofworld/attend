@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>운영 상태</title></head>
+<body>
+<main>
+    <h1>운영 상태</h1>
+    <p th:unless="${writeEnabled}">관리자 쓰기가 중지된 읽기 전용 모드입니다.</p>
+    <dl>
+        <dt>활성 부서</dt><dd th:text="${operations.active_department_count}">0</dd>
+        <dt>과거 미마감 출석 날짜</dt><dd th:text="${operations.overdue_day_count}">0</dd>
+        <dt>활성 장치</dt><dd th:text="${operations.active_device_count}">0</dd>
+        <dt>비활성 장치</dt><dd th:text="${operations.inactive_device_count}">0</dd>
+        <dt>폐기 장치</dt><dd th:text="${operations.revoked_device_count}">0</dd>
+        <dt>백업 상태</dt><dd>확인 source 미구성</dd>
+    </dl>
+    <p>미마감 날짜를 시스템 관리자 권한으로 수동 마감하는 기능은 제공하지 않습니다.</p>
+    <a th:href="@{/admin/system}">시스템 홈</a>
+</main>
+</body>
+</html>

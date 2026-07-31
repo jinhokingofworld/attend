@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>부서 이력</title></head>
+<body>
+<main>
+    <h1 th:text="|${department.name} · 이력|">이력</h1>
+    <section>
+        <h2>관리자·시스템 감사</h2>
+        <table>
+            <thead><tr><th>시각</th><th>실행자</th><th>작업</th><th>대상</th><th>사유</th></tr></thead>
+            <tbody>
+            <tr th:each="item : ${history}">
+                <td th:text="${item.occurred_at}">시각</td>
+                <td th:text="${item['actor_username'] ?: 'SYSTEM'}">실행자</td>
+                <td th:text="${item.action}">작업</td>
+                <td th:text="|${item.target_type} ${item.target_id}|">대상</td>
+                <td th:text="${item['reason'] ?: '-'}">사유</td>
+            </tr>
+            </tbody>
+        </table>
+    </section>
+    <section>
+        <h2>태깅 이력</h2>
+        <table>
+            <thead><tr><th>시각</th><th>장치</th><th>카드</th><th>결과</th></tr></thead>
+            <tbody>
+            <tr th:each="item : ${tagHistory}">
+                <td th:text="${item.received_at}">시각</td>
+                <td th:text="${item.device_name}">장치</td>
+                <td th:text="${item.masked_uid}">카드</td>
+                <td th:text="${item.result_code}">결과</td>
+            </tr>
+            </tbody>
+        </table>
+    </section>
+    <a th:href="@{/admin/departments/{id}(id=${department.id})}">부서 홈</a>
+</main>
+</body>
+</html>

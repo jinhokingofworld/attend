@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>정책 상세</title></head>
+<body>
+<main>
+    <h1 th:text="|v${policy.version_no} · ${policy.name}|">정책</h1>
+    <p th:text="|상태 ${policy.status} · 태깅 시작 ${policy.check_in_start_time}|">상태</p>
+    <ol>
+        <li th:each="band : ${bands}"
+            th:text="|${band.label} · ${band.parent_status} · ${band.upper_time}까지|">단계</li>
+    </ol>
+    <form th:if="${writeEnabled and policy.status == 'DRAFT'}" method="post"
+          th:action="@{/admin/departments/{departmentId}/policies/{policyId}/replace(departmentId=${department.id},policyId=${policy.id})}">
+        <label>정책 이름 <input name="name" th:value="${policy.name}" required></label>
+        <label>태깅 시작 <input type="time" name="checkInStartTime"
+                              th:value="${policy.check_in_start_time}" required></label>
+        <fieldset>
+            <legend>출석 단계</legend>
+            <div th:each="band : ${bands}">
+                <input name="bandLabel" th:value="${band.label}" required>
+                <select name="bandStatus">
+                    <option value="PRESENT" th:selected="${band.parent_status == 'PRESENT'}">정상</option>
+                    <option value="LATE" th:selected="${band.parent_status == 'LATE'}">지각</option>
+                </select>
+                <input type="time" name="bandUpperTime" th:value="${band.upper_time}" required>
+            </div>
+        </fieldset>
+        <button type="submit">초안 수정</button>
+    </form>
+    <form th:if="${writeEnabled and policy.status == 'DRAFT'}" method="post"
+          th:action="@{/admin/departments/{departmentId}/policies/{policyId}/publish(departmentId=${department.id},policyId=${policy.id})}">
+        <button type="submit">검증 후 발행</button>
+    </form>
+    <a th:href="@{/admin/departments/{id}/policies(id=${department.id})}">정책 목록</a>
+</main>
+</body>
+</html>

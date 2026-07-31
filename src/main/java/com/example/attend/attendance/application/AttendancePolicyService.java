@@ -1,6 +1,7 @@
 package com.example.attend.attendance.application;
 
 import com.example.attend.access.api.AccountActor;
+import com.example.attend.access.api.AdminWriteAuthorization;
 import com.example.attend.access.api.DepartmentAuthorization;
 import com.example.attend.attendance.domain.AttendanceBand;
 import com.example.attend.attendance.domain.AttendancePolicy;
@@ -24,6 +25,7 @@ import java.util.Map;
 public class AttendancePolicyService {
 
 	private final DepartmentAuthorization authorization;
+	private final AdminWriteAuthorization writeAuthorization;
 	private final DepartmentLock departmentLock;
 	private final AttendancePolicyMapper mapper;
 	private final AuditLogWriter auditLogWriter;
@@ -33,12 +35,14 @@ public class AttendancePolicyService {
 	 * 정책 유스케이스의 협력 객체를 주입받는다.
 	 */
 	public AttendancePolicyService(
+			AdminWriteAuthorization writeAuthorization,
 			DepartmentAuthorization authorization,
 			DepartmentLock departmentLock,
 			AttendancePolicyMapper mapper,
 			AuditLogWriter auditLogWriter,
 			Clock clock
 	) {
+		this.writeAuthorization = writeAuthorization;
 		this.authorization = authorization;
 		this.departmentLock = departmentLock;
 		this.mapper = mapper;
@@ -57,6 +61,7 @@ public class AttendancePolicyService {
 			long departmentId,
 			PolicyDraftCommand command
 	) {
+		writeAuthorization.requireEnabled();
 		authorizeAndLock(actor, departmentId);
 		int versionNo = mapper.selectNextVersionNo(departmentId);
 		long policyId = mapper.insertDraft(
@@ -89,6 +94,7 @@ public class AttendancePolicyService {
 			long policyVersionId,
 			PolicyDraftCommand command
 	) {
+		writeAuthorization.requireEnabled();
 		authorizeAndLock(actor, departmentId);
 		requireDraft(departmentId, policyVersionId);
 		requireSingleUpdate(mapper.updateDraft(
@@ -111,6 +117,7 @@ public class AttendancePolicyService {
 			long departmentId,
 			long policyVersionId
 	) {
+		writeAuthorization.requireEnabled();
 		authorizeAndLock(actor, departmentId);
 		PolicyVersionRow draft = requireDraft(departmentId, policyVersionId);
 		List<AttendanceBand> bands = mapper.selectBands(policyVersionId);

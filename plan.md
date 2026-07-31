@@ -58,8 +58,9 @@
   - 초대받은 사용자가 회원가입을 완료하면 BCrypt cost 12 비밀번호 hash를 저장하고 `ACTIVE`로 전환한다.
   - 로그인은 `ACTIVE`이면서 hash가 존재하는 계정만 허용한다.
 - `account_credential_token`은 `INVITATION`/`RESET` 목적, 256-bit 원문, HMAC-SHA-256 hash, 발급자·발급·만료·사용·무효 시각을 저장한다. 새 발급은 기존 미사용 토큰을 무효화한다.
-- 시스템 관리자는 회원가입 초대 링크와 QR을 한 번만 볼 수 있다. QR 링크는 token을 URL fragment로 전달하고 공개 페이지가 즉시 fragment를 제거한 뒤 POST body로만 제출한다. query/path/access log에는 token을 넣지 않는다.
+- 시스템 관리자는 회원가입 초대·비밀번호 재설정 링크를 발급 직후 한 번만 볼 수 있다. 관리자가 링크를 복사해 승인된 1:1 메신저로 직접 전달하며, 애플리케이션은 메신저 계정·연락처를 저장하거나 자동 발송하지 않는다. token은 URL fragment로 전달하고 공개 페이지가 즉시 fragment를 제거한 뒤 POST body로만 제출한다. query/path/access log에는 token을 넣지 않는다.
 - 회원가입 초대 수락·비밀번호 재설정 URL은 `/account/setup`, `/account/password-reset`으로 고정하고 `Cache-Control: no-store`, generic 오류와 rate limit을 적용한다.
+- 흔한·유출 비밀번호 목록 검사는 MVP 이후 보안 강화 항목으로 미룬다. MVP는 길이·UTF-8 byte 상한·비밀번호 확인과 BCrypt cost 12 저장을 강제한다.
 - 관리자 웹과 `/api/v1/device/**`는 별도 Security filter chain으로 구성한다. 웹은 세션·CSRF, 장치는 stateless header 인증을 사용한다.
 - 구현 화면 순서는 시스템 부서·계정·권한 → 부서 대시보드 → 교사·카드 → 정책 → 출석 날짜 → 수동 등록·정정 → 감사·운영 화면이다.
 - 각 화면은 Controller만 만들지 않고 application transaction, scoped Mapper, audit, validation, PRG와 IDOR 테스트까지 한 묶음으로 완료한다.

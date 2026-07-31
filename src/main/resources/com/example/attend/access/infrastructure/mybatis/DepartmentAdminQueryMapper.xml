@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+		PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+		"https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.attend.access.infrastructure.mybatis.DepartmentAdminQueryMapper">
+
+	<select id="selectDepartment" resultType="map">
+		SELECT id, name, active
+		FROM public.department
+		WHERE id = #{departmentId}
+		  AND active
+	</select>
+
+	<select id="selectDashboard" resultType="map">
+		SELECT day.id AS attendance_day_id,
+		       day.attendance_date,
+		       day.status,
+		       policy.name AS policy_name,
+		       count(target.member_id)
+		           FILTER (WHERE target.is_target) AS target_count,
+		       count(record.id)
+		           FILTER (WHERE record.status = 'PRESENT') AS present_count,
+		       count(record.id)
+		           FILTER (WHERE record.status = 'LATE') AS late_count,
+		       count(record.id)
+		           FILTER (WHERE record.status = 'ABSENT') AS absent_count
+		FROM public.attendance_day AS day
+		JOIN public.attendance_policy_version AS policy
+		  ON policy.id = day.policy_version_id
+		 AND policy.department_id = day.department_id
+		LEFT JOIN public.attendance_target AS target
+		  ON target.attendance_day_id = day.id
+		 AND target.department_id = day.department_id
+		LEFT JOIN public.attendance_record AS record
+		  ON record.attendance_day_id = day.id
+		 AND record.member_id = target.member_id
+		WHERE day.department_id = #{departmentId}
+		  AND day.attendance_date = #{today}
+		GROUP BY day.id, policy.name
+	</select>
+
+	<select id="selectTeachers" resultType="map">
+		SELECT member.id,
+		       member.name,
+		       member.phone,
+		       membership.joined_at,
+		       card.id AS card_id,
+		       card.status AS card_status,
+		       CASE
+		           WHEN card.uid IS NULL THEN NULL
+		           ELSE '****' || right(card.uid, 4)
+		       END AS masked_uid
+		FROM public.department_membership AS membership
+		JOIN public.member AS member
+		  ON member.id = membership.member_id
+		LEFT JOIN public.nfc_card_assignment AS assignment
+		  ON assignment.department_id = membership.department_id
+		 AND assignment.membership_id = membership.id
+		 AND assignment.member_id = membership.member_id
+		 AND assignment.unassigned_at IS NULL
+		LEFT JOIN public.nfc_card AS card
+		  ON card.id = assignment.nfc_card_id
+		WHERE membership.department_id = #{departmentId}
+		  AND membership.ended_at IS NULL
+		ORDER BY lower(member.name), member.id
+	</select>
+
+	<select id="selectPolicies" resultType="map">
+		SELECT id, version_no, name, check_in_start_time, status,
+		       created_at, published_at
+		FROM public.attendance_policy_version
+		WHERE department_id = #{departmentId}
+		ORDER BY version_no DESC
+	</select>
+
+	<select id="selectPolicy" resultType="map">
+		SELECT id, version_no, name, check_in_start_time, status,
+		       created_at, published_at
+		FROM public.attendance_policy_version
+		WHERE department_id = #{departmentId}
+		  AND id = #{policyId}
+	</select>
+
+	<select id="selectPolicyBands" resultType="map">
+		SELECT band.sequence_no,
+		       band.label,
+		       band.parent_status,
+		       band.upper_time
+		FROM public.attendance_band AS band
+		JOIN public.attendance_policy_version AS policy
+		  ON policy.id = band.policy_version_id
+		WHERE policy.department_id = #{departmentId}
+		  AND policy.id = #{policyId}
+		ORDER BY band.sequence_no
+	</select>
+
+	<select id="selectPublishedPolicies" resultType="map">
+		SELECT id, version_no, name, check_in_start_time
+		FROM public.attendance_policy_version
+		WHERE department_id = #{departmentId}
+		  AND status = 'PUBLISHED'
+		ORDER BY version_no DESC
+	</select>
+
+	<select id="selectAttendanceDays" resultType="map">
+		SELECT day.id,
+		       day.attendance_date,
+		       day.status,
+		       policy.name AS policy_name,
+		       policy.version_no AS policy_version_no,
+		       count(target.member_id)
+		           FILTER (WHERE target.is_target) AS target_count,
+		       count(record.id) AS record_count
+		FROM public.attendance_day AS day
+		JOIN public.attendance_policy_version AS policy
+		  ON policy.id = day.policy_version_id
+		 AND policy.department_id = day.department_id
+		LEFT JOIN public.attendance_target AS target
+		  ON target.attendance_day_id = day.id
+		 AND target.department_id = day.department_id
+		LEFT JOIN public.attendance_record AS record
+		  ON record.attendance_day_id = day.id
+		 AND record.member_id = target.member_id
+		WHERE day.department_id = #{departmentId}
+		GROUP BY day.id, policy.name, policy.version_no
+		ORDER BY day.attendance_date DESC, day.id DESC
+	</select>
+
+	<select id="selectAttendanceDay" resultType="map">
+		SELECT day.id,
+		       day.attendance_date,
+		       day.status,
+		       day.policy_version_id,
+		       policy.name AS policy_name,
+		       policy.check_in_start_time
+		FROM public.attendance_day AS day
+		JOIN public.attendance_policy_version AS policy
+		  ON policy.id = day.policy_version_id
+		 AND policy.department_id = day.department_id
+		WHERE day.department_id = #{departmentId}
+		  AND day.id = #{attendanceDayId}
+	</select>
+
+	<select id="selectAttendanceRows" resultType="map">
+		SELECT target.member_id,
+		       member.name,
+		       target.is_target,
+		       target.added_source,
+		       record.id AS record_id,
+		       record.status,
+		       record.band_label_snapshot,
+		       record.checked_in_at,
+		       record.source,
+		       record.note
+		FROM public.attendance_target AS target
+		JOIN public.member AS member
+		  ON member.id = target.member_id
+		LEFT JOIN public.attendance_record AS record
+		  ON record.attendance_day_id = target.attendance_day_id
+		 AND record.member_id = target.member_id
+		WHERE target.department_id = #{departmentId}
+		  AND target.attendance_day_id = #{attendanceDayId}
+		ORDER BY lower(member.name), member.id
+	</select>
+
+	<select id="selectHistory" resultType="map">
+		SELECT audit.id,
+		       audit.action,
+		       audit.target_type,
+		       audit.target_id,
+		       audit.reason,
+		       audit.occurred_at,
+		       account.username AS actor_username
+		FROM public.audit_log AS audit
+		LEFT JOIN public.account AS account
+		  ON account.id = audit.actor_account_id
+		WHERE audit.department_id = #{departmentId}
+		ORDER BY audit.occurred_at DESC, audit.id DESC
+		LIMIT 200
+	</select>
+
+	<select id="selectTagHistory" resultType="map">
+		SELECT event.id,
+		       device.name AS device_name,
+		       event.result_code,
+		       '****' || right(event.uid, 4) AS masked_uid,
+		       event.received_at
+		FROM public.tag_event_log AS event
+		JOIN public.device AS device
+		  ON device.id = event.device_id
+		 AND device.department_id = event.department_id
+		WHERE event.department_id = #{departmentId}
+		ORDER BY event.received_at DESC, event.id DESC
+		LIMIT 200
+	</select>
+
+	<select id="selectCardInbox" resultType="map">
+		SELECT DISTINCT ON (event.uid)
+		       event.id AS event_id,
+		       '****' || right(event.uid, 4) AS masked_uid,
+		       event.result_code,
+		       device.name AS device_name,
+		       event.received_at
+		FROM public.tag_event_log AS event
+		JOIN public.device AS device
+		  ON device.id = event.device_id
+		 AND device.department_id = event.department_id
+		WHERE event.department_id = #{departmentId}
+		  AND event.result_code IN ('UNKNOWN_UID', 'INACTIVE_CARD')
+		ORDER BY event.uid, event.received_at DESC
+	</select>
+
+</mapper>

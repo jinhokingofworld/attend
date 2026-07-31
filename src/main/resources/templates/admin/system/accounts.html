@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>관리자 계정</title></head>
+<body>
+<main>
+    <h1>관리자 계정</h1>
+    <p th:unless="${writeEnabled}">읽기 전용 모드</p>
+    <a th:if="${writeEnabled}" th:href="@{/admin/system/accounts/new}">계정 생성</a>
+    <table>
+        <caption>관리자 계정</caption>
+        <thead><tr><th>사용자명</th><th>상태</th><th>시스템 역할</th><th>담당 부서</th></tr></thead>
+        <tbody>
+        <tr th:each="account : ${accounts}">
+            <td><a th:href="@{/admin/system/accounts/{id}(id=${account.id})}"
+                   th:text="${account.username}">계정</a></td>
+            <td th:text="${account.status}">상태</td>
+            <td th:text="${account['system_role'] ?: '-'}">역할</td>
+            <td th:text="${account['department_names'] ?: '-'}">부서</td>
+        </tr>
+        </tbody>
+    </table>
+    <a th:href="@{/admin/system}">시스템 홈</a>
+</main>
+</body>
+</html>

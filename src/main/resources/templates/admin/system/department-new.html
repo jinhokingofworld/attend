@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>부서 생성</title></head>
+<body>
+<main>
+    <h1>부서 생성</h1>
+    <p th:if="${error}" th:text="${error}" role="alert"></p>
+    <form th:action="@{/admin/system/departments}" method="post">
+        <label>부서명
+            <input name="name" maxlength="100" required th:value="${name}">
+        </label>
+        <button type="submit">생성</button>
+    </form>
+    <a th:href="@{/admin/system/departments}">취소</a>
+</main>
+</body>
+</html>

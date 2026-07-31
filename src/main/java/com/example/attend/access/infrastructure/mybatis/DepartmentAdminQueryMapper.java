@@ -1,0 +1,72 @@
+package com.example.attend.access.infrastructure.mybatis;
+
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * 부서 관리자 화면에 필요한 읽기 모델을 항상 부서 ID로 제한해 조회한다.
+ */
+@Mapper
+public interface DepartmentAdminQueryMapper {
+
+	/** 활성 부서 기본정보를 조회한다. */
+	Map<String, Object> selectDepartment(
+			@Param("departmentId") long departmentId);
+
+	/** 지정 날짜의 출석 집계를 조회한다. */
+	Map<String, Object> selectDashboard(
+			@Param("departmentId") long departmentId,
+			@Param("today") LocalDate today);
+
+	/** 활성 교사와 현재 카드 요약을 조회한다. */
+	List<Map<String, Object>> selectTeachers(
+			@Param("departmentId") long departmentId);
+
+	/** 정책 버전 목록을 조회한다. */
+	List<Map<String, Object>> selectPolicies(
+			@Param("departmentId") long departmentId);
+
+	/** 한 정책 버전을 조회한다. */
+	Map<String, Object> selectPolicy(
+			@Param("departmentId") long departmentId,
+			@Param("policyId") long policyId);
+
+	/** 한 정책의 순서화된 단계 목록을 조회한다. */
+	List<Map<String, Object>> selectPolicyBands(
+			@Param("departmentId") long departmentId,
+			@Param("policyId") long policyId);
+
+	/** 발행된 정책 목록을 조회한다. */
+	List<Map<String, Object>> selectPublishedPolicies(
+			@Param("departmentId") long departmentId);
+
+	/** 출석 날짜 목록과 대상·기록 수를 조회한다. */
+	List<Map<String, Object>> selectAttendanceDays(
+			@Param("departmentId") long departmentId);
+
+	/** 한 출석 날짜와 고정 정책을 조회한다. */
+	Map<String, Object> selectAttendanceDay(
+			@Param("departmentId") long departmentId,
+			@Param("attendanceDayId") long attendanceDayId);
+
+	/** 날짜의 대상자·결과 행을 조회한다. */
+	List<Map<String, Object>> selectAttendanceRows(
+			@Param("departmentId") long departmentId,
+			@Param("attendanceDayId") long attendanceDayId);
+
+	/** 부서 범위 감사 이력을 조회한다. */
+	List<Map<String, Object>> selectHistory(
+			@Param("departmentId") long departmentId);
+
+	/** 부서 범위 태깅 이력을 조회한다. */
+	List<Map<String, Object>> selectTagHistory(
+			@Param("departmentId") long departmentId);
+
+	/** 미등록·비활성 카드 이벤트를 UID별 최근 한 건으로 조회한다. */
+	List<Map<String, Object>> selectCardInbox(
+			@Param("departmentId") long departmentId);
+}

@@ -1,6 +1,7 @@
 package com.example.attend.organization.application;
 
 import com.example.attend.access.api.AccountActor;
+import com.example.attend.access.api.AdminWriteAuthorization;
 import com.example.attend.access.api.DepartmentAuthorization;
 import com.example.attend.audit.application.AuditLogWriter;
 import com.example.attend.common.error.BusinessRuleException;
@@ -27,6 +28,7 @@ import java.util.Map;
 public class CardManagementService {
 
 	private final DepartmentAuthorization authorization;
+	private final AdminWriteAuthorization writeAuthorization;
 	private final DepartmentLock departmentLock;
 	private final OrganizationMapper mapper;
 	private final AuditLogWriter auditLogWriter;
@@ -36,12 +38,14 @@ public class CardManagementService {
 	 * 카드 유스케이스의 협력 객체를 주입받는다.
 	 */
 	public CardManagementService(
+			AdminWriteAuthorization writeAuthorization,
 			DepartmentAuthorization authorization,
 			DepartmentLock departmentLock,
 			OrganizationMapper mapper,
 			AuditLogWriter auditLogWriter,
 			Clock clock
 	) {
+		this.writeAuthorization = writeAuthorization;
 		this.authorization = authorization;
 		this.departmentLock = departmentLock;
 		this.mapper = mapper;
@@ -59,6 +63,7 @@ public class CardManagementService {
 			long memberId,
 			NfcUid uid
 	) {
+		writeAuthorization.requireEnabled();
 		authorizeAndLock(actor, departmentId);
 		MembershipRow membership = requireMembership(departmentId, memberId);
 		if (mapper.lockActiveAssignment(departmentId, memberId) != null) {
@@ -90,6 +95,7 @@ public class CardManagementService {
 			NfcUid newUid,
 			String reason
 	) {
+		writeAuthorization.requireEnabled();
 		reason = requireReason(reason);
 		authorizeAndLock(actor, departmentId);
 		MembershipRow membership = requireMembership(departmentId, memberId);
@@ -139,6 +145,7 @@ public class CardManagementService {
 			CardDisposition disposition,
 			String reason
 	) {
+		writeAuthorization.requireEnabled();
 		reason = requireReason(reason);
 		if (disposition == null) {
 			throw new IllegalArgumentException("card disposition must not be null");

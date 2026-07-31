@@ -13,7 +13,7 @@ public interface AuditLogMapper {
 	 * 인증 계정의 감사 행을 추가한다.
 	 */
 	void insertAccountAudit(
-			@Param("departmentId") long departmentId,
+			@Param("departmentId") Long departmentId,
 			@Param("actorAccountId") long actorAccountId,
 			@Param("attendanceDayId") Long attendanceDayId,
 			@Param("action") String action,

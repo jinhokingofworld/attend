@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>시스템 감사</title></head>
+<body>
+<main>
+    <h1>시스템 감사</h1>
+    <p>부서·계정·권한 lifecycle만 표시하며 부서 출석 상세는 포함하지 않습니다.</p>
+    <table>
+        <thead><tr><th>시각</th><th>실행자</th><th>작업</th><th>대상</th><th>부서 ID</th></tr></thead>
+        <tbody>
+        <tr th:each="item : ${history}">
+            <td th:text="${item.occurred_at}">시각</td>
+            <td th:text="${item['actor_username'] ?: 'SYSTEM'}">실행자</td>
+            <td th:text="${item.action}">작업</td>
+            <td th:text="|${item.target_type} ${item.target_id}|">대상</td>
+            <td th:text="${item['department_id'] ?: '-'}">부서</td>
+        </tr>
+        </tbody>
+    </table>
+    <p th:if="${#lists.isEmpty(history)}">시스템 감사 이력이 없습니다.</p>
+    <a th:href="@{/admin/system}">시스템 홈</a>
+</main>
+</body>
+</html>

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+		PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+		"https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.attend.access.infrastructure.mybatis.AccountSecurityMapper">
+
+	<select id="selectActiveByUsername"
+			resultType="com.example.attend.access.infrastructure.mybatis.AccountSecurityRow">
+		SELECT account.id,
+		       account.username,
+		       account.password_hash,
+		       account.system_role,
+		       EXISTS (
+		           SELECT 1
+		           FROM public.account_department_role AS role_assignment
+		           JOIN public.department AS department
+		             ON department.id = role_assignment.department_id
+		            AND department.active
+		           WHERE role_assignment.account_id = account.id
+		             AND role_assignment.role = 'DEPARTMENT_ADMIN'
+		             AND role_assignment.revoked_at IS NULL
+		       ) AS department_admin
+		FROM public.account AS account
+		WHERE lower(btrim(account.username)) = lower(btrim(#{username}))
+		  AND account.status = 'ACTIVE'
+		  AND account.password_hash IS NOT NULL
+	</select>
+
+</mapper>

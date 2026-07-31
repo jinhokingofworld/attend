@@ -165,7 +165,7 @@ M2에서는 다음 기능을 신규 기능 패키지와 목표 테이블에 구�
 - 과거 날짜 자동 결석·마감, 재기동 catch-up과 `FINALIZED` 기준 개인 통계
 - 계정·시스템 주체의 감사 로그와 날짜별 멱등 자동 마감 감사
 
-레거시 4개 테이블의 기준 구조는 운영 resource가 아니라 `src/test/resources/db/legacy/legacy-schema.sql`에 격리했다. M2 application service는 신규 목표 테이블만 사용하고 레거시 출석에 이중 쓰지 않는다. 다만 기존 MVC·REST Controller와 로그인 흐름은 아직 레거시 서비스에 연결돼 있으며, M3 관리자 웹과 M4 장치 API에서 신규 application service로 교체해야 한다.
+레거시 4개 테이블의 기준 구조는 운영 resource가 아니라 `src/test/resources/db/legacy/legacy-schema.sql`에 격리했다. M2 application service는 신규 목표 테이블만 사용하고 레거시 출석에 이중 쓰지 않는다. M3에서 웹 로그인과 `/admin/**` 화면은 신규 `account`, 역할, 조직·출석 application service로 교체했고 명시되지 않은 레거시 MVC URL은 Security 기본 거부 대상으로 닫았다. 기존 REST 장치 경로의 교체는 M4 장치 API 범위다.
 
 그러나 다음 이유로 안전 릴리스가 완료된 것은 아니다.
 
@@ -176,7 +176,7 @@ M2에서는 다음 기능을 신규 기능 패키지와 목표 테이블에 구�
 - 운영 runtime은 시작 시 실제 DB 권한을 검사해 schema DDL, 임시 테이블,
   Flyway history 변경, 교사 삭제와 레거시 DML 권한이 있으면 기동을 거부한다.
 - 현재 guarded runner는 Gradle `dbMigrate` 작업으로 제공되며, 운영에서 이를 실행할 고정 컨테이너·배포 job은 아직 없다.
-- 기존 Controller의 인증·출석 호출 경로를 신규 계정·출석 도메인으로 교체하지 않았다.
+- 장치 REST 호출 경로와 Arduino 펌웨어는 아직 신규 장치 계약으로 교체하지 않았다.
 
 ### 3.4 현재 구조에서 유지할 수 없는 부분
 
@@ -197,9 +197,9 @@ M2에서는 다음 기능을 신규 기능 패키지와 목표 테이블에 구�
 
 현재 `RFID.ino`는 실제 UID 대신 정수 `1`을 잘못된 형식으로 JSON에 넣고 `/attendance/1`로 전송한다. 서버의 활성 경로는 `/api/attendance`이며, 펌웨어는 HTTP 응답 본문을 읽지 않는다. 현재 상태의 NFC 전체 흐름은 동작하는 통합 기능이 아니라 미완성 실험 코드다.
 
-구조 개편과 별개로 현재 구현에는 다음 결함도 있다.
+구조 개편과 별개로 남은 레거시·장치 구현에는 다음 결함이 있다.
 
-- `LoginUserDetailServiceImpl`은 DB 조회 결과가 아니라 입력 username의 null 여부를 검사해 존재하지 않는 계정에서 정상 인증 실패 대신 예외가 발생할 수 있다.
+- M3에서 `LoginUserDetailServiceImpl`, `AuthenticationMapper`, 기존 `ADMIN`·`USER` 보안 entity를 제거하고 활성 `account` 기반 로그인으로 교체했다.
 - `selectRecentFailedUids()` SQL은 여러 행을 반환할 수 있지만 Java Mapper 반환형은 단일 객체다.
 - `ApiResponse.fails()`는 이름과 달리 `success=true`, `code=SUCCESS`를 만든다.
 - REST 입력의 UID 형식 검증과 공통 4xx 오류 계약이 없다.
@@ -990,7 +990,7 @@ Spring Boot Actuator를 도입하면 health endpoint를 외부에 무제한 공�
 - 앱 재시작 뒤 과거 미마감 날짜 복구
 - 새 앱의 레거시 출석·로그 DML 시도
 
-현재 환경의 JDK 21과 PostgreSQL 15 Testcontainers에서 M1 context·migration 10건과 M2 domain·application 4건, 총 14건이 통과했다. M2 통합 테스트는 교사·카드 등록, 정책 발행·불변성, 날짜·대상자 snapshot, 시작 전 대상 변경, 수동 판정, 자동 결석·멱등 마감, 통계, 메모 원천 보존과 부서 제외를 한 대표 흐름으로 검증한다. 별도 PostgreSQL 동시성 테스트는 같은 날짜 자동 마감 2건에서 결석·상태·멱등 감사 중복이 없음을 검증한다. 아직 자동화하지 않은 아래 시나리오와 M3 이후 전체 아키텍처까지 검증됐다는 의미는 아니다.
+현재 환경의 JDK 21과 PostgreSQL 15 Testcontainers에서 전체 17개 테스트가 통과했다. M2 통합 테스트는 교사·카드 등록, 정책 발행·불변성, 날짜·대상자 snapshot, 시작 전 대상 변경, 수동 판정, 자동 결석·멱등 마감, 통계, 메모 원천 보존과 부서 제외를 한 대표 흐름으로 검증한다. M3 통합 테스트는 활성 계정 로그인, 시스템·부서 역할 분리, CSRF, 장치 chain의 stateless 차단, 관리자 주요 화면 rendering과 초대·재설정 token의 hash 저장·재사용 거부·교체 무효화를 검증한다. 별도 PostgreSQL 동시성 테스트는 같은 날짜 자동 마감 2건에서 결석·상태·멱등 감사 중복이 없음을 검증한다. 아직 자동화하지 않은 아래 시나리오와 M4 이후 전체 아키텍처까지 검증됐다는 의미는 아니다.
 
 ---
 
@@ -1021,6 +1021,14 @@ Spring Boot Actuator를 도입하면 health endpoint를 외부에 무제한 공�
 - 구성원·카드·정책·날짜·정정 화면
 - `device`의 미등록 카드 등록함과 카드 등록·교체 orchestration slice
 - 기존 `ADMIN`, `USER` 권한과 레거시 로그인 제거
+
+최초 시스템 관리자는 migration 완료 뒤 실제 terminal에서 다음 제한 CLI로 한 번만 생성한다.
+
+```bash
+./gradlew bootstrapSystemAdmin
+```
+
+DB 연결은 migration과 같은 `FLYWAY_DB_URL`, `FLYWAY_DB_USERNAME`, `FLYWAY_DB_PASSWORD` 환경변수를 사용하지만 관리자 사용자명과 비밀번호는 대화형 입력으로만 받는다. `account` 행이 하나라도 있으면 CLI는 재실행을 거부한다. 웹 변경은 `ADMIN_WRITE_ENABLED=true`일 때만 허용하며, 초대·재설정 발급에는 32 byte 이상의 `ACCOUNT_TOKEN_PEPPER`와 HTTPS `PUBLIC_BASE_URL`이 필요하다.
 
 ### M4. 장치 통합
 
