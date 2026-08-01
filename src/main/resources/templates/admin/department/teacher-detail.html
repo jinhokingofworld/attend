@@ -113,7 +113,7 @@
             <button type="submit">기간 적용</button>
         </form>
         <p>공식 종료된 출석 날짜만 통계 분모에 포함합니다.</p>
-        <div class="attendance-chart-layout" data-attendance-chart>
+        <div th:if="${statisticsRangeValid}" class="attendance-chart-layout" data-attendance-chart>
             <figure class="attendance-donut-figure">
                 <div class="attendance-donut">
                     <svg viewBox="0 0 100 100" role="img" aria-labelledby="attendance-chart-title attendance-chart-description">
@@ -160,13 +160,13 @@
                 </li>
             </ul>
         </div>
-        <p th:if="${statistics.totalCount == 0}" class="empty-state">선택 기간에 공식 종료된 출석 기록이 없습니다.</p>
-        <h3>지각 단계별</h3>
-        <ul>
+        <p th:if="${statisticsRangeValid and statistics.totalCount == 0}" class="empty-state">선택 기간에 공식 종료된 출석 기록이 없습니다.</p>
+        <h3 th:if="${statisticsRangeValid}">지각 단계별</h3>
+        <ul th:if="${statisticsRangeValid}">
             <li th:each="band : ${statistics.lateBands}"
                 th:text="|${band.label} ${band.count}회|">지각 단계</li>
         </ul>
-        <p th:if="${#lists.isEmpty(statistics.lateBands)}">선택 기간의 지각 기록이 없습니다.</p>
+        <p th:if="${statisticsRangeValid and #lists.isEmpty(statistics.lateBands)}">선택 기간의 지각 기록이 없습니다.</p>
     </section>
 
     <section>

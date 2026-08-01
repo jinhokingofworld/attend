@@ -88,6 +88,10 @@ public class CardManagementService {
 		authorizeAndLock(actor, departmentId);
 		String uid = mapper.selectAssignableTagEventUid(departmentId, eventId);
 		if (uid == null) {
+			if (mapper.existsTagEvent(departmentId, eventId)) {
+				throw new BusinessRuleException(
+						"카드 등록 요청이 이미 처리되었거나 더 이상 사용할 수 없습니다.");
+			}
 			throw new ResourceNotFoundException("assignable card event");
 		}
 		return connectAfterLock(

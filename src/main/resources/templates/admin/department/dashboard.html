@@ -61,12 +61,12 @@
                     <thead><tr><th>이름</th><th>출석 결과</th><th>세부 단계</th><th>출석 시각</th></tr></thead>
                     <tbody data-attendance-rows>
                     <tr th:each="row : ${dashboardRows}"
-                        th:attr="data-attendance-status=${row['status'] ?: 'PENDING'}">
-                        <td><a th:href="@{/admin/departments/{departmentId}/teachers/{memberId}(departmentId=${department.id},memberId=${row.member_id})}"
+                        th:attr="data-attendance-status=${row.status ?: 'PENDING'}">
+                        <td><a th:href="@{/admin/departments/{departmentId}/teachers/{memberId}(departmentId=${department.id},memberId=${row.memberId})}"
                                th:text="${row.name}">교사</a></td>
-                        <td th:text="${row['status'] ?: '미기록'}">미기록</td>
-                        <td th:text="${row['band_label_snapshot'] ?: '-'}">-</td>
-                        <td th:text="${row['checked_in_at'] ?: '-'}">-</td>
+                        <td th:text="${row.status ?: '미기록'}">미기록</td>
+                        <td th:text="${row.bandLabel ?: '-'}">-</td>
+                        <td th:text="${row.checkedInAt ?: '-'}">-</td>
                     </tr>
                     </tbody>
                 </table>

@@ -98,14 +98,14 @@ if (dashboardRoot) {
 
             const nameCell = document.createElement("td");
             const link = document.createElement("a");
-            link.href = `${dashboardRoot.dataset.memberBase}/${row.member_id}`;
+            link.href = `${dashboardRoot.dataset.memberBase}/${row.memberId}`;
             link.textContent = row.name;
             nameCell.append(link);
             tableRow.append(
                 nameCell,
                 cell(statusLabels[status] ?? status),
-                cell(row.band_label_snapshot),
-                cell(row.checked_in_at)
+                cell(row.bandLabel),
+                cell(row.checkedInAt)
             );
             rowsBody.append(tableRow);
         });

@@ -78,6 +78,20 @@ public interface OrganizationMapper {
 			@Param("departmentId") long departmentId,
 			@Param("eventId") long eventId);
 
+	/**
+	 * 이벤트가 승인된 부서에 속하는지만 확인한다.
+	 *
+	 * <p>연결 가능 여부와 분리해 조회하면, 이미 처리된 같은 부서 이벤트는 업무
+	 * 충돌로 안내하면서 다른 부서 이벤트의 존재 여부는 계속 숨길 수 있다.</p>
+	 *
+	 * @param departmentId 부서 식별자
+	 * @param eventId 태깅 이벤트 식별자
+	 * @return 승인된 부서에 이벤트가 있으면 {@code true}
+	 */
+	boolean existsTagEvent(
+			@Param("departmentId") long departmentId,
+			@Param("eventId") long eventId);
+
 	/** 예상 상태일 때만 카드 상태를 변경한다. */
 	int updateCardStatus(
 			@Param("cardId") long cardId,

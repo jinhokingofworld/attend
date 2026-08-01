@@ -22,6 +22,15 @@ public record AttendanceStatistics(
 ) {
 
 	/**
+	 * 화면 입력 오류처럼 통계를 계산하지 않은 상태를 0건 통계로 표현한다.
+	 *
+	 * @return 지각 단계도 비어 있는 0건 통계
+	 */
+	public static AttendanceStatistics empty() {
+		return new AttendanceStatistics(0, 0, 0, 0, List.of());
+	}
+
+	/**
 	 * 단계별 목록이 호출자에 의해 변경되지 않도록 복사한다.
 	 */
 	public AttendanceStatistics {

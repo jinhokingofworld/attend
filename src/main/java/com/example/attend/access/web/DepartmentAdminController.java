@@ -6,8 +6,9 @@ import com.example.attend.access.security.AccountPrincipal;
 import com.example.attend.attendance.application.AttendanceCorrectionService;
 import com.example.attend.attendance.application.AttendanceDayService;
 import com.example.attend.attendance.application.AttendancePolicyService;
-import com.example.attend.attendance.application.AttendanceTargetService;
+import com.example.attend.attendance.application.AttendanceStatistics;
 import com.example.attend.attendance.application.AttendanceStatisticsService;
+import com.example.attend.attendance.application.AttendanceTargetService;
 import com.example.attend.attendance.application.DepartmentMembershipExclusionService;
 import com.example.attend.attendance.application.ExcludeTeacherCommand;
 import com.example.attend.attendance.application.ManualAttendanceCommand;
@@ -176,9 +177,19 @@ public final class DepartmentAdminController {
 				: fromDate;
 		model.addAttribute("teacher", queryService.teacher(
 				principal.toActor(), departmentId, memberId));
-		model.addAttribute("statistics", statisticsService.getMemberStatistics(
-				principal.toActor(), departmentId, memberId,
-				effectiveFrom, effectiveTo));
+		AttendanceStatistics statistics;
+		boolean statisticsRangeValid = !effectiveFrom.isAfter(effectiveTo);
+		if (!statisticsRangeValid) {
+			model.addAttribute("error",
+					"시작일은 종료일보다 늦을 수 없습니다.");
+			statistics = AttendanceStatistics.empty();
+		} else {
+			statistics = statisticsService.getMemberStatistics(
+					principal.toActor(), departmentId, memberId,
+					effectiveFrom, effectiveTo);
+		}
+		model.addAttribute("statistics", statistics);
+		model.addAttribute("statisticsRangeValid", statisticsRangeValid);
 		model.addAttribute("attendanceHistory",
 				queryService.teacherAttendanceHistory(
 						principal.toActor(), departmentId, memberId));
@@ -668,7 +679,7 @@ public final class DepartmentAdminController {
 		return "admin/department/history";
 	}
 
-	private List<Map<String, Object>> dashboardRows(
+	private List<DashboardAttendanceRow> dashboardRows(
 			AccountPrincipal principal,
 			long departmentId,
 			Map<String, Object> dashboard) {
@@ -680,6 +691,7 @@ public final class DepartmentAdminController {
 		return queryService.attendanceRows(
 				principal.toActor(), departmentId, attendanceDayId).stream()
 				.filter(row -> Boolean.TRUE.equals(row.get("is_target")))
+				.map(DashboardAttendanceRow::from)
 				.toList();
 	}
 

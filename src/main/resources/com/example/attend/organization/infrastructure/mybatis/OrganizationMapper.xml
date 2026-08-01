@@ -99,6 +99,15 @@
 		  AND (card.id IS NULL OR card.status = 'AVAILABLE')
 	</select>
 
+	<select id="existsTagEvent" resultType="boolean">
+		SELECT EXISTS (
+			SELECT 1
+			FROM public.tag_event_log AS event
+			WHERE event.department_id = #{departmentId}
+			  AND event.id = #{eventId}
+		)
+	</select>
+
 	<update id="updateCardStatus">
 		UPDATE public.nfc_card
 		SET status = #{targetStatus}
