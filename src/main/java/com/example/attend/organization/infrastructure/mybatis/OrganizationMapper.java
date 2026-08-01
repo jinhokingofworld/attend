@@ -14,10 +14,18 @@ public interface OrganizationMapper {
 	/** 활성 부서 행을 잠그고 식별자를 반환한다. */
 	Long lockActiveDepartment(@Param("departmentId") long departmentId);
 
-	/** 신규 교사를 활성 상태로 저장하고 식별자를 반환한다. */
+	/**
+	 * 신규 교사를 활성 상태로 저장한다.
+	 *
+	 * @param name 교사 이름
+	 * @param phone 선택 연락처
+	 * @param birth 선택 생년월일
+	 * @return 생성된 교사 식별자
+	 */
 	long insertMember(
 			@Param("name") String name,
-			@Param("phone") String phone);
+			@Param("phone") String phone,
+			@Param("birth") java.time.LocalDate birth);
 
 	/** 교사의 신규 활성 소속을 저장하고 식별자를 반환한다. */
 	long insertMembership(
@@ -26,12 +34,22 @@ public interface OrganizationMapper {
 			@Param("actorAccountId") long actorAccountId,
 			@Param("joinedAt") Instant joinedAt);
 
-	/** 활성 소속으로 범위를 제한해 교사의 허용된 기본정보만 수정한다. */
+	/**
+	 * 활성 소속으로 범위를 제한해 교사의 허용된 기본정보만 수정한다.
+	 *
+	 * @param departmentId 부서 식별자
+	 * @param memberId 교사 식별자
+	 * @param name 변경할 이름
+	 * @param phone 변경할 선택 연락처
+	 * @param birth 변경할 선택 생년월일
+	 * @return 수정된 행 수
+	 */
 	int updateTeacher(
 			@Param("departmentId") long departmentId,
 			@Param("memberId") long memberId,
 			@Param("name") String name,
-			@Param("phone") String phone);
+			@Param("phone") String phone,
+			@Param("birth") java.time.LocalDate birth);
 
 	/** 승인된 부서의 활성 소속을 잠근다. */
 	MembershipRow lockActiveMembership(
@@ -48,6 +66,31 @@ public interface OrganizationMapper {
 
 	/** UID 카드 행을 잠근다. */
 	CardRow lockCardByUid(@Param("uid") String uid);
+
+	/**
+	 * 부서의 미등록·비활성 태깅 이벤트에서 원본 UID를 서버 내부로만 읽는다.
+	 *
+	 * @param departmentId 부서 식별자
+	 * @param eventId 태깅 이벤트 식별자
+	 * @return 연결 가능한 원본 UID, 없으면 {@code null}
+	 */
+	String selectAssignableTagEventUid(
+			@Param("departmentId") long departmentId,
+			@Param("eventId") long eventId);
+
+	/**
+	 * 이벤트가 승인된 부서에 속하는지만 확인한다.
+	 *
+	 * <p>연결 가능 여부와 분리해 조회하면, 이미 처리된 같은 부서 이벤트는 업무
+	 * 충돌로 안내하면서 다른 부서 이벤트의 존재 여부는 계속 숨길 수 있다.</p>
+	 *
+	 * @param departmentId 부서 식별자
+	 * @param eventId 태깅 이벤트 식별자
+	 * @return 승인된 부서에 이벤트가 있으면 {@code true}
+	 */
+	boolean existsTagEvent(
+			@Param("departmentId") long departmentId,
+			@Param("eventId") long eventId);
 
 	/** 예상 상태일 때만 카드 상태를 변경한다. */
 	int updateCardStatus(

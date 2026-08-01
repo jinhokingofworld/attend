@@ -19,11 +19,17 @@
 		       count(target.member_id)
 		           FILTER (WHERE target.is_target) AS target_count,
 		       count(record.id)
-		           FILTER (WHERE record.status = 'PRESENT') AS present_count,
+		           FILTER (WHERE target.is_target
+		                     AND record.status = 'PRESENT') AS present_count,
 		       count(record.id)
-		           FILTER (WHERE record.status = 'LATE') AS late_count,
+		           FILTER (WHERE target.is_target
+		                     AND record.status = 'LATE') AS late_count,
 		       count(record.id)
-		           FILTER (WHERE record.status = 'ABSENT') AS absent_count
+		           FILTER (WHERE target.is_target
+		                     AND record.status = 'ABSENT') AS absent_count,
+		       count(target.member_id)
+		           FILTER (WHERE target.is_target
+		                     AND record.id IS NULL) AS pending_count
 		FROM public.attendance_day AS day
 		JOIN public.attendance_policy_version AS policy
 		  ON policy.id = day.policy_version_id
@@ -43,6 +49,11 @@
 		SELECT member.id,
 		       member.name,
 		       member.phone,
+		       member.birth,
+		       COALESCE(
+		           extract(year FROM age(#{today}, member.birth))::integer,
+		           member.age
+		       ) AS display_age,
 		       membership.joined_at,
 		       card.id AS card_id,
 		       card.status AS card_status,
@@ -63,6 +74,60 @@
 		WHERE membership.department_id = #{departmentId}
 		  AND membership.ended_at IS NULL
 		ORDER BY lower(member.name), member.id
+	</select>
+
+	<select id="selectTeacher" resultType="map">
+		SELECT member.id,
+		       member.name,
+		       member.phone,
+		       member.birth,
+		       COALESCE(
+		           extract(year FROM age(#{today}, member.birth))::integer,
+		           member.age
+		       ) AS display_age,
+		       member.created_at,
+		       membership.joined_at,
+		       card.id AS card_id,
+		       card.status AS card_status,
+		       CASE
+		           WHEN card.uid IS NULL THEN NULL
+		           ELSE '****' || right(card.uid, 4)
+		       END AS masked_uid
+		FROM public.department_membership AS membership
+		JOIN public.member AS member
+		  ON member.id = membership.member_id
+		LEFT JOIN public.nfc_card_assignment AS assignment
+		  ON assignment.department_id = membership.department_id
+		 AND assignment.membership_id = membership.id
+		 AND assignment.member_id = membership.member_id
+		 AND assignment.unassigned_at IS NULL
+		LEFT JOIN public.nfc_card AS card
+		  ON card.id = assignment.nfc_card_id
+		WHERE membership.department_id = #{departmentId}
+		  AND membership.member_id = #{memberId}
+		  AND membership.ended_at IS NULL
+	</select>
+
+	<select id="selectTeacherAttendanceHistory" resultType="map">
+		SELECT day.id AS attendance_day_id,
+		       day.attendance_date,
+		       day.status AS day_status,
+		       target.is_target,
+		       record.status,
+		       record.band_label_snapshot,
+		       record.checked_in_at,
+		       record.note
+		FROM public.attendance_target AS target
+		JOIN public.attendance_day AS day
+		  ON day.id = target.attendance_day_id
+		 AND day.department_id = target.department_id
+		LEFT JOIN public.attendance_record AS record
+		  ON record.attendance_day_id = target.attendance_day_id
+		 AND record.member_id = target.member_id
+		WHERE target.department_id = #{departmentId}
+		  AND target.member_id = #{memberId}
+		ORDER BY day.attendance_date DESC, day.id DESC
+		LIMIT 100
 	</select>
 
 	<select id="selectPolicies" resultType="map">
@@ -205,8 +270,11 @@
 		JOIN public.device AS device
 		  ON device.id = event.device_id
 		 AND device.department_id = event.department_id
+		LEFT JOIN public.nfc_card AS card
+		  ON card.uid = event.uid
 		WHERE event.department_id = #{departmentId}
 		  AND event.result_code IN ('UNKNOWN_UID', 'INACTIVE_CARD')
+		  AND (card.id IS NULL OR card.status = 'AVAILABLE')
 		ORDER BY event.uid, event.received_at DESC
 	</select>
 

@@ -1,19 +1,38 @@
 <!DOCTYPE html>
 <html lang="ko" xmlns:th="http://www.thymeleaf.org">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>카드 등록함</title></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>카드 등록함</title>    <link rel="stylesheet" th:href="@{/css/admin.css}">
+</head>
 <body>
+<header th:replace="~{fragments/admin-shell :: header}"></header>
 <main>
     <h1 th:text="|${department.name} · 카드 등록함|">카드 등록함</h1>
+    <p th:if="${message}" class="message message--success" th:text="${message}"></p>
+    <p th:if="${error}" class="message message--error" th:text="${error}" role="alert"></p>
+    <p th:unless="${writeEnabled}">읽기 전용 모드</p>
     <p>부서 장치가 수신한 미등록·비활성 카드 태깅을 표시합니다.</p>
-    <p>장치 API가 구현되는 M4 전에는 이벤트가 생성되지 않습니다. 현재는 교사 화면에서 UID를 직접 등록할 수 있습니다.</p>
+    <p>원본 UID를 화면에 노출하지 않고, 태깅 이벤트를 선택한 교사에게 바로 연결합니다.</p>
     <table>
-        <thead><tr><th>시각</th><th>장치</th><th>카드</th><th>결과</th></tr></thead>
+        <thead><tr><th>시각</th><th>장치</th><th>카드</th><th>결과</th><th>교사 연결</th></tr></thead>
         <tbody>
         <tr th:each="event : ${events}">
             <td th:text="${event.received_at}">시각</td>
             <td th:text="${event.device_name}">장치</td>
             <td th:text="${event.masked_uid}">카드</td>
             <td th:text="${event.result_code}">결과</td>
+            <td>
+                <form th:if="${writeEnabled}" method="post"
+                      th:action="@{/admin/departments/{departmentId}/cards/inbox/{eventId}/connect(departmentId=${department.id},eventId=${event.event_id})}">
+                    <label>카드 없는 교사
+                        <select name="memberId" required>
+                            <option th:each="teacher : ${teachers}"
+                                    th:if="${teacher['card_id'] == null}"
+                                    th:value="${teacher.id}"
+                                    th:text="${teacher.name}">교사</option>
+                        </select>
+                    </label>
+                    <button type="submit">이 카드 연결</button>
+                </form>
+            </td>
         </tr>
         </tbody>
     </table>

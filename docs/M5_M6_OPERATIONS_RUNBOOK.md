@@ -34,7 +34,7 @@
    적용한다. 이 컨테이너에만 Neon direct URL과 migration 계정을 주입한다.
 5. runtime 계정에 DDL, `TEMP`, 레거시 DML 권한이 없는지 기존 DB 권한 검사를
    다시 수행한다.
-6. `ADMIN_WRITE_ENABLED=false`, `DEVICE_API_ENABLED=false`,
+6. `ADMIN_WRITE_ENABLED=false`, `ADMIN_SHOW_TAG_LOGS=false`, `DEVICE_API_ENABLED=false`,
    `ATTENDANCE_SCHEDULER_ENABLED=false`로 최초 기동한다.
 7. host 내부에서 `127.0.0.1:8081/actuator/health`가 `UP`, 공개 hostname의
    `/actuator/health`는 도달 불가인지 확인한다.
@@ -73,6 +73,12 @@ DB migration을 되돌리거나 dump를 운영 DB 위에 덮어쓰지 않는다.
 필요하면 새 격리 DB 복원·대사·별도 승인 절차를 사용한다.
 
 ## 5. M6 실기기 시험
+
+하드웨어가 없는 개발 단계에서는
+[LOCAL_HTTP_DEMO.md](./LOCAL_HTTP_DEMO.md)의 loopback 전용 Compose와 Postman
+컬렉션으로 두 부서의 credential, 최초 기록, 멱등 replay와 requestId 충돌을 먼저
+검증한다. 이 검증은 NFC 판독·LED·TLS·실제 성능 증거가 아니므로 M6 완료 근거로
+계상하지 않는다.
 
 펌웨어 대상과 설치 절차는 `firmware/attend-nfc/README.md`를 따른다. Arduino 확보
 전에는 `scripts/pilot-http-simulator.sh`로 준비된 서로 다른 두 부서의 최초 기록,

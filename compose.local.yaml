@@ -1,0 +1,85 @@
+name: attend-local-demo
+
+# Hardware 없이 장치 HTTP 계약을 시험하기 위한 로컬 전용 구성이다.
+# 모든 공개 포트는 loopback에만 bind하며 운영 배포에 사용하지 않는다.
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: attend_local
+      POSTGRES_USER: attend_local
+      POSTGRES_PASSWORD: local-demo-db-password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U attend_local -d attend_local"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - local_db_data:/var/lib/postgresql/data
+    networks:
+      - local
+
+  app:
+    build:
+      context: .
+      target: runtime
+    image: attend:local-demo
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://db:5432/attend_local
+      DB_USERNAME: attend_local
+      DB_PASSWORD: local-demo-db-password
+      FLYWAY_ENABLED: "true"
+      ADMIN_WRITE_ENABLED: "true"
+      # 운영 웹에서는 숨기고 하드웨어 없는 로컬 데모에서만 태깅 결과를 보여준다.
+      ADMIN_SHOW_TAG_LOGS: "true"
+      ACCOUNT_TOKEN_PEPPER: local-demo-account-pepper-not-for-production-2026
+      PUBLIC_BASE_URL: http://127.0.0.1:8080
+      DEVICE_API_ENABLED: "true"
+      DEVICE_CREDENTIAL_PEPPER: local-demo-device-pepper-not-for-production-2026
+      # 날짜 변경 시 전날 미마감 날짜를 즉시 catch-up해 통계에 반영한다.
+      ATTENDANCE_SCHEDULER_ENABLED: "true"
+      MANAGEMENT_SERVER_ADDRESS: 0.0.0.0
+      MANAGEMENT_SERVER_PORT: 8081
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8081:8081"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8081/actuator/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    networks:
+      - local
+
+  seed:
+    image: postgres:15-alpine
+    # one-shot 서비스는 start/demo 스크립트가 명시적으로 동기 실행한다.
+    profiles: ["setup"]
+    depends_on:
+      app:
+        condition: service_healthy
+    entrypoint: ["psql"]
+    command:
+      - --host=db
+      - --username=attend_local
+      - --dbname=attend_local
+      - --set=ON_ERROR_STOP=1
+      - --set=local_attendance_date=${LOCAL_DEMO_ATTENDANCE_DATE:-}
+      - --file=/seed/seed.sql
+    environment:
+      PGPASSWORD: local-demo-db-password
+    volumes:
+      - ./ops/local-demo/seed.sql:/seed/seed.sql:ro
+    networks:
+      - local
+    restart: "no"
+
+networks:
+  local:
+
+volumes:
+  local_db_data:

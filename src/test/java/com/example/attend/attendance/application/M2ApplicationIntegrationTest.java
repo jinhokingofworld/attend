@@ -113,6 +113,7 @@ class M2ApplicationIntegrationTest {
 				new AddTeacherCommand(
 						"첫 번째 교사",
 						"010-0000-0001",
+						LocalDate.of(1990, 3, 15),
 						new NfcUid("A1B2C3D4")));
 		TeacherRegistrationResult secondTeacher = teacherRosterService.addTeacher(
 				actor,
@@ -124,7 +125,13 @@ class M2ApplicationIntegrationTest {
 				firstTeacher.memberId(),
 				new UpdateTeacherCommand(
 						"첫 번째 교사 수정",
-						"010-0000-0011"));
+						"010-0000-0011",
+						LocalDate.of(1991, 4, 16)));
+		assertThat(jdbcTemplate.queryForObject(
+				"SELECT birth FROM public.member WHERE id = ?",
+				LocalDate.class,
+				firstTeacher.memberId()))
+				.isEqualTo(LocalDate.of(1991, 4, 16));
 
 		long policyId = policyService.createDraft(
 				actor,

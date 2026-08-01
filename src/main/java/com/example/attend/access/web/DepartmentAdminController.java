@@ -6,6 +6,8 @@ import com.example.attend.access.security.AccountPrincipal;
 import com.example.attend.attendance.application.AttendanceCorrectionService;
 import com.example.attend.attendance.application.AttendanceDayService;
 import com.example.attend.attendance.application.AttendancePolicyService;
+import com.example.attend.attendance.application.AttendanceStatistics;
+import com.example.attend.attendance.application.AttendanceStatisticsService;
 import com.example.attend.attendance.application.AttendanceTargetService;
 import com.example.attend.attendance.application.DepartmentMembershipExclusionService;
 import com.example.attend.attendance.application.ExcludeTeacherCommand;
@@ -20,6 +22,7 @@ import com.example.attend.organization.application.TeacherRosterService;
 import com.example.attend.organization.application.UpdateTeacherCommand;
 import com.example.attend.organization.domain.CardDisposition;
 import com.example.attend.organization.domain.NfcUid;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
@@ -28,14 +31,18 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 기존 M2 조직·출석 서비스를 부서 범위 MVC command와 화면에 연결한다.
@@ -52,7 +59,10 @@ public final class DepartmentAdminController {
 	private final AttendanceDayService dayService;
 	private final AttendanceTargetService targetService;
 	private final AttendanceCorrectionService correctionService;
+	private final AttendanceStatisticsService statisticsService;
 	private final ZoneId attendanceZone;
+	private final Clock clock;
+	private final boolean showTagLogs;
 
 	/**
 	 * 부서 화면에서 사용하는 M2 application service와 읽기 모델을 주입받는다.
@@ -67,7 +77,11 @@ public final class DepartmentAdminController {
 			AttendanceDayService dayService,
 			AttendanceTargetService targetService,
 			AttendanceCorrectionService correctionService,
-			ZoneId attendanceZone) {
+			AttendanceStatisticsService statisticsService,
+			ZoneId attendanceZone,
+			Clock clock,
+			@Value("${attendance.admin.show-tag-logs:false}")
+			boolean showTagLogs) {
 		this.queryService = queryService;
 		this.writeGate = writeGate;
 		this.teacherService = teacherService;
@@ -77,7 +91,10 @@ public final class DepartmentAdminController {
 		this.dayService = dayService;
 		this.targetService = targetService;
 		this.correctionService = correctionService;
+		this.statisticsService = statisticsService;
 		this.attendanceZone = attendanceZone;
+		this.clock = clock;
+		this.showTagLogs = showTagLogs;
 	}
 
 	/** 오늘의 출석 집계와 부서 내비게이션을 표시한다. */
@@ -87,9 +104,36 @@ public final class DepartmentAdminController {
 			@PathVariable long departmentId,
 			Model model) {
 		addDepartmentModel(principal, departmentId, model);
-		model.addAttribute("dashboard",
-				queryService.dashboard(principal.toActor(), departmentId));
+		Map<String, Object> dashboard =
+				queryService.dashboard(principal.toActor(), departmentId);
+		model.addAttribute("dashboard", dashboard);
+		model.addAttribute("dashboardRows",
+				dashboardRows(principal, departmentId, dashboard));
 		return "admin/department/dashboard";
+	}
+
+	/**
+	 * 새로고침 없이 오늘의 출석 현황을 갱신할 수 있는 부서 범위 JSON을 반환한다.
+	 *
+	 * <p>개인 연락처와 NFC UID는 포함하지 않고 대시보드에 필요한 교사 이름과
+	 * 출석 판정만 전달한다.</p>
+	 *
+	 * @param principal 인증 계정
+	 * @param departmentId 부서 식별자
+	 * @return 오늘 집계와 대상 교사 행
+	 */
+	@GetMapping("/admin/departments/{departmentId}/dashboard-data")
+	@ResponseBody
+	public Map<String, Object> dashboardData(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId) {
+		Map<String, Object> dashboard =
+				queryService.dashboard(principal.toActor(), departmentId);
+		Map<String, Object> response = new LinkedHashMap<>();
+		response.put("summary", dashboard);
+		response.put("rows", dashboardRows(
+				principal, departmentId, dashboard));
+		return response;
 	}
 
 	/** 활성 교사와 카드 상태를 표시한다. */
@@ -104,6 +148,57 @@ public final class DepartmentAdminController {
 		return "admin/department/teachers";
 	}
 
+	/**
+	 * 교사 기본정보, 기간별 공식 통계와 최근 출석 이력을 표시한다.
+	 *
+	 * @param principal 인증 계정
+	 * @param departmentId 부서 식별자
+	 * @param memberId 교사 식별자
+	 * @param fromDate 선택 통계 시작일
+	 * @param toDate 선택 통계 종료일
+	 * @param model 화면 모델
+	 * @return 교사 상세 템플릿
+	 */
+	@GetMapping("/admin/departments/{departmentId}/teachers/{memberId}")
+	public String teacher(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long memberId,
+			@RequestParam(required = false)
+			@DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+			@RequestParam(required = false)
+			@DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
+			@RequestParam(defaultValue = "false") boolean edit,
+			Model model) {
+		addDepartmentModel(principal, departmentId, model);
+		LocalDate effectiveTo = toDate == null ? LocalDate.now(clock) : toDate;
+		LocalDate effectiveFrom = fromDate == null
+				? effectiveTo.minusYears(1).plusDays(1)
+				: fromDate;
+		model.addAttribute("teacher", queryService.teacher(
+				principal.toActor(), departmentId, memberId));
+		AttendanceStatistics statistics;
+		boolean statisticsRangeValid = !effectiveFrom.isAfter(effectiveTo);
+		if (!statisticsRangeValid) {
+			model.addAttribute("error",
+					"시작일은 종료일보다 늦을 수 없습니다.");
+			statistics = AttendanceStatistics.empty();
+		} else {
+			statistics = statisticsService.getMemberStatistics(
+					principal.toActor(), departmentId, memberId,
+					effectiveFrom, effectiveTo);
+		}
+		model.addAttribute("statistics", statistics);
+		model.addAttribute("statisticsRangeValid", statisticsRangeValid);
+		model.addAttribute("attendanceHistory",
+				queryService.teacherAttendanceHistory(
+						principal.toActor(), departmentId, memberId));
+		model.addAttribute("fromDate", effectiveFrom);
+		model.addAttribute("toDate", effectiveTo);
+		model.addAttribute("editMode", edit && writeGate.isEnabled());
+		return "admin/department/teacher-detail";
+	}
+
 	/** 교사·활성 소속과 선택 카드를 한 트랜잭션으로 추가한다. */
 	@PostMapping("/admin/departments/{departmentId}/teachers")
 	public String addTeacher(
@@ -111,6 +206,8 @@ public final class DepartmentAdminController {
 			@PathVariable long departmentId,
 			@RequestParam String name,
 			@RequestParam(required = false) String phone,
+			@RequestParam(required = false)
+			@DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate birth,
 			@RequestParam(required = false) String cardUid,
 			RedirectAttributes redirect) {
 		return command(
@@ -120,6 +217,7 @@ public final class DepartmentAdminController {
 						new AddTeacherCommand(
 								name,
 								phone,
+								birth,
 								optionalUid(cardUid))),
 				"교사를 추가했습니다.",
 				teachersPath(departmentId),
@@ -134,15 +232,17 @@ public final class DepartmentAdminController {
 			@PathVariable long memberId,
 			@RequestParam String name,
 			@RequestParam(required = false) String phone,
+			@RequestParam(required = false)
+			@DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate birth,
 			RedirectAttributes redirect) {
 		return command(
 				() -> teacherService.updateTeacher(
 						principal.toActor(),
 						departmentId,
 						memberId,
-						new UpdateTeacherCommand(name, phone)),
+						new UpdateTeacherCommand(name, phone, birth)),
 				"교사 정보를 수정했습니다.",
-				teachersPath(departmentId),
+				teacherPath(departmentId, memberId),
 				redirect);
 	}
 
@@ -184,7 +284,7 @@ public final class DepartmentAdminController {
 						memberId,
 						new NfcUid(cardUid)),
 				"NFC 카드를 연결했습니다.",
-				teachersPath(departmentId),
+				teacherPath(departmentId, memberId),
 				redirect);
 	}
 
@@ -205,7 +305,7 @@ public final class DepartmentAdminController {
 						new NfcUid(cardUid),
 						reason),
 				"NFC 카드를 교체했습니다.",
-				teachersPath(departmentId),
+				teacherPath(departmentId, memberId),
 				redirect);
 	}
 
@@ -226,7 +326,7 @@ public final class DepartmentAdminController {
 						disposition,
 						reason),
 				"NFC 카드 연결을 종료했습니다.",
-				teachersPath(departmentId),
+				teacherPath(departmentId, memberId),
 				redirect);
 	}
 
@@ -239,7 +339,34 @@ public final class DepartmentAdminController {
 		addDepartmentModel(principal, departmentId, model);
 		model.addAttribute("events",
 				queryService.cardInbox(principal.toActor(), departmentId));
+		model.addAttribute("teachers",
+				queryService.teachers(principal.toActor(), departmentId));
 		return "admin/department/card-inbox";
+	}
+
+	/**
+	 * 카드 등록함 이벤트를 선택한 활성 교사에게 원본 UID 노출 없이 연결한다.
+	 *
+	 * @param principal 인증 계정
+	 * @param departmentId 부서 식별자
+	 * @param eventId 태깅 이벤트 식별자
+	 * @param memberId 연결할 교사 식별자
+	 * @param redirect 처리 결과 메시지 저장소
+	 * @return 카드 등록함 리다이렉트
+	 */
+	@PostMapping("/admin/departments/{departmentId}/cards/inbox/{eventId}/connect")
+	public String connectInboxCard(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long eventId,
+			@RequestParam long memberId,
+			RedirectAttributes redirect) {
+		return command(
+				() -> cardService.connectFromInbox(
+						principal.toActor(), departmentId, memberId, eventId),
+				"태깅한 NFC 카드를 교사에게 연결했습니다.",
+				"/admin/departments/" + departmentId + "/cards/inbox",
+				redirect);
 	}
 
 	/** 부서의 정책 버전 목록과 초안 생성 form을 표시한다. */
@@ -535,7 +662,7 @@ public final class DepartmentAdminController {
 				redirect);
 	}
 
-	/** 부서 범위 감사와 태깅 이력을 분리해 표시한다. */
+	/** 부서 범위 감사를 표시하고 로컬 데모에서만 태깅 이력을 추가한다. */
 	@GetMapping("/admin/departments/{departmentId}/history")
 	public String history(
 			@AuthenticationPrincipal AccountPrincipal principal,
@@ -544,9 +671,28 @@ public final class DepartmentAdminController {
 		addDepartmentModel(principal, departmentId, model);
 		model.addAttribute("history",
 				queryService.history(principal.toActor(), departmentId));
-		model.addAttribute("tagHistory",
-				queryService.tagHistory(principal.toActor(), departmentId));
+		model.addAttribute("showTagLogs", showTagLogs);
+		if (showTagLogs) {
+			model.addAttribute("tagHistory",
+					queryService.tagHistory(principal.toActor(), departmentId));
+		}
 		return "admin/department/history";
+	}
+
+	private List<DashboardAttendanceRow> dashboardRows(
+			AccountPrincipal principal,
+			long departmentId,
+			Map<String, Object> dashboard) {
+		if (dashboard == null) {
+			return List.of();
+		}
+		long attendanceDayId =
+				((Number) dashboard.get("attendance_day_id")).longValue();
+		return queryService.attendanceRows(
+				principal.toActor(), departmentId, attendanceDayId).stream()
+				.filter(row -> Boolean.TRUE.equals(row.get("is_target")))
+				.map(DashboardAttendanceRow::from)
+				.toList();
 	}
 
 	private void addDepartmentModel(
@@ -602,6 +748,10 @@ public final class DepartmentAdminController {
 
 	private static String teachersPath(long departmentId) {
 		return "/admin/departments/" + departmentId + "/teachers";
+	}
+
+	private static String teacherPath(long departmentId, long memberId) {
+		return teachersPath(departmentId) + "/" + memberId;
 	}
 
 	private static String policiesPath(long departmentId) {

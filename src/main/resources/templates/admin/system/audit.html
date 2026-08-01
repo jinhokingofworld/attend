@@ -1,7 +1,9 @@
 <!DOCTYPE html>
 <html lang="ko" xmlns:th="http://www.thymeleaf.org">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>시스템 감사</title></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>시스템 감사</title>    <link rel="stylesheet" th:href="@{/css/admin.css}">
+</head>
 <body>
+<header th:replace="~{fragments/admin-shell :: header}"></header>
 <main>
     <h1>시스템 감사</h1>
     <p>부서·계정·권한 lifecycle만 표시하며 부서 출석 상세는 포함하지 않습니다.</p>

@@ -1,7 +1,9 @@
 <!DOCTYPE html>
 <html lang="ko" xmlns:th="http://www.thymeleaf.org">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>부서 이력</title></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>부서 이력</title>    <link rel="stylesheet" th:href="@{/css/admin.css}">
+</head>
 <body>
+<header th:replace="~{fragments/admin-shell :: header}"></header>
 <main>
     <h1 th:text="|${department.name} · 이력|">이력</h1>
     <section>
@@ -19,7 +21,7 @@
             </tbody>
         </table>
     </section>
-    <section>
+    <section th:if="${showTagLogs}">
         <h2>태깅 이력</h2>
         <table>
             <thead><tr><th>시각</th><th>장치</th><th>카드</th><th>결과</th></tr></thead>

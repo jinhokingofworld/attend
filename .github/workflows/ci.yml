@@ -97,6 +97,9 @@ jobs:
           docker compose --env-file /dev/null -f compose.migration.yaml config
           --no-env-resolution --quiet
 
+      - name: Validate local hardware-free demo Compose
+        run: docker compose --env-file /dev/null -f compose.local.yaml config --quiet
+
       - name: Build runtime and migration container images
         run: |
           docker build --target runtime --tag attend:ci .
@@ -120,6 +123,9 @@ jobs:
             ops/backup/backup.sh
             ops/backup/restore-verify.sh
             scripts/device-smoke.sh
+            scripts/local-admin-e2e.sh
+            scripts/local-demo-start.sh
+            scripts/local-http-demo.sh
             scripts/pilot-http-simulator.sh
           )
           bash -n "${scripts[@]}"
@@ -133,6 +139,41 @@ jobs:
           restore_status="$?"
           set -e
           test "${restore_status}" -eq 5
+
+      - name: Run local device and admin frontend E2E
+        env:
+          LOCAL_DEMO_BUILD: "false"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker tag attend:ci attend:local-demo
+          ./scripts/local-demo-start.sh
+          ./scripts/local-http-demo.sh
+          ./scripts/local-admin-e2e.sh
+
+          for _ in 1 2; do
+            LOCAL_DEMO_ATTENDANCE_DATE=2099-12-31 \
+              docker compose --env-file /dev/null -f compose.local.yaml \
+              run --rm seed
+          done
+
+          future_day_count="$(
+            docker compose --env-file /dev/null -f compose.local.yaml \
+              exec --no-TTY db psql \
+              --username=attend_local \
+              --dbname=attend_local \
+              --tuples-only \
+              --no-align \
+              --command="SELECT COUNT(*) FROM attendance_day WHERE attendance_date = DATE '2099-12-31';"
+          )"
+          test "${future_day_count}" -eq 2
+
+      - name: Stop local E2E services
+        if: always()
+        run: >-
+          docker compose --env-file /dev/null -f compose.local.yaml
+          down --volumes --remove-orphans
 
       - name: Upload test reports on failure
         if: failure()

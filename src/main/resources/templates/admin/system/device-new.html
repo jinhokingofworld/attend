@@ -4,8 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>장치 등록</title>
+    <link rel="stylesheet" th:href="@{/css/admin.css}">
 </head>
 <body>
+<header th:replace="~{fragments/admin-shell :: header}"></header>
 <main>
     <h1>장치 등록</h1>
     <p><a th:href="@{/admin/system/devices}">장치 목록</a></p>

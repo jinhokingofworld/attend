@@ -275,16 +275,17 @@ MVP는 영구 계정 잠금을 만들지 않고 token bucket 두 개를 함께 �
 | URL 계열 | 주요 화면·행위 | `SYSTEM_ADMIN` 단독 | `DEPARTMENT_ADMIN(D)` | 다른 부서 관리자 | scope key |
 |---|---|---:|---:|---:|---|
 | `/admin/departments/{D}` | 오늘의 출석·날짜별 현황 | 거부 | 허용(D) | 404 | D + day |
+| `/admin/departments/{D}/dashboard-data` | 자동 갱신용 오늘 집계·대상 교사 JSON | 거부 | 허용(D) | 404 | D + day/target/record |
 | `/admin/departments/{D}/teachers/**` | 교사 목록·상세·추가·수정·부서 제외·개인 통계 | 거부 | 허용(D) | 404 | D + membership/member |
 | `/admin/departments/{D}/teachers/{memberId}/card/**` | 카드 연결·교체·해제·분실·폐기 | 거부 | 허용(D) | 404 | D + membership/card/assignment |
 | `/admin/departments/{D}/cards/inbox/**` | `UNKNOWN_UID` 등록과 `INACTIVE_CARD`인 `AVAILABLE` 카드 재사용 | 거부 | 허용(D) | 404 | D + tag event/card/device |
 | `/admin/departments/{D}/policies/**` | 초안·구간·발행·이력 | 거부 | 허용(D) | 404 | D + policy |
 | `/admin/departments/{D}/attendance-days/**` | 날짜·대상자·결과·수동 등록·정정·메모 | 거부 | 허용(D) | 404 | D + day/target/record |
-| `/admin/departments/{D}/history` | 부서 감사와 태깅 이력 탭 | 거부 | 허용(D) | 404 | D + audit/event |
+| `/admin/departments/{D}/history` | 부서 감사. 로컬 데모 flag에서만 마스킹 태깅 이력 | 거부 | 허용(D) | 404 | D + audit/event |
 
 `SYSTEM_ADMIN` 화면에서 부서 D를 선택했거나 URL을 알고 있다는 사실은 `DEPARTMENT_ADMIN(D)` 권한을 만들지 않는다.
 
-`/history`의 두 탭은 한 화면이어도 같은 전역 query를 공유하지 않는다. 감사 탭은 `audit_log.department_id = D`, 태깅 탭은 `tag_event_log.department_id = D`인 별도 scope query를 사용한다. 부서 dashboard의 장치 정보는 장치명·상태·마지막 인증 성공 시각만 허용한다. 장치 코드 전체, credential version·hash·원문과 lifecycle command는 노출하지 않고, 장치 상세·관리 URL은 `/admin/system/devices/**`에만 둔다.
+`/history`의 감사 조회는 항상 `audit_log.department_id = D`로 제한한다. 태깅 조회는 로컬 데모 flag가 켜진 경우에만 실행하고 `tag_event_log.department_id = D`인 별도 scope query를 사용한다. 운영 기본값에서는 태깅 표 자체를 렌더링하지 않는다. 부서 dashboard의 장치 정보는 장치명·상태·마지막 인증 성공 시각만 허용한다. 장치 코드 전체, credential version·hash·원문과 lifecycle command는 노출하지 않고, 장치 상세·관리 URL은 `/admin/system/devices/**`에만 둔다.
 
 ### 6.3 시스템 command
 

@@ -2,13 +2,19 @@ package com.example.attend.access.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.security.test.web.servlet.response.SecurityMockMvcResultMatchers.authenticated;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.flash;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
 import com.example.attend.access.domain.AccountSystemRole;
 import com.example.attend.access.application.CredentialTokenService;
@@ -37,9 +43,10 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.time.OffsetDateTime;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
@@ -92,6 +99,9 @@ class M3SecurityIntegrationTest {
 
 	@Autowired
 	private AttendanceDayService attendanceDayService;
+
+	@Autowired
+	private Clock clock;
 
 	private long systemAccountId;
 	private long departmentAccountId;
@@ -187,6 +197,14 @@ class M3SecurityIntegrationTest {
 		AccountPrincipal departmentPrincipal = (AccountPrincipal)
 				userDetailsService.loadUserByUsername(DEPARTMENT_USERNAME);
 
+		mockMvc.perform(get("/"))
+				.andExpect(status().is3xxRedirection())
+				.andExpect(redirectedUrl("/admin"));
+		mockMvc.perform(get("/login"))
+				.andExpect(status().isOk())
+				.andExpect(view().name("login"));
+		mockMvc.perform(get("/js/admin.js"))
+				.andExpect(status().isOk());
 		mockMvc.perform(get("/admin"))
 				.andExpect(status().is3xxRedirection());
 
@@ -235,6 +253,9 @@ class M3SecurityIntegrationTest {
 			mockMvc.perform(get(path).with(user(departmentPrincipal)))
 					.andExpect(status().isOk());
 		}
+		mockMvc.perform(get("/admin/departments/" + departmentId + "/history")
+						.with(user(departmentPrincipal)))
+				.andExpect(content().string(not(containsString("태깅 이력"))));
 
 		var departmentActor =
 				new com.example.attend.access.api.AccountActor(departmentAccountId);
@@ -260,11 +281,47 @@ class M3SecurityIntegrationTest {
 						.with(user(departmentPrincipal)))
 				.andExpect(status().isOk());
 		attendancePolicyService.publish(departmentActor, departmentId, policyId);
+		LocalDate today = LocalDate.now(clock);
+		long dashboardMemberId = insertAndReturnId("""
+				INSERT INTO public.member(name, active)
+				VALUES ('대시보드 교사', TRUE)
+				RETURNING id
+				""");
+		jdbcTemplate.update("""
+				INSERT INTO public.department_membership(
+				    department_id, member_id, joined_at, created_by_account_id)
+				VALUES (?, ?, CURRENT_TIMESTAMP, ?)
+				""", departmentId, dashboardMemberId, departmentAccountId);
 		long dayId = attendanceDayService.createDay(
 				departmentActor,
 				departmentId,
-				LocalDate.now().plusDays(1),
+				today.plusDays(1),
 				policyId);
+		jdbcTemplate.update("""
+				UPDATE public.attendance_day
+				SET attendance_date = ?
+				WHERE id = ?
+				""", today, dayId);
+		mockMvc.perform(get("/admin/departments/" + departmentId
+						+ "/dashboard-data")
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.summary.attendance_day_id")
+						.value(dayId))
+				.andExpect(jsonPath("$.summary.pending_count").value(1))
+				.andExpect(jsonPath("$.rows[0].memberId")
+						.value(dashboardMemberId))
+				.andExpect(jsonPath("$.rows[0].name")
+						.value("대시보드 교사"))
+				.andExpect(jsonPath("$.rows[0].addedSource").doesNotExist())
+				.andExpect(jsonPath("$.rows[0].recordId").doesNotExist())
+				.andExpect(jsonPath("$.rows[0].source").doesNotExist())
+				.andExpect(jsonPath("$.rows[0].note").doesNotExist());
+		mockMvc.perform(get("/admin/departments/" + departmentId)
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(content().string(
+						containsString("data-attendance-filter")));
 		mockMvc.perform(get("/admin/departments/" + departmentId
 						+ "/attendance-days/" + dayId)
 						.with(user(departmentPrincipal)))
@@ -285,6 +342,144 @@ class M3SecurityIntegrationTest {
 				.andExpect(status().isServiceUnavailable())
 				.andReturn();
 		assertThat(deviceResult.getRequest().getSession(false)).isNull();
+	}
+
+	/**
+	 * 미등록 카드 원본 UID를 HTML에 노출하지 않고 부서 교사에게 연결하는지 확인한다.
+	 *
+	 * @throws Exception MockMvc 요청 처리에 실패한 경우
+	 */
+	@Test
+	void connectsInboxCardWithoutRenderingRawUid() throws Exception {
+		AccountPrincipal departmentPrincipal = (AccountPrincipal)
+				userDetailsService.loadUserByUsername(DEPARTMENT_USERNAME);
+		long memberId = insertAndReturnId("""
+				INSERT INTO public.member(name, birth, active)
+				VALUES (?, DATE '1990-03-15', TRUE)
+				RETURNING id
+				""", "카드 대기 교사");
+		jdbcTemplate.update("""
+				INSERT INTO public.department_membership(
+				    department_id, member_id, joined_at, created_by_account_id)
+				VALUES (?, ?, CURRENT_TIMESTAMP, ?)
+				""", departmentId, memberId, departmentAccountId);
+		long deviceId = insertAndReturnId("""
+				INSERT INTO public.device(
+				    department_id, device_code, name, credential_hash)
+				VALUES (?, 'm3-inbox-device', 'M3 카드 장치', 'test-hash')
+				RETURNING id
+				""", departmentId);
+		long eventId = insertAndReturnId("""
+				INSERT INTO public.tag_event_log(
+				    device_id, department_id, request_id, uid, result_code,
+				    http_status, response_body, failure_type)
+				VALUES (?, ?, 'm3-inbox-event', '04ABCDEF', 'UNKNOWN_UID',
+				        404, '{"code":"UNKNOWN_UID"}'::jsonb, 'UNKNOWN_UID')
+				RETURNING id
+				""", deviceId, departmentId);
+
+		mockMvc.perform(get("/admin/departments/" + departmentId
+						+ "/teachers")
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(content().string(containsString("현재 멤버")))
+				.andExpect(content().string(containsString("data-row-href")));
+		mockMvc.perform(get("/admin/departments/" + departmentId
+						+ "/teachers/" + memberId)
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(content().string(containsString(">수정</a>")))
+				.andExpect(content().string(containsString("data-attendance-chart")))
+				.andExpect(content().string(not(containsString("기본정보 저장"))));
+		mockMvc.perform(get("/admin/departments/" + departmentId
+						+ "/teachers/" + memberId
+						+ "?fromDate=2026-01-01&toDate=2026-06-30")
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(content().string(containsString(
+						"value=\"2026-01-01\"")))
+				.andExpect(content().string(containsString(
+						"value=\"2026-06-30\"")))
+				.andExpect(content().string(containsString(
+						"2026-01-01 ~ 2026-06-30")));
+		mockMvc.perform(get("/admin/departments/" + departmentId
+						+ "/teachers/" + memberId
+						+ "?fromDate=2026-06-30&toDate=2026-01-01")
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(content().string(containsString(
+						"시작일은 종료일보다 늦을 수 없습니다.")))
+				.andExpect(content().string(containsString(
+						"value=\"2026-06-30\"")))
+				.andExpect(content().string(containsString(
+						"value=\"2026-01-01\"")));
+		mockMvc.perform(get("/admin/departments/" + departmentId
+						+ "/teachers/" + memberId + "?edit=true")
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(content().string(containsString("수정 모드")))
+				.andExpect(content().string(containsString("카드 연결")));
+
+		mockMvc.perform(get("/admin/departments/" + departmentId
+						+ "/cards/inbox")
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(content().string(containsString("****CDEF")))
+				.andExpect(content().string(not(containsString("04ABCDEF"))));
+
+		mockMvc.perform(post("/admin/departments/" + departmentId
+						+ "/cards/inbox/" + eventId + "/connect")
+						.with(user(departmentPrincipal))
+						.with(csrf())
+						.param("memberId", Long.toString(memberId)))
+				.andExpect(status().is3xxRedirection())
+				.andExpect(redirectedUrl("/admin/departments/" + departmentId
+						+ "/cards/inbox"));
+		mockMvc.perform(post("/admin/departments/" + departmentId
+						+ "/cards/inbox/" + eventId + "/connect")
+						.with(user(departmentPrincipal))
+						.with(csrf())
+						.param("memberId", Long.toString(memberId)))
+				.andExpect(status().is3xxRedirection())
+				.andExpect(redirectedUrl("/admin/departments/" + departmentId
+						+ "/cards/inbox"))
+				.andExpect(flash().attribute("error",
+						"카드 등록 요청이 이미 처리되었거나 더 이상 사용할 수 없습니다."));
+
+		long otherDepartmentId = insertAndReturnId(
+				"INSERT INTO public.department(name) VALUES (?) RETURNING id",
+				"카드 경계 부서");
+		long otherDeviceId = insertAndReturnId("""
+				INSERT INTO public.device(
+				    department_id, device_code, name, credential_hash)
+				VALUES (?, 'm3-other-inbox-device', '다른 부서 장치', 'test-hash')
+				RETURNING id
+				""", otherDepartmentId);
+		long otherEventId = insertAndReturnId("""
+				INSERT INTO public.tag_event_log(
+				    device_id, department_id, request_id, uid, result_code,
+				    http_status, response_body, failure_type)
+				VALUES (?, ?, 'm3-other-inbox-event', '04FEDCBA', 'UNKNOWN_UID',
+				        404, '{"code":"UNKNOWN_UID"}'::jsonb, 'UNKNOWN_UID')
+				RETURNING id
+				""", otherDeviceId, otherDepartmentId);
+		mockMvc.perform(post("/admin/departments/" + departmentId
+						+ "/cards/inbox/" + otherEventId + "/connect")
+						.with(user(departmentPrincipal))
+						.with(csrf())
+						.param("memberId", Long.toString(memberId)))
+				.andExpect(status().isNotFound());
+
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT count(*)
+				FROM public.nfc_card_assignment AS assignment
+				JOIN public.nfc_card AS card ON card.id = assignment.nfc_card_id
+				WHERE assignment.department_id = ?
+				  AND assignment.member_id = ?
+				  AND assignment.unassigned_at IS NULL
+				  AND card.uid = '04ABCDEF'
+				  AND card.status = 'ACTIVE'
+				""", Integer.class, departmentId, memberId)).isEqualTo(1);
 	}
 
 	/**

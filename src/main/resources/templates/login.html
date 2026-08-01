@@ -4,25 +4,26 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>로그인</title>
+    <link rel="stylesheet" th:href="@{/css/admin.css}">
 </head>
 <body>
-    <h2>로그인 화면</h2>
-    <!--에러 표시-->
-    <div th:if="${param.error}">
-        <p style="color: red;">사용자명이나 비밀번호가 올바르지 않습니다.</p>
+<main class="login-shell">
+    <h1>Attend 관리자</h1>
+    <p>교사 출석과 NFC 장치를 관리합니다.</p>
+    <div class="message message--error" th:if="${param.error}" role="alert">
+        <p>사용자명이나 비밀번호가 올바르지 않습니다.</p>
     </div>
 
-    <!--로그아웃 표시-->
-    <div th:if="${param.logout}">
-        <p style="color: blue;">로그아웃 했습니다.</p>
+    <div class="message message--success" th:if="${param.logout}">
+        <p>로그아웃했습니다.</p>
     </div>
 
-    <div th:if="${param.expired}">
-        <p style="color: blue;">세션 사용 시간이 만료되었습니다. 다시 로그인해 주세요.</p>
+    <div class="message message--info" th:if="${param.expired}">
+        <p>세션 사용 시간이 만료되었습니다. 다시 로그인해 주세요.</p>
     </div>
 
-    <div th:if="${param.limited}">
-        <p style="color: red;">로그인 요청을 처리할 수 없습니다. 잠시 후 다시 시도해 주세요.</p>
+    <div class="message message--error" th:if="${param.limited}" role="alert">
+        <p>로그인 요청을 처리할 수 없습니다. 잠시 후 다시 시도해 주세요.</p>
     </div>
 
     <form th:action="@{/authentication}" method="post" th:object="${loginForm}">
@@ -31,7 +32,9 @@
             <input id="usernameInput"
                    type="text"
                    autocomplete="username"
-                   th:field="*{usernameInput}">
+                   th:field="*{usernameInput}"
+                   required
+                   autofocus>
         </div>
 
         <div><!-- 비밀번호 -->
@@ -39,11 +42,13 @@
             <input id="passwordInput"
                    type="password"
                    autocomplete="current-password"
-                   th:field="*{passwordInput}">
+                   th:field="*{passwordInput}"
+                   required>
         </div>
         <div>
             <input type="submit" value="로그인">
         </div>
     </form>
+</main>
 </body>
 </html>

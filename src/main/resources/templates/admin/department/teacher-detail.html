@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>교사 상세</title>
+    <link rel="stylesheet" th:href="@{/css/admin.css}">
+</head>
+<body>
+<header th:replace="~{fragments/admin-shell :: header}"></header>
+<main>
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow" th:text="${department.name}">부서</p>
+            <h1 th:text="${teacher.name}">교사 상세</h1>
+            <p>교사 정보, NFC 카드와 출석 이력을 한 곳에서 관리합니다.</p>
+        </div>
+        <div class="button-group">
+            <a class="button-link button-link--secondary"
+               th:href="@{/admin/departments/{id}/teachers(id=${department.id})}">멤버 목록</a>
+            <a th:if="${writeEnabled and !editMode}" class="button-link"
+               th:href="@{/admin/departments/{departmentId}/teachers/{memberId}(departmentId=${department.id},memberId=${teacher.id},edit=true)}">수정</a>
+        </div>
+    </div>
+    <p th:if="${message}" class="message message--success" th:text="${message}"></p>
+    <p th:if="${error}" class="message message--error" th:text="${error}" role="alert"></p>
+    <p th:unless="${writeEnabled}">읽기 전용 모드</p>
+
+    <section>
+        <h2>기본정보</h2>
+        <dl class="detail-grid">
+            <div><dt>교사 ID</dt><dd th:text="${teacher.id}">1</dd></div>
+            <div><dt>나이</dt><dd th:text="${teacher['display_age'] ?: '-'}">-</dd></div>
+            <div><dt>생년월일</dt><dd th:text="${teacher['birth'] ?: '-'}">-</dd></div>
+            <div><dt>연락처</dt><dd th:text="${teacher['phone'] ?: '-'}">-</dd></div>
+            <div><dt>NFC 카드</dt><dd th:text="${teacher['masked_uid'] ?: '미등록'}">미등록</dd></div>
+            <div><dt>최초 등록일</dt><dd th:text="${teacher.created_at}">-</dd></div>
+            <div><dt>부서 등록일</dt><dd th:text="${teacher.joined_at}">-</dd></div>
+        </dl>
+
+        <p>나이는 매년 수정하는 값이 아니라 생년월일을 기준으로 자동 계산합니다.</p>
+    </section>
+
+    <section th:if="${editMode}" class="edit-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">수정 모드</p>
+                <h2>교사 및 카드 정보 수정</h2>
+            </div>
+            <a class="button-link button-link--secondary"
+               th:href="@{/admin/departments/{departmentId}/teachers/{memberId}(departmentId=${department.id},memberId=${teacher.id})}">수정 취소</a>
+        </div>
+
+        <h3>기본정보</h3>
+        <form method="post"
+              th:action="@{/admin/departments/{departmentId}/teachers/{memberId}/update(departmentId=${department.id},memberId=${teacher.id})}">
+            <label>이름 <input name="name" maxlength="255" th:value="${teacher.name}" required></label>
+            <label>연락처 <input name="phone" maxlength="255" th:value="${teacher['phone']}"></label>
+            <label>생년월일 <input type="date" name="birth" th:value="${teacher['birth']}"></label>
+            <button type="submit">기본정보 저장</button>
+        </form>
+
+        <h3>NFC 카드</h3>
+        <p th:text="|현재 카드: ${teacher['masked_uid'] ?: '미등록'}|">현재 카드</p>
+        <form th:if="${teacher['card_id'] == null}" method="post"
+              th:action="@{/admin/departments/{departmentId}/teachers/{memberId}/card/connect(departmentId=${department.id},memberId=${teacher.id})}">
+            <label>새 NFC UID <input name="cardUid" placeholder="A1B2C3D4" required></label>
+            <button type="submit">카드 연결</button>
+        </form>
+
+        <form th:if="${teacher['card_id'] != null}" method="post"
+              th:action="@{/admin/departments/{departmentId}/teachers/{memberId}/card/replace(departmentId=${department.id},memberId=${teacher.id})}">
+            <label>교체 NFC UID <input name="cardUid" required></label>
+            <label>교체 사유 <input name="reason" maxlength="500" required></label>
+            <button type="submit">카드 교체</button>
+        </form>
+
+        <form th:if="${teacher['card_id'] != null}" method="post"
+              th:action="@{/admin/departments/{departmentId}/teachers/{memberId}/card/disconnect(departmentId=${department.id},memberId=${teacher.id})}">
+            <label>카드 처리
+                <select name="disposition">
+                    <option value="AVAILABLE">회수·재사용 가능</option>
+                    <option value="LOST">분실</option>
+                    <option value="RETIRED">폐기</option>
+                </select>
+            </label>
+            <label>연결 종료 사유 <input name="reason" maxlength="500" required></label>
+            <button type="submit">카드 연결 종료</button>
+        </form>
+        <p><a th:href="@{/admin/departments/{id}/cards/inbox(id=${department.id})}">방금 태깅한 카드 등록함에서 연결하기</a></p>
+
+        <h3>부서 소속</h3>
+        <form method="post"
+              th:action="@{/admin/departments/{departmentId}/teachers/{memberId}/exclude(departmentId=${department.id},memberId=${teacher.id})}">
+            <label>활성 카드 처리
+                <select name="cardDisposition">
+                    <option value="AVAILABLE">회수</option>
+                    <option value="LOST">분실</option>
+                    <option value="RETIRED">폐기</option>
+                </select>
+            </label>
+            <label>제외 사유 <input name="reason" maxlength="500" required></label>
+            <button type="submit">부서에서 제외</button>
+        </form>
+    </section>
+
+    <section>
+        <h2>출석 통계</h2>
+        <form method="get"
+              th:action="@{/admin/departments/{departmentId}/teachers/{memberId}(departmentId=${department.id},memberId=${teacher.id})}">
+            <label>시작일 <input type="date" name="fromDate" th:value="${fromDate}" required></label>
+            <label>종료일 <input type="date" name="toDate" th:value="${toDate}" required></label>
+            <button type="submit">기간 적용</button>
+        </form>
+        <p>공식 종료된 출석 날짜만 통계 분모에 포함합니다.</p>
+        <div th:if="${statisticsRangeValid}" class="attendance-chart-layout" data-attendance-chart>
+            <figure class="attendance-donut-figure">
+                <div class="attendance-donut">
+                    <svg viewBox="0 0 100 100" role="img" aria-labelledby="attendance-chart-title attendance-chart-description">
+                        <title id="attendance-chart-title">선택 기간 출석 비율 원형 그래프</title>
+                        <desc id="attendance-chart-description"
+                              th:text="|정상 ${statistics.presentCount}회, 지각 ${statistics.lateCount}회, 결석 ${statistics.absentCount}회|">출석 통계</desc>
+                        <circle class="attendance-donut__background" cx="50" cy="50" r="40"></circle>
+                        <g th:if="${statistics.totalCount > 0}">
+                            <circle class="attendance-donut__segment attendance-donut__segment--present"
+                                    cx="50" cy="50" r="40" pathLength="100"
+                                    th:attr="stroke-dasharray=|${statistics.presentRate()} ${100 - statistics.presentRate()}|"></circle>
+                            <circle class="attendance-donut__segment attendance-donut__segment--late"
+                                    cx="50" cy="50" r="40" pathLength="100"
+                                    th:attr="stroke-dasharray=|${statistics.lateRate()} ${100 - statistics.lateRate()}|,stroke-dashoffset=${-statistics.presentRate()}"></circle>
+                            <circle class="attendance-donut__segment attendance-donut__segment--absent"
+                                    cx="50" cy="50" r="40" pathLength="100"
+                                    th:attr="stroke-dasharray=|${statistics.absentRate()} ${100 - statistics.absentRate()}|,stroke-dashoffset=${-(statistics.presentRate() + statistics.lateRate())}"></circle>
+                        </g>
+                    </svg>
+                    <div class="attendance-donut__center" aria-hidden="true">
+                        <strong th:text="${statistics.totalCount}">0</strong>
+                        <span>대상 횟수</span>
+                    </div>
+                </div>
+                <figcaption th:text="|${fromDate} ~ ${toDate}|">선택 기간</figcaption>
+            </figure>
+
+            <ul class="attendance-chart-metrics" aria-label="출석 상태별 통계">
+                <li>
+                    <span>대상</span>
+                    <strong th:text="|${statistics.totalCount}회|">0회</strong>
+                </li>
+                <li>
+                    <span><i class="attendance-chart-marker attendance-chart-marker--present" aria-hidden="true"></i>정상</span>
+                    <strong th:text="|${statistics.presentCount}회 (${#numbers.formatDecimal(statistics.presentRate(), 1, 1)}%)|">0회</strong>
+                </li>
+                <li>
+                    <span><i class="attendance-chart-marker attendance-chart-marker--late" aria-hidden="true"></i>지각</span>
+                    <strong th:text="|${statistics.lateCount}회 (${#numbers.formatDecimal(statistics.lateRate(), 1, 1)}%)|">0회</strong>
+                </li>
+                <li>
+                    <span><i class="attendance-chart-marker attendance-chart-marker--absent" aria-hidden="true"></i>결석</span>
+                    <strong th:text="|${statistics.absentCount}회 (${#numbers.formatDecimal(statistics.absentRate(), 1, 1)}%)|">0회</strong>
+                </li>
+            </ul>
+        </div>
+        <p th:if="${statisticsRangeValid and statistics.totalCount == 0}" class="empty-state">선택 기간에 공식 종료된 출석 기록이 없습니다.</p>
+        <h3 th:if="${statisticsRangeValid}">지각 단계별</h3>
+        <ul th:if="${statisticsRangeValid}">
+            <li th:each="band : ${statistics.lateBands}"
+                th:text="|${band.label} ${band.count}회|">지각 단계</li>
+        </ul>
+        <p th:if="${statisticsRangeValid and #lists.isEmpty(statistics.lateBands)}">선택 기간의 지각 기록이 없습니다.</p>
+    </section>
+
+    <section>
+        <h2>최근 출석 이력</h2>
+        <table>
+            <thead><tr><th>날짜</th><th>날짜 상태</th><th>출석 결과</th><th>단계</th><th>시각</th><th>비고</th></tr></thead>
+            <tbody>
+            <tr th:each="item : ${attendanceHistory}">
+                <td><a th:href="@{/admin/departments/{departmentId}/attendance-days/{dayId}(departmentId=${department.id},dayId=${item.attendance_day_id})}"
+                       th:text="${item.attendance_date}">날짜</a></td>
+                <td th:text="${item.day_status}">상태</td>
+                <td th:text="${item['status'] ?: '미기록'}">결과</td>
+                <td th:text="${item['band_label_snapshot'] ?: '-'}">단계</td>
+                <td th:text="${item['checked_in_at'] ?: '-'}">시각</td>
+                <td th:text="${item['note'] ?: '-'}">비고</td>
+            </tr>
+            </tbody>
+        </table>
+        <p th:if="${#lists.isEmpty(attendanceHistory)}">출석 대상 이력이 없습니다.</p>
+    </section>
+</main>
+</body>
+</html>

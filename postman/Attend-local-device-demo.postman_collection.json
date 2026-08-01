@@ -1,0 +1,158 @@
+{
+  "info": {
+    "_postman_id": "fd598504-67c6-4aa2-b0b0-0468c32746ea",
+    "name": "Attend local device demo",
+    "description": "Hardware-free local-only device API checks. Never replace these synthetic credentials with production credentials in this file.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key": "baseUrl", "value": "http://127.0.0.1:8080"},
+    {"key": "managementUrl", "value": "http://127.0.0.1:8081"},
+    {"key": "provisioningDeviceCode", "value": "local-device-provisioning"},
+    {"key": "provisioningDeviceKey", "value": "local-demo-provision-key-not-for-production"},
+    {"key": "deviceCodeA", "value": "local-device-a"},
+    {"key": "deviceKeyA", "value": "local-demo-device-key-not-for-production"},
+    {"key": "uidA", "value": "04A1B2C3"},
+    {"key": "deviceCodeB", "value": "local-device-b"},
+    {"key": "deviceKeyB", "value": "local-demo-device-key-b-not-for-production"},
+    {"key": "uidB", "value": "04D4E5F6"}
+  ],
+  "item": [
+    {
+      "name": "0. Server health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{managementUrl}}/actuator/health"
+      },
+      "event": [{"listen": "test", "script": {"exec": [
+        "pm.test('local server is healthy', function () {",
+        "  pm.response.to.have.status(200);",
+        "  pm.expect(pm.response.json().status).to.eql('UP');",
+        "});"
+      ]}}]
+    },
+    {
+      "name": "1. Inactive device credential test",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "X-Device-Code", "value": "{{provisioningDeviceCode}}"},
+          {"key": "X-Device-Key", "value": "{{provisioningDeviceKey}}"}
+        ],
+        "url": "{{baseUrl}}/api/v1/device/credential-tests"
+      },
+      "event": [{"listen": "test", "script": {"exec": [
+        "pm.test('credential is valid', function () {",
+        "  pm.response.to.have.status(200);",
+        "  pm.expect(pm.response.json().code).to.eql('CREDENTIAL_VALID');",
+        "});"
+      ]}}]
+    },
+    {
+      "name": "2. Device A new check-in",
+      "event": [
+        {"listen": "prerequest", "script": {"exec": [
+          "pm.collectionVariables.set('requestIdA', 'postman_' + Date.now());"
+        ]}},
+        {"listen": "test", "script": {"exec": [
+          "pm.test('new or already checked in', function () {",
+          "  pm.expect([200, 201]).to.include(pm.response.code);",
+          "  pm.expect(['CHECKED_IN', 'ALREADY_CHECKED_IN']).to.include(pm.response.json().code);",
+          "});",
+          "pm.collectionVariables.set('firstStatusA', String(pm.response.code));",
+          "pm.collectionVariables.set('firstBodyA', pm.response.text());"
+        ]}}
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "X-Device-Code", "value": "{{deviceCodeA}}"},
+          {"key": "X-Device-Key", "value": "{{deviceKeyA}}"},
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"uid\": \"{{uidA}}\",\n  \"requestId\": \"{{requestIdA}}\"\n}"},
+        "url": "{{baseUrl}}/api/v1/device/check-ins"
+      }
+    },
+    {
+      "name": "3. Device A canonical replay",
+      "event": [{"listen": "test", "script": {"exec": [
+        "pm.test('status and body match the first response', function () {",
+        "  pm.expect(String(pm.response.code)).to.eql(pm.collectionVariables.get('firstStatusA'));",
+        "  pm.expect(pm.response.text()).to.eql(pm.collectionVariables.get('firstBodyA'));",
+        "});"
+      ]}}],
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "X-Device-Code", "value": "{{deviceCodeA}}"},
+          {"key": "X-Device-Key", "value": "{{deviceKeyA}}"},
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"uid\": \"{{uidA}}\",\n  \"requestId\": \"{{requestIdA}}\"\n}"},
+        "url": "{{baseUrl}}/api/v1/device/check-ins"
+      }
+    },
+    {
+      "name": "4. Device A requestId conflict",
+      "event": [{"listen": "test", "script": {"exec": [
+        "pm.test('same requestId with another UID is rejected', function () {",
+        "  pm.response.to.have.status(409);",
+        "  pm.expect(pm.response.json().code).to.eql('REQUEST_ID_CONFLICT');",
+        "});"
+      ]}}],
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "X-Device-Code", "value": "{{deviceCodeA}}"},
+          {"key": "X-Device-Key", "value": "{{deviceKeyA}}"},
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"uid\": \"04FFFFFF\",\n  \"requestId\": \"{{requestIdA}}\"\n}"},
+        "url": "{{baseUrl}}/api/v1/device/check-ins"
+      }
+    },
+    {
+      "name": "5. Active device credential test is rejected",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "X-Device-Code", "value": "{{deviceCodeB}}"},
+          {"key": "X-Device-Key", "value": "{{deviceKeyB}}"}
+        ],
+        "url": "{{baseUrl}}/api/v1/device/credential-tests"
+      },
+      "event": [{"listen": "test", "script": {"exec": [
+        "pm.test('active device cannot reuse provisioning test', function () {",
+        "  pm.response.to.have.status(409);",
+        "  pm.expect(pm.response.json().code).to.eql('CREDENTIAL_TEST_NOT_ALLOWED');",
+        "});"
+      ]}}]
+    },
+    {
+      "name": "6. Device B check-in",
+      "event": [
+        {"listen": "prerequest", "script": {"exec": [
+          "pm.collectionVariables.set('requestIdB', 'postman_' + Date.now());"
+        ]}},
+        {"listen": "test", "script": {"exec": [
+          "pm.test('second department is independent', function () {",
+          "  pm.expect([200, 201]).to.include(pm.response.code);",
+          "  pm.expect(['CHECKED_IN', 'ALREADY_CHECKED_IN']).to.include(pm.response.json().code);",
+          "});"
+        ]}}
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "X-Device-Code", "value": "{{deviceCodeB}}"},
+          {"key": "X-Device-Key", "value": "{{deviceKeyB}}"},
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"uid\": \"{{uidB}}\",\n  \"requestId\": \"{{requestIdB}}\"\n}"},
+        "url": "{{baseUrl}}/api/v1/device/check-ins"
+      }
+    }
+  ]
+}

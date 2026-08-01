@@ -65,6 +65,46 @@ public class CardManagementService {
 	) {
 		writeAuthorization.requireEnabled();
 		authorizeAndLock(actor, departmentId);
+		return connectAfterLock(actor, departmentId, memberId, uid);
+	}
+
+	/**
+	 * 카드 등록함 이벤트의 원본 UID를 브라우저에 노출하지 않고 교사에게 연결한다.
+	 *
+	 * @param actor 인증 관리자
+	 * @param departmentId 부서 식별자
+	 * @param memberId 연결할 교사 식별자
+	 * @param eventId 미등록 카드 태깅 이벤트 식별자
+	 * @return 생성된 카드 연결 결과
+	 */
+	@Transactional
+	public CardManagementResult connectFromInbox(
+			AccountActor actor,
+			long departmentId,
+			long memberId,
+			long eventId
+	) {
+		writeAuthorization.requireEnabled();
+		authorizeAndLock(actor, departmentId);
+		String uid = mapper.selectAssignableTagEventUid(departmentId, eventId);
+		if (uid == null) {
+			if (mapper.existsTagEvent(departmentId, eventId)) {
+				throw new BusinessRuleException(
+						"카드 등록 요청이 이미 처리되었거나 더 이상 사용할 수 없습니다.");
+			}
+			throw new ResourceNotFoundException("assignable card event");
+		}
+		return connectAfterLock(
+				actor, departmentId, memberId, new NfcUid(uid));
+	}
+
+	/** 이미 인가·잠근 부서에서 공통 카드 연결 규칙을 실행한다. */
+	private CardManagementResult connectAfterLock(
+			AccountActor actor,
+			long departmentId,
+			long memberId,
+			NfcUid uid
+	) {
 		MembershipRow membership = requireMembership(departmentId, memberId);
 		if (mapper.lockActiveAssignment(departmentId, memberId) != null) {
 			throw new BusinessRuleException("member already has an active card");

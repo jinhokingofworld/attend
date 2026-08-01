@@ -1,30 +1,81 @@
 <!DOCTYPE html>
 <html lang="ko" xmlns:th="http://www.thymeleaf.org">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>오늘의 출석</title></head>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>오늘의 출석</title>
+    <link rel="stylesheet" th:href="@{/css/admin.css}">
+</head>
 <body>
+<header th:replace="~{fragments/admin-shell :: header}"></header>
 <main>
-    <h1 th:text="|${department.name} · 오늘의 출석|">오늘의 출석</h1>
-    <p th:unless="${writeEnabled}">읽기 전용 모드</p>
-    <nav>
-        <a th:href="@{/admin/departments/{id}/teachers(id=${department.id})}">교사</a>
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow" th:text="${department.name}">부서</p>
+            <h1>오늘의 출석</h1>
+            <p>현황 카드를 선택하면 해당 교사만 아래 목록에서 확인할 수 있습니다.</p>
+        </div>
+        <a class="button-link" th:href="@{/admin/departments/{id}/teachers(id=${department.id})}">멤버 관리</a>
+    </div>
+    <p th:unless="${writeEnabled}" class="message message--info">읽기 전용 모드입니다.</p>
+    <nav aria-label="부서 관리자 메뉴">
+        <a th:href="@{/admin/departments/{id}/teachers(id=${department.id})}">멤버</a>
         <a th:href="@{/admin/departments/{id}/cards/inbox(id=${department.id})}">카드 등록함</a>
         <a th:href="@{/admin/departments/{id}/policies(id=${department.id})}">출석 정책</a>
         <a th:href="@{/admin/departments/{id}/attendance-days(id=${department.id})}">출석 날짜</a>
-        <a th:href="@{/admin/departments/{id}/history(id=${department.id})}">이력</a>
-        <a th:href="@{/admin/workspaces}">작업 공간 전환</a>
+        <a th:href="@{/admin/departments/{id}/history(id=${department.id})}">관리 이력</a>
+        <a th:href="@{/admin/workspaces}">부서 전환</a>
     </nav>
-    <section th:if="${dashboard}">
-        <h2 th:text="${dashboard.attendance_date}">날짜</h2>
-        <p th:text="|정책 ${dashboard.policy_name} · 상태 ${dashboard.status}|">정책</p>
-        <ul>
-            <li th:text="|대상 ${dashboard.target_count}명|">대상</li>
-            <li th:text="|정상 ${dashboard.present_count}명|">정상</li>
-            <li th:text="|지각 ${dashboard.late_count}명|">지각</li>
-            <li th:text="|결석 ${dashboard.absent_count}명|">결석</li>
-        </ul>
-        <a th:href="@{/admin/departments/{departmentId}/attendance-days/{dayId}(departmentId=${department.id},dayId=${dashboard.attendance_day_id})}">상세 보기</a>
+
+    <section data-dashboard-live
+             th:attr="data-endpoint=@{/admin/departments/{id}/dashboard-data(id=${department.id})},data-member-base=@{/admin/departments/{id}/teachers(id=${department.id})},data-day-base=@{/admin/departments/{id}/attendance-days(id=${department.id})}">
+        <div data-dashboard-content th:hidden="${dashboard == null}">
+            <div class="section-heading">
+                <div>
+                    <h2 data-dashboard-date th:text="${dashboard == null ? '-' : dashboard.attendance_date}">날짜</h2>
+                    <p data-dashboard-description
+                       th:text="${dashboard == null ? '' : '정책 ' + dashboard.policy_name + ' · 상태 ' + dashboard.status}">정책</p>
+                </div>
+                <div class="live-controls">
+                    <p class="live-status" aria-live="polite"><span aria-hidden="true"></span><span data-live-updated>자동 갱신 중</span></p>
+                    <button type="button" class="button-secondary" data-live-toggle>자동 갱신 일시정지</button>
+                </div>
+            </div>
+
+            <ul class="metric-list metric-list--interactive" aria-label="출석 상태 필터">
+                <li><button type="button" data-attendance-filter="ALL" aria-pressed="true"><span>대상</span><strong data-count="target_count" th:text="|${dashboard == null ? 0 : dashboard.target_count}명|">0명</strong></button></li>
+                <li><button type="button" data-attendance-filter="PRESENT" aria-pressed="false"><span>정상</span><strong data-count="present_count" th:text="|${dashboard == null ? 0 : dashboard.present_count}명|">0명</strong></button></li>
+                <li><button type="button" data-attendance-filter="LATE" aria-pressed="false"><span>지각</span><strong data-count="late_count" th:text="|${dashboard == null ? 0 : dashboard.late_count}명|">0명</strong></button></li>
+                <li><button type="button" data-attendance-filter="ABSENT" aria-pressed="false"><span>결석</span><strong data-count="absent_count" th:text="|${dashboard == null ? 0 : dashboard.absent_count}명|">0명</strong></button></li>
+                <li><button type="button" data-attendance-filter="PENDING" aria-pressed="false"><span>미기록</span><strong data-count="pending_count" th:text="|${dashboard == null ? 0 : dashboard.pending_count}명|">0명</strong></button></li>
+            </ul>
+
+            <div class="section-heading section-heading--compact">
+                <h3 data-filter-title>대상 교사</h3>
+                <a data-day-detail
+                   th:if="${dashboard != null}"
+                   th:href="@{/admin/departments/{departmentId}/attendance-days/{dayId}(departmentId=${department.id},dayId=${dashboard.attendance_day_id})}">출석 상세 관리</a>
+            </div>
+            <div class="table-scroll">
+                <table>
+                    <thead><tr><th>이름</th><th>출석 결과</th><th>세부 단계</th><th>출석 시각</th></tr></thead>
+                    <tbody data-attendance-rows>
+                    <tr th:each="row : ${dashboardRows}"
+                        th:attr="data-attendance-status=${row.status ?: 'PENDING'}">
+                        <td><a th:href="@{/admin/departments/{departmentId}/teachers/{memberId}(departmentId=${department.id},memberId=${row.memberId})}"
+                               th:text="${row.name}">교사</a></td>
+                        <td th:text="${row.status ?: '미기록'}">미기록</td>
+                        <td th:text="${row.bandLabel ?: '-'}">-</td>
+                        <td th:text="${row.checkedInAt ?: '-'}">-</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p data-filter-empty class="empty-state" hidden>해당 상태의 교사가 없습니다.</p>
+            <p class="table-help">미기록은 아직 출석하지 않았거나 마감 전인 대상자입니다. 결석은 날짜 마감 후 확정됩니다.</p>
+        </div>
+        <p data-dashboard-empty class="empty-state" th:hidden="${dashboard != null}">오늘 생성된 출석 날짜가 없습니다. 출석 날짜가 생성되면 자동으로 표시됩니다.</p>
     </section>
-    <p th:unless="${dashboard}">오늘 생성된 출석 날짜가 없습니다.</p>
 </main>
 </body>
 </html>

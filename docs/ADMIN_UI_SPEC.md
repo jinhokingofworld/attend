@@ -118,11 +118,11 @@
 | 순서 | 메뉴 | 경로 | 설명 |
 |---:|---|---|---|
 | 1 | 오늘의 출석 | `/admin/departments/{departmentId}` | 오늘 상태와 교사별 현황 |
-| 2 | 교사 | `/admin/departments/{departmentId}/teachers` | 명단, 카드, 개인 통계, 부서 제외 |
+| 2 | 멤버 | `/admin/departments/{departmentId}/teachers` | 교사 표, 상세, 카드, 개인 통계, 부서 제외 |
 | 3 | 카드 등록함 | `/admin/departments/{departmentId}/cards/inbox` | 자기 부서 장치에서 태깅된 미등록·재사용 가능 카드 |
 | 4 | 출석 정책 | `/admin/departments/{departmentId}/policies` | 초안, 발행 버전과 동적 지각 단계 |
 | 5 | 출석 날짜 | `/admin/departments/{departmentId}/attendance-days` | 날짜, 대상자, 결과와 정정 |
-| 6 | 이력 | `/admin/departments/{departmentId}/history` | 관리자·시스템 감사와 태깅 이벤트 탭 |
+| 6 | 관리 이력 | `/admin/departments/{departmentId}/history` | 관리자·시스템 감사. 태깅 이벤트는 로컬 데모에서만 표시 |
 
 ### 2.4 주요 MVC 경로
 
@@ -140,6 +140,7 @@
 | `GET` | `/admin/system/operations` | 전체 운영 상태 |
 | `GET` | `/admin/system/audit` | 시스템 범위 감사 |
 | `GET` | `/admin/departments/{departmentId}` | 오늘의 출석 |
+| `GET` | `/admin/departments/{departmentId}/dashboard-data` | 5초 폴링용 오늘 집계·대상자 JSON |
 | `GET`, `POST` | `/admin/departments/{departmentId}/teachers...` | 교사·카드·부서 제외 |
 | `GET`, `POST` | `/admin/departments/{departmentId}/cards/inbox...` | 미등록·재사용 가능 카드 연결 |
 | `GET`, `POST` | `/admin/departments/{departmentId}/policies...` | 정책 초안·발행 |
@@ -481,7 +482,7 @@ V002 migration과 계정 상태·token 제약의 PostgreSQL 부정 테스트가 
 | 마감 완료 | 정상·각 지각·결석 합계와 정정 링크 |
 | 취소 | 취소 사유와 읽기 전용 상태 |
 
-MVP 기본 동작은 `새로고침` 버튼이다. 자동 갱신을 추가하더라도 사용자가 일시 정지할 수 있어야 하고, 실패 시 마지막 성공 데이터를 지우지 않는다.
+MVP는 인증 세션을 사용하는 부서 범위 JSON을 5초마다 폴링한다. 사용자는 자동 갱신을 일시 정지·재개할 수 있고, 탭이 보이지 않을 때는 요청하지 않는다. 실패 시 마지막 성공 데이터를 지우지 않고 재시도 상태를 표시한다. 더 짧은 지연이 실제 운영에서 필요하다고 확인되면 동일 조회 모델을 SSE로 전환한다.
 
 **버튼**
 
@@ -490,6 +491,7 @@ MVP 기본 동작은 `새로고침` 버튼이다. 자동 갱신을 추가하더�
 - `출석 날짜 상세`
 - 각 교사의 `수동 등록·정정`
 - `새로고침`
+- `자동 갱신 일시정지·재개`
 
 권한 또는 상태상 불가능한 버튼은 단순 disabled 상태로만 남기지 않고 이유를 텍스트로 설명한다.
 
@@ -499,6 +501,7 @@ MVP 기본 동작은 `새로고침` 버튼이다. 자동 갱신을 추가하더�
 - `UI-DASH-02`: 지각 단계 수와 표시명이 정책에 따라 동적으로 바뀐다.
 - `UI-DASH-03`: 시스템 관리자 단독 계정은 대시보드를 조회할 수 없다.
 - `UI-DASH-04`: 합계는 대상자 수와 모순되지 않으며 오류가 있으면 성공 요약 대신 데이터 불일치 경고를 표시한다.
+- `UI-DASH-05`: 대상·정상·지각·결석·미기록 카드를 선택하면 해당 교사 목록만 표시한다.
 
 ---
 
@@ -513,7 +516,7 @@ GET /admin/departments/{departmentId}/teachers
 GET /admin/departments/{departmentId}/teachers/{memberId}
 ```
 
-목록 탭은 `재직`, `부서 제외 이력`으로 나눈다. 검색은 이름과 선택적으로 전화번호 일부를 사용한다.
+MVP 목록은 현재 활성 소속 교사를 표로 표시한다. 이름, 나이, 선택 연락처, 마스킹된 카드 연결 상태를 열로 제공하며 표의 행을 선택하면 상세 화면으로 이동한다. 부서 제외 이력과 검색은 후속 기능이다.
 
 재직 목록에는 이름, 선택 연락처, 카드 연결 상태, 가입일과 오늘 출석 상태를 표시한다. 상세에는 다음을 표시한다.
 
@@ -525,6 +528,7 @@ GET /admin/departments/{departmentId}/teachers/{memberId}
 - 최근 출석 기록과 판정 원천
 
 통계의 모든 비율은 같은 대상 날짜 분모를 사용한다. 현재 진행일과 취소일은 공식 통계에 포함하지 않는다.
+선택 기간의 정상·지각·결석 구성은 원형(도넛) 그래프로 표시한다. 기간 적용 시 서버가 공식 통계를 다시 조회해 그래프 조각, 중앙 대상 횟수, 상태별 횟수·비율과 기간 설명을 함께 다시 렌더링한다. 데스크톱은 원형 그래프 옆에 대상·정상·지각·결석을 2열 2행 카드로 배치하고, 모바일은 원형 그래프 아래에 같은 2열 2행 카드를 배치한다. 그래프 색상만으로 상태를 구분하지 않고 동일 수치의 텍스트를 제공하며, 대상 날짜가 0건이면 빈 원과 안내 문구를 표시한다.
 
 빈 상태에는 `아직 등록된 교사가 없습니다.`와 `교사 추가`를 표시한다. 필터 결과가 없으면 `검색 결과가 없습니다.`와 필터 초기화를 제공한다.
 
@@ -533,16 +537,16 @@ GET /admin/departments/{departmentId}/teachers/{memberId}
 - `UI-TEACHER-01`: 다른 부서의 구성원 ID를 사용하면 이름이나 소속 여부가 노출되지 않는다.
 - `UI-TEACHER-02`: 제외된 교사와 과거 출석·카드 연결 이력은 조회할 수 있지만 물리 삭제 버튼은 없다.
 - `UI-TEACHER-03`: 통계는 `FINALIZED` 대상 날짜만 분모로 사용한다.
+- `UI-TEACHER-04`: 목록의 교사 행을 선택하면 같은 부서 범위의 상세 화면으로 이동한다.
 
 ### 7.2 교사 추가·수정
 
 **경로**
 
 ```text
-GET  /admin/departments/{departmentId}/teachers/new
 POST /admin/departments/{departmentId}/teachers
-GET  /admin/departments/{departmentId}/teachers/{memberId}/edit
-POST /admin/departments/{departmentId}/teachers/{memberId}/edit
+GET  /admin/departments/{departmentId}/teachers/{memberId}?edit=true
+POST /admin/departments/{departmentId}/teachers/{memberId}/update
 ```
 
 | 필드 | 검증 |
@@ -551,11 +555,11 @@ POST /admin/departments/{departmentId}/teachers/{memberId}/edit
 | 전화번호 | 선택, 빈 문자열은 `NULL`, 255자 이하 |
 | 카드 연결 | 선택, 카드 등록함의 자기 부서 최근 미등록 또는 재사용 가능 카드 태깅만 선택 |
 
-생년월일과 나이는 신규 화면에 노출하지 않는다. `member.card_uid`도 입력·수정하지 않는다.
+생년월일은 선택 입력이고 나이는 서버가 생년월일을 기준으로 계산한다. 레거시 `member.card_uid`는 입력·수정하지 않으며 카드 lifecycle 서비스만 사용한다.
 
 `카드 없이 교사 추가`와 `선택한 카드와 함께 추가`를 명확히 구분한다. 카드와 함께 저장하면 교사, 활성 소속, 카드, 활성 assignment와 감사 로그가 모두 성공하거나 모두 rollback되어야 한다.
 
-수정 화면은 이름과 연락처만 변경한다. 카드 작업은 별도의 연결·교체 화면에서 수행한다.
+상세 화면의 `수정` 버튼은 같은 URL의 명시적인 수정 모드로 전환한다. 이 모드에서 이름·연락처·생년월일을 갱신하고 카드 연결·교체·종료 또는 부서 제외를 수행한다. 저장 후에는 읽기 상세 화면으로 돌아간다. 하드웨어 태깅으로 연결할 때는 원본 UID를 표시하지 않는 카드 등록함으로 이동한다.
 
 **오류**
 
@@ -1031,7 +1035,7 @@ POST /admin/system/devices/{deviceId}/revoke
 
 **경로:** `GET /admin/departments/{departmentId}/history`
 
-두 탭을 분리한다.
+운영 웹에는 관리자·시스템 감사만 표시한다. 원시 태깅 이벤트 표는 일반 관리자 업무에 불필요하므로 `ADMIN_SHOW_TAG_LOGS=false`가 기본이며, 하드웨어 없는 로컬 데모에서만 명시적으로 활성화한다. 카드 등록 업무에는 별도의 카드 등록함을 사용한다.
 
 #### 관리자·시스템 감사
 
@@ -1044,7 +1048,7 @@ POST /admin/system/devices/{deviceId}/revoke
 
 필터는 기간, 작업 유형, 작업자와 대상 유형이다. 표시 항목은 발생 시각, 작업자 유형·표시명, action, 대상, 사유와 마스킹된 before/after 차이다.
 
-#### 태깅 이벤트
+#### 로컬 데모 전용 태깅 이벤트
 
 - 장치, 시각, 마스킹 UID, request ID 일부, 결과 코드와 연결된 출석 상태
 - 결과 코드는 한국어 설명과 원문 code를 함께 제공
@@ -1057,6 +1061,7 @@ POST /admin/system/devices/{deviceId}/revoke
 - `UI-HISTORY-01`: 부서 관리자는 자기 부서 이력만 조회한다.
 - `UI-HISTORY-02`: 일반 태깅 이벤트가 감사 이력에 중복 생성·표시되지 않는다.
 - `UI-HISTORY-03`: 카드 전체 UID, 비밀번호, 장치 키와 불필요한 연락처가 before/after에 노출되지 않는다.
+- `UI-HISTORY-04`: 운영 기본 설정에서는 태깅 이벤트 표와 조회가 실행되지 않는다.
 
 ### 12.2 시스템 감사
 
