@@ -167,9 +167,8 @@ public final class DatabasePreflightInspector {
             }
         } catch (SQLException exception) {
             throw new IllegalStateException(
-                    "Database preflight could not be completed",
-                    exception
-            );
+                    "Database preflight could not be completed (SQLSTATE "
+                            + exception.getSQLState() + ")");
         }
     }
 

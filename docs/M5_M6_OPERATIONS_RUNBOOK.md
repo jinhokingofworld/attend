@@ -2,10 +2,10 @@
 
 > 문서 상태: 배포·실기기 시험 전 실행 기준
 >
-> 현재 판정: M5 구현 산출물 준비, M6 실물·현장 증거 미수집
+> 현재 판정: 신규 빈 Neon DB 사용 확정, M5 배포 설정·M6 실물 증거 미수집
 
-이 문서는 실제 배포를 승인하지 않는다. 운영 DB 분류, 개인정보 보유기간, 백업
-저장소, 도메인과 담당자가 승인된 뒤에만 명령을 실행한다. `.env`, 장치 key,
+이 문서는 실제 배포를 승인하지 않는다. 개인정보 보유기간, 백업 저장소, 도메인과
+담당자가 승인된 뒤에만 명령을 실행한다. `.env`, 장치 key,
 교사 UID·연락처를 증적이나 이슈에 첨부하지 않는다.
 
 ## 1. 배포 전 필수 결정
@@ -15,9 +15,22 @@
 | 공개 DNS hostname과 ACME 담당 이메일 | 미정 | Caddy 기동 금지 |
 | Caddy 전용 32-byte 이상 독립 proxy token | 미정 | 공개 app 기동 금지 |
 | Neon pooled runtime / direct migration·backup 자격증명 | 미정 | DB 작업 금지 |
-| 운영 DB 분류와 이관 승인 | 미정 | guarded migration 금지 |
+| 운영 DB 분류와 이관 승인 | 확정: 신규 빈 Neon DB, `NEW_OR_SAMPLE` | preflight가 `FRESH`가 아니면 migration 금지 |
 | 백업 보유기간·off-host 저장소·접근 담당자·삭제 절차 | 미정 | 실제 데이터 백업 금지 |
 | 파일럿 부서 2개, 각 5~20명, 일정 4회 | 미정 | M6 완료 판정 금지 |
+
+### 1.1 확정된 운영 DB 전환 방식
+
+- 운영 DB는 기존 개발 DB와 분리된 **신규 빈 Neon PostgreSQL DB**로 만든다.
+- 기존 DB의 데이터는 더미데이터이므로 교사, 카드, 계정, 출석과 로그를 이관하지
+  않는다. 기존 DB를 `LEGACY_OPERATIONAL`로 승인하거나 version 0 baseline을 만들지
+  않는다.
+- migration 실행 시 승인값은 `MIGRATION_SOURCE_CLASS=NEW_OR_SAMPLE`로 주입한다.
+  이 값은 저장소의 `.env`나 image에 고정하지 않고 배포 secret source에서 제공한다.
+- 읽기 전용 preflight 결과가 `FRESH`일 때만 V001~V008을 적용한다. Neon이 만든
+  기본 `public` 스키마에 사용자 객체가 하나라도 있어 `FRESH`가 아니면 자동 정리하지
+  않고 새 DB 또는 새 branch를 준비한다.
+- 신규 공식 출석 통계는 운영 컷오버 이후 생성한 출석 날짜부터 시작한다.
 
 ## 2. M5 사전 검증
 
@@ -29,19 +42,24 @@
    source로만 실행한다.
 3. 빌드 후 image digest를 배포 기록에 고정한다. `latest`나 재빌드한 동일 tag를
    운영 근거로 사용하지 않는다.
-4. 운영 DB는 `ops/db/roles` 순서로 준비한 뒤 고정 image tag에서
+4. migration 전용 direct 연결정보만 주입한 환경에서 `./gradlew dbPreflight`를
+   실행한다. 이 명령은 read-only transaction에서 상태와 일반 사유만 출력하며 URL과
+   계정명은 출력하지 않는다. JDBC URL에는 host·database·TLS option만 넣고 사용자명과
+   비밀번호는 각각 별도 환경변수로 주입한다. 현재 승인 방식에서는 결과가 반드시
+   `FRESH`여야 한다.
+5. 운영 DB는 `ops/db/roles` 순서로 준비한 뒤 고정 image tag에서
    `docker compose -f compose.migration.yaml run --rm migration`을 한 번 실행해 V008까지
    적용한다. 이 컨테이너에만 Neon direct URL과 migration 계정을 주입한다.
-5. runtime 계정에 DDL, `TEMP`, 레거시 DML 권한이 없는지 기존 DB 권한 검사를
+6. runtime 계정에 DDL, `TEMP`, 레거시 DML 권한이 없는지 기존 DB 권한 검사를
    다시 수행한다.
-6. `ADMIN_WRITE_ENABLED=false`, `ADMIN_SHOW_TAG_LOGS=false`, `DEVICE_API_ENABLED=false`,
+7. `ADMIN_WRITE_ENABLED=false`, `ADMIN_SHOW_TAG_LOGS=false`, `DEVICE_API_ENABLED=false`,
    `ATTENDANCE_SCHEDULER_ENABLED=false`로 최초 기동한다.
-7. host 내부에서 `127.0.0.1:8081/actuator/health`가 `UP`, 공개 hostname의
+8. host 내부에서 `127.0.0.1:8081/actuator/health`가 `UP`, 공개 hostname의
    `/actuator/health`는 도달 불가인지 확인한다.
-8. Caddy는 외부 `X-Forwarded-For`와 내부 token header를 upstream에서 덮어쓴다.
+9. Caddy는 외부 `X-Forwarded-For`와 내부 token header를 upstream에서 덮어쓴다.
    앱은 token이 일치하는 단일 IP만 rate-limit source로 사용하며, app port를 host에
    publish하지 않는다.
-9. 관리자 운영 화면에 버전·시작 시각·세 flag·V008 상태가 표시되고 URL·비밀값이
+10. 관리자 운영 화면에 버전·시작 시각·세 flag·V008 상태가 표시되고 URL·비밀값이
    없는지 확인한다.
 
 ## 3. 백업과 복원

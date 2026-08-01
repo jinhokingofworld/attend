@@ -33,16 +33,18 @@ public final class DatabaseMigrationCli {
      */
     public static void main(String[] args) {
         Map<String, String> environment = System.getenv();
-        String url = required(environment, "FLYWAY_DB_URL");
-        String username = required(environment, "FLYWAY_DB_USERNAME");
-        String password = required(environment, "FLYWAY_DB_PASSWORD");
+        MigrationDatabaseConnection connection =
+                MigrationDatabaseConnection.from(environment);
         DatabaseMigrationRunner.ApprovedSourceClass sourceClass =
                 DatabaseMigrationRunner.ApprovedSourceClass.valueOf(
                         required(environment, "MIGRATION_SOURCE_CLASS")
                 );
 
         DriverManagerDataSource dataSource =
-                new DriverManagerDataSource(url, username, password);
+                new DriverManagerDataSource(
+                        connection.url(),
+                        connection.username(),
+                        connection.password());
         new DatabaseMigrationRunner().migrate(dataSource, sourceClass);
 
         System.out.println("Database migration validated at target V008.");

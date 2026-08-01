@@ -75,6 +75,13 @@ tasks.register('dbMigrate', JavaExec) {
 	mainClass = 'com.example.attend.database.DatabaseMigrationCli'
 }
 
+tasks.register('dbPreflight', JavaExec) {
+	group = 'database'
+	description = 'Classifies FLYWAY_DB_URL without modifying its schema or data.'
+	classpath = sourceSets.main.runtimeClasspath
+	mainClass = 'com.example.attend.database.DatabasePreflightCli'
+}
+
 tasks.register('bootstrapSystemAdmin', JavaExec) {
 	group = 'database'
 	description = 'Interactively creates the first and only bootstrap SYSTEM_ADMIN.'

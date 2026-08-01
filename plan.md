@@ -14,6 +14,9 @@
 - 운영 형태는 단일 HTTPS 애플리케이션 + Neon PostgreSQL이다.
 - 현재 Arduino가 없으므로 장치 API는 실제 HTTP 요청과 자동 계약 테스트로 검증한다.
 - 실제 펌웨어 단계에서는 빨강·초록 LED만 사용한다.
+- 운영 데이터베이스는 기존 더미데이터를 이관하지 않고 신규 빈 Neon PostgreSQL
+  DB에서 시작한다. migration 승인값은 `NEW_OR_SAMPLE`이며, 읽기 전용 preflight가
+  `FRESH`가 아니면 V001~V008을 적용하지 않는다.
 
 ## 2. 단계별 구현
 

@@ -235,9 +235,8 @@ public final class DatabaseMigrationRunner {
             return resultSet.getBoolean(1);
         } catch (SQLException exception) {
             throw new IllegalStateException(
-                    "Migration privilege preflight could not be completed",
-                    exception
-            );
+                    "Migration privilege preflight could not be completed (SQLSTATE "
+                            + exception.getSQLState() + ")");
         }
     }
 
