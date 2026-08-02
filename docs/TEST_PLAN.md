@@ -299,7 +299,7 @@ H2는 PostgreSQL 부분 인덱스, constraint, `ON CONFLICT`, lock과 transactio
 | CHK-002 | 지각 구간 | `LATE`와 구체적 band snapshot |
 | CHK-003 | 미등록 UID | record 없음, `UNKNOWN_UID` event |
 | CHK-004 | 비활성·분실·폐기 카드 | record 없음, 구분된 확정 event |
-| CHK-005 | 부서 미소속 | record 없음, `NOT_DEPARTMENT_MEMBER` event |
+| CHK-005 | 장치 부서 미소속 카드 또는 다른 부서의 활성 카드 | record 없음, `NOT_DEPARTMENT_MEMBER` event, 응답에 소유 부서·교사·카드 상세 없음 |
 | CHK-006 | 당일 날짜 없음 | record 없음, `NO_ATTENDANCE_DAY` event |
 | CHK-007 | 시작 전·종료 후 | record 없음, 해당 업무 실패 event |
 | CHK-008 | DB 오류·transaction timeout | record와 확정 event 모두 rollback |
@@ -497,7 +497,7 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | API-AUTH-002 | 유효한 key의 check-in + `INACTIVE`/`REVOKED` | `409 DEVICE_NOT_ACTIVE`, attendance/event 없음 |
 | API-AUTH-003 | credential test + `INACTIVE` | `200 CREDENTIAL_VALID`, 현재 시험 version·시각 원자 기록, attendance/tag event/audit 없음 |
 | API-AUTH-004 | credential test + `ACTIVE`/`REVOKED` | `409 CREDENTIAL_TEST_NOT_ALLOWED` |
-| API-AUTH-005 | 누락·중복·잘못된 code/key | `401 DEVICE_UNAUTHORIZED`, 원문·hash·장치 존재 여부 비노출 |
+| API-AUTH-005 | 누락·중복·잘못된 code/key 또는 A 장치 code와 B 장치 key 조합 | `401 DEVICE_UNAUTHORIZED`, 원문·hash·장치 존재 여부와 실패한 header 비노출 |
 | API-AUTH-006 | 인증 뒤 key 교체·상태 변경 후 check-in transaction 진입 | `409 DEVICE_STATE_CHANGED`, 선점 event까지 rollback |
 | API-AUTH-007 | `device-api.enabled=false` | 인증·`last_seen_at` 전 503, DB write 없음 |
 | API-AUTH-008 | rate limit 초과 | 명세의 429·`Retry-After`, 출석 중복 없음 |

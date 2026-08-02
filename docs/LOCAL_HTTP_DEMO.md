@@ -27,12 +27,24 @@ docker compose --env-file /dev/null -f compose.local.yaml ps
 
 ## 2. 자동 HTTP 시험
 
-최초 실행 직후 다음 스크립트로 두 부서의 신규 출석, 동일 요청 재전송과
-`requestId` 충돌을 검증한다.
+최초 실행 직후 다음 스크립트로 두 부서의 신규 출석, 동일 요청 재전송,
+`requestId` 충돌, 새 요청 재태깅과 부서 간 장치 경계를 검증한다.
 
 ```bash
 ./scripts/local-http-demo.sh
 ```
+
+자동 시나리오의 기대 결과는 다음과 같다.
+
+| 요청 | 기대 결과 |
+|---|---|
+| 같은 UID와 새 requestId로 재태깅 | `200 ALREADY_CHECKED_IN` |
+| A 장치 code + B 장치 key | `401 DEVICE_UNAUTHORIZED`, 인증 실패 원인 비노출 |
+| A 장치 code/key + B 부서 카드 UID | `409 NOT_DEPARTMENT_MEMBER`, `data = null`과 소유자 상세 비노출 |
+
+HTTP 응답만으로 DB의 행 수와 최초 시각 불변을 직접 증명할 수는 없다. 따라서 같은 UID의
+새 `requestId` 재태깅 뒤 `attendance_record`가 한 건이고 `checked_in_at`이 최초 값으로
+유지되는지는 PostgreSQL Testcontainers 기반 `DeviceApiIntegrationTest`가 별도로 검증한다.
 
 한 번 출석한 뒤 다시 실행하면 신규 출석이 아니라 `ALREADY_CHECKED_IN`이므로,
 완전히 같은 최초 시나리오를 반복하려면 아래 초기화를 먼저 수행한다.

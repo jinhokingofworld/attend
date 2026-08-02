@@ -186,13 +186,14 @@ credential 수명주기를 관리합니다. `SYSTEM_ADMIN`도 별도 부서 권�
 Arduino와 NFC 리더가 준비되지 않은 상태에서도 서버 구현을 멈추지 않도록 실제 HTTP
 요청을 보내는 로컬 시뮬레이터와 Postman 시나리오를 제공했습니다.
 
-시뮬레이터는 다음을 실제 서버와 PostgreSQL을 대상으로 확인합니다.
+시뮬레이터와 PostgreSQL 통합 테스트는 다음을 확인합니다.
 
-- 서로 다른 두 부서의 장치 credential 격리
+- A 장치 코드와 B 장치 인증키를 조합한 요청의 `401` 거부
+- A 부서 장치로 B 부서 카드 UID를 요청했을 때 제한 응답과 상세정보 비노출
 - 최초 태깅과 출석 판정
 - 같은 요청의 응답 replay
 - 같은 `requestId`에 다른 UID를 보낸 충돌
-- 같은 교사의 새 요청 재태깅과 최초 출석 유지
+- 같은 UID의 새 `requestId` 재태깅 후 `attendance_record` 1건과 최초 시각 유지
 
 이 검증은 **서버의 장치 API 계약을 확인하는 것**이며, 안테나 인식 거리·Wi-Fi 품질·LED
 신호 같은 물리 하드웨어 검증을 완료했다는 의미는 아닙니다.
@@ -289,8 +290,9 @@ sequenceDiagram
 ./scripts/local-http-demo.sh
 ```
 
-두 부서의 credential, 최초 출석, 동일 요청 replay, `requestId` 충돌과 재태깅을 실제
-HTTP 요청으로 검증합니다.
+두 부서의 최초 출석, 동일 요청 replay, `requestId` 충돌과 재태깅을 실제 HTTP 요청으로
+검증합니다. A 장치 코드와 B 장치 인증키의 혼합 인증, A 부서 장치와 B 부서 카드의
+교차 요청도 각각 `401`, 정보가 제한된 `409` 응답으로 끝나는지 확인합니다.
 
 ### 7-3. 관리자 웹 E2E
 
@@ -336,7 +338,8 @@ Javadoc 생성까지 함께 확인하려면 다음 명령을 사용합니다.
 - 날짜별 대상자 snapshot과 자동 결석 마감
 - 카드·정책·출석의 트랜잭션 및 동시성
 - 같은 날짜를 두 worker가 마감할 때 결석·감사 이력 중복 방지
-- 같은 `requestId` replay와 다른 UID 충돌
+- 같은 `requestId` replay, 다른 UID 충돌과 새 요청 재태깅 시 최초 출석 유지
+- 장치 code/key 혼합 인증 거부와 다른 부서 카드 정보 비노출
 - 다른 부서 IDOR 차단과 시스템·부서 역할 분리
 - 회원가입 초대·비밀번호 재설정 token 수명주기
 - 장치 인증, rate limit, strict JSON과 요청 크기 제한
