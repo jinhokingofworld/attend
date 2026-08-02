@@ -1009,7 +1009,7 @@ Spring Boot Actuator를 도입하면 health endpoint를 외부에 무제한 공�
 - 앱 재시작 뒤 과거 미마감 날짜 복구
 - 새 앱의 레거시 출석·로그 DML 시도
 
-현재 환경의 JDK 21과 PostgreSQL 15 Testcontainers에서 전체 20개 테스트가 통과했다. M2 통합 테스트는 교사·카드 등록, 정책 발행·불변성, 날짜·대상자 snapshot, 시작 전 대상 변경, 수동 판정, 자동 결석·멱등 마감, 통계, 메모 원천 보존과 부서 제외를 한 대표 흐름으로 검증한다. M3 통합 테스트는 활성 계정 로그인, 시스템·부서 역할 분리, CSRF, 장치 chain의 stateless availability 차단, 관리자 주요 화면 rendering과 초대·재설정 token의 hash 저장·재사용 거부·교체 무효화를 검증한다. M4 통합 테스트는 INACTIVE 차단, credential 시험, 활성화, 최초 NFC 출석, 동일 requestId의 canonical 응답 재현, UID 충돌, 중복 JSON member와 1 KiB 본문 제한을 검증한다. 별도 PostgreSQL 동시성 테스트는 같은 날짜 자동 마감 2건에서 결석·상태·멱등 감사 중복이 없음을 검증한다. 아직 자동화하지 않은 전체 부정·경합 시나리오와 실제 Arduino 현장 연동까지 검증됐다는 의미는 아니다.
+현재 환경의 JDK 21과 PostgreSQL 15 Testcontainers에서 전체 자동 테스트가 통과한다. M2 통합 테스트는 교사·카드 등록, 정책 발행·불변성, 날짜·대상자 snapshot, 시작 전 대상 변경, 수동 판정, 자동 결석·멱등 마감, 통계, 메모 원천 보존과 부서 제외를 한 대표 흐름으로 검증한다. M3 통합 테스트는 활성 계정 로그인, 시스템·부서 역할 분리, CSRF, 장치 chain의 stateless availability 차단, 관리자 주요 화면 rendering과 초대·재설정 token의 hash 저장·재사용 거부·교체 무효화를 검증한다. M4 통합 테스트는 INACTIVE 차단, credential 시험, 활성화, 최초 NFC 출석, 동일 requestId의 canonical 응답 재현, UID 충돌, 새 requestId 재태깅 뒤 최초 기록·시각 유지, 서로 다른 장치의 code/key 혼합 인증 거부, 다른 부서 카드의 상세정보 비노출, 중복 JSON member와 1 KiB 본문 제한을 검증한다. 별도 PostgreSQL 동시성 테스트는 같은 날짜 자동 마감 2건에서 결석·상태·멱등 감사 중복이 없음을 검증한다. 로컬 HTTP 시뮬레이터도 두 부서의 실제 서버·DB를 대상으로 멱등성과 장치·카드 격리 계약을 반복한다. 아직 자동화하지 않은 전체 부정·경합 시나리오와 실제 Arduino 현장 연동까지 검증됐다는 의미는 아니다.
 
 ---
 

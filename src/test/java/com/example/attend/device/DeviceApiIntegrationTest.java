@@ -13,6 +13,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,7 +48,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Testcontainers
-@Import(DeviceApiIntegrationTest.FixedClockConfiguration.class)
+@Import(DeviceApiIntegrationTest.TestClockConfiguration.class)
 class DeviceApiIntegrationTest {
 
 	private static final Instant RECEIVED_AT =
@@ -68,6 +69,9 @@ class DeviceApiIntegrationTest {
 	@Autowired
 	private DeviceManagementService deviceManagementService;
 
+	@Autowired
+	private MutableTestClock testClock;
+
 	private long departmentId;
 	private long systemAccountId;
 	private IssuedDeviceCredential issued;
@@ -75,6 +79,7 @@ class DeviceApiIntegrationTest {
 	/** 각 테스트가 독립된 부서·관리자·교사·카드·정책·장치를 사용하게 만든다. */
 	@BeforeEach
 	void setUp() {
+		testClock.setInstant(RECEIVED_AT);
 		deleteFixtures();
 		departmentId = insertId(
 				"INSERT INTO public.department(name) VALUES (?) RETURNING id",
@@ -194,6 +199,15 @@ class DeviceApiIntegrationTest {
 				.isEqualTo(first.getResponse().getContentAsString());
 		assertThat(count("public.attendance_record")).isEqualTo(1);
 		assertThat(count("public.tag_event_log")).isEqualTo(1);
+		Long firstRecordId = jdbcTemplate.queryForObject("""
+				SELECT id
+				FROM public.attendance_record
+				""", Long.class);
+		OffsetDateTime firstCheckedInAt = jdbcTemplate.queryForObject("""
+				SELECT checked_in_at
+				FROM public.attendance_record
+				""", OffsetDateTime.class);
+		assertThat(firstCheckedInAt).isEqualTo(atSeoul(RECEIVED_AT));
 
 		mockMvc.perform(authenticatedPost("/api/v1/device/check-ins")
 						.contentType(MediaType.APPLICATION_JSON)
@@ -203,6 +217,137 @@ class DeviceApiIntegrationTest {
 				.andExpect(status().isConflict())
 				.andExpect(jsonPath("$.code").value("REQUEST_ID_CONFLICT"));
 		assertThat(count("public.tag_event_log")).isEqualTo(1);
+
+		/* 덮어쓰기 버그가 같은 고정 시각에 가려지지 않도록 재태깅 시각을 전진시킨다. */
+		testClock.setInstant(RECEIVED_AT.plusSeconds(300));
+		mockMvc.perform(authenticatedPost("/api/v1/device/check-ins")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"uid":"04A1B2C3","requestId":"boot_A1-2"}
+								"""))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.code").value("ALREADY_CHECKED_IN"));
+		assertThat(count("public.attendance_record")).isEqualTo(1);
+		assertThat(count("public.tag_event_log")).isEqualTo(2);
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT id
+				FROM public.attendance_record
+				""", Long.class)).isEqualTo(firstRecordId);
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT checked_in_at
+				FROM public.attendance_record
+				""", OffsetDateTime.class)).isEqualTo(firstCheckedInAt);
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT result_code = 'ALREADY_CHECKED_IN'
+				       AND attendance_record_id = ?
+				FROM public.tag_event_log
+				WHERE device_id = ?
+				  AND request_id = 'boot_A1-2'
+				""", Boolean.class, firstRecordId, issued.deviceId())).isTrue();
+	}
+
+	/**
+	 * 서로 다른 장치의 code/key 조합과 다른 부서 카드가 인증·부서 경계를 넘지 못함을
+	 * 검증한다.
+	 */
+	@Test
+	void rejectsMixedCredentialsAndCrossDepartmentCardWithoutDisclosure()
+			throws Exception {
+		long otherDepartmentId = insertId(
+				"INSERT INTO public.department(name) VALUES (?) RETURNING id",
+				"중고등부");
+		long otherMemberId = insertId("""
+				INSERT INTO public.member(name, active)
+				VALUES ('다른 부서 교사', TRUE)
+				RETURNING id
+				""");
+		long otherMembershipId = insertId("""
+				INSERT INTO public.department_membership(
+				    department_id, member_id, joined_at, created_by_account_id)
+				VALUES (?, ?, ?, ?)
+				RETURNING id
+				""", otherDepartmentId, otherMemberId,
+				atSeoul(RECEIVED_AT.minusSeconds(3600)), systemAccountId);
+		long otherCardId = insertId("""
+				INSERT INTO public.nfc_card(uid, status)
+				VALUES ('04D4E5F6', 'ACTIVE')
+				RETURNING id
+				""");
+		jdbcTemplate.update("""
+				INSERT INTO public.nfc_card_assignment(
+				    nfc_card_id, department_id, membership_id, member_id,
+				    assigned_by_account_id, assigned_at)
+				VALUES (?, ?, ?, ?, ?, ?)
+				""", otherCardId, otherDepartmentId, otherMembershipId,
+				otherMemberId, systemAccountId,
+				atSeoul(RECEIVED_AT.minusSeconds(1800)));
+		IssuedDeviceCredential otherIssued = deviceManagementService.create(
+				new AccountActor(systemAccountId),
+				otherDepartmentId,
+				"entrance-02",
+				"다른 부서 입구 장치");
+
+		MvcResult mixedCredentialResponse = mockMvc.perform(
+						post("/api/v1/device/check-ins")
+								.header("X-Device-Code", issued.deviceCode())
+								.header("X-Device-Key", otherIssued.deviceKey())
+								.contentType(MediaType.APPLICATION_JSON)
+								.content("""
+										{"uid":"04A1B2C3","requestId":"mixed-auth-1"}
+										"""))
+				.andExpect(status().isUnauthorized())
+				.andExpect(jsonPath("$.success").value(false))
+				.andExpect(jsonPath("$.code").value("DEVICE_UNAUTHORIZED"))
+				.andExpect(jsonPath("$.message").value("장치 인증에 실패했습니다."))
+				.andExpect(jsonPath("$.requestId").isEmpty())
+				.andExpect(jsonPath("$.data").isEmpty())
+				.andReturn();
+		assertThat(mixedCredentialResponse.getResponse().getContentAsString())
+				.doesNotContain("entrance-01", "entrance-02", "중고등부");
+		assertThat(count("public.tag_event_log")).isZero();
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT count(*) = 2
+				FROM public.device
+				WHERE id IN (?, ?)
+				  AND last_seen_at IS NULL
+				""", Boolean.class, issued.deviceId(), otherIssued.deviceId()))
+				.isTrue();
+
+		mockMvc.perform(authenticatedPost("/api/v1/device/credential-tests"))
+				.andExpect(status().isOk());
+		deviceManagementService.activate(
+				new AccountActor(systemAccountId), issued.deviceId());
+
+		MvcResult crossDepartmentResponse = mockMvc.perform(
+						authenticatedPost("/api/v1/device/check-ins")
+								.contentType(MediaType.APPLICATION_JSON)
+								.content("""
+										{"uid":"04D4E5F6","requestId":"cross-department-1"}
+										"""))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.success").value(false))
+				.andExpect(jsonPath("$.code").value("NOT_DEPARTMENT_MEMBER"))
+				.andExpect(jsonPath("$.data").isEmpty())
+				.andExpect(jsonPath("$.departmentId").doesNotExist())
+				.andExpect(jsonPath("$.memberId").doesNotExist())
+				.andExpect(jsonPath("$.memberName").doesNotExist())
+				.andExpect(jsonPath("$.membershipId").doesNotExist())
+				.andExpect(jsonPath("$.cardId").doesNotExist())
+				.andExpect(jsonPath("$.uid").doesNotExist())
+				.andReturn();
+		assertThat(crossDepartmentResponse.getResponse().getContentAsString())
+				.doesNotContain("중고등부", "다른 부서 교사", "04D4E5F6");
+		assertThat(count("public.attendance_record")).isZero();
+		assertThat(count("public.tag_event_log")).isEqualTo(1);
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT department_id = ?
+				       AND result_code = 'NOT_DEPARTMENT_MEMBER'
+				       AND attendance_day_id IS NULL
+				       AND attendance_record_id IS NULL
+				FROM public.tag_event_log
+				WHERE device_id = ?
+				  AND request_id = 'cross-department-1'
+				""", Boolean.class, departmentId, issued.deviceId())).isTrue();
 	}
 
 	/** 중복 JSON member와 실제 1025-byte body를 event 생성 전에 거부한다. */
@@ -300,16 +445,64 @@ class DeviceApiIntegrationTest {
 	}
 
 	/**
-	 * 출석 판정이 항상 2026-08-02 09:00 Asia/Seoul을 사용하게 고정한다.
+	 * 각 테스트가 직접 제어할 수 있는 업무 시계를 등록한다.
 	 */
 	@TestConfiguration
-	static class FixedClockConfiguration {
+	static class TestClockConfiguration {
 
-		/** 운영 Clock 대신 테스트 고정 시계를 우선 주입한다. */
+		/** 운영 Clock 대신 요청 사이에 전진시킬 수 있는 시험 시계를 우선 주입한다. */
 		@Bean
 		@Primary
-		Clock fixedAttendanceClock() {
-			return Clock.fixed(RECEIVED_AT, ZoneId.of("Asia/Seoul"));
+		MutableTestClock mutableAttendanceClock() {
+			return new MutableTestClock(RECEIVED_AT, ZoneId.of("Asia/Seoul"));
+		}
+	}
+
+	/**
+	 * 같은 Spring context 안에서 요청별 수신 시각을 바꿀 수 있는 thread-safe 시험 시계다.
+	 */
+	static final class MutableTestClock extends Clock {
+
+		private final AtomicReference<Instant> currentInstant;
+		private final ZoneId zone;
+
+		/** 최초 시각과 업무 시간대를 가진 시계를 만든다. */
+		MutableTestClock(Instant initialInstant, ZoneId zone) {
+			this(new AtomicReference<>(initialInstant), zone);
+		}
+
+		/** 다른 시간대 view도 같은 현재 시각 저장소를 공유한다. */
+		private MutableTestClock(
+				AtomicReference<Instant> currentInstant,
+				ZoneId zone) {
+			this.currentInstant = currentInstant;
+			this.zone = zone;
+		}
+
+		/** 다음 HTTP 요청이 사용할 현재 시각을 바꾼다. */
+		void setInstant(Instant instant) {
+			currentInstant.set(instant);
+		}
+
+		/** 이 시계가 날짜와 offset을 계산할 기준 시간대를 반환한다. */
+		@Override
+		public ZoneId getZone() {
+			return zone;
+		}
+
+		/** 현재 시각 저장소는 공유하면서 요청한 시간대의 시계를 반환한다. */
+		@Override
+		public Clock withZone(ZoneId requestedZone) {
+			if (zone.equals(requestedZone)) {
+				return this;
+			}
+			return new MutableTestClock(currentInstant, requestedZone);
+		}
+
+		/** 서버가 현재 요청 수신 시각으로 사용할 값을 반환한다. */
+		@Override
+		public Instant instant() {
+			return currentInstant.get();
 		}
 	}
 }
