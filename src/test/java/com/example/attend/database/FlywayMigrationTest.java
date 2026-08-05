@@ -10,6 +10,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import javax.sql.DataSource;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -31,7 +32,7 @@ import static com.example.attend.database.DatabasePreflightInspector.PreflightSt
 import static com.example.attend.database.DatabasePreflightInspector.PreflightStatus.REJECTED;
 
 /**
- * 실제 PostgreSQL 15에서 V001~V008 migration의 안전성과 핵심 제약조건을 검증한다.
+ * 실제 PostgreSQL 15에서 V001~V009 migration의 안전성과 핵심 제약조건을 검증한다.
  *
  * <p>H2 같은 대체 DB로는 PostgreSQL catalog, partial unique index, 복합 외래 키,
  * SQLSTATE가 실제 운영 DB와 같다고 보장할 수 없다. 따라서 Testcontainers로
@@ -57,7 +58,7 @@ class FlywayMigrationTest {
             new PostgreSQLContainer<>("postgres:15-alpine");
 
     /**
-     * 빈 DB가 올바르게 분류되고 V008까지 정확히 한 번 적용되는지 검증한다.
+     * 빈 DB가 올바르게 분류되고 V009까지 정확히 한 번 적용되는지 검증한다.
      *
      * <p>잘못된 운영자 승인값에서는 history조차 만들지 않아야 하며, 같은
      * migration을 다시 실행해도 결과가 바뀌지 않는 멱등성도 함께 확인한다.</p>
@@ -99,7 +100,24 @@ class FlywayMigrationTest {
                     SELECT count(*)
                     FROM public.flyway_schema_history
                     WHERE success
-                    """)).isEqualTo(8);
+                      AND version IS NOT NULL
+                    """)).isEqualTo(9);
+
+            assertThat(queryInt(connection, """
+                    SELECT count(*)
+                    FROM public.flyway_schema_history
+                    WHERE success
+                      AND version IS NULL
+                      AND script = 'R__update_member_column_comments.sql'
+                    """)).isEqualTo(1);
+            assertThat(queryString(connection, """
+                    SELECT col_description(
+                        'public.member'::regclass,
+                        (SELECT attnum
+                         FROM pg_attribute
+                         WHERE attrelid = 'public.member'::regclass
+                           AND attname = 'birth'))
+                    """)).contains("birthday management");
 
             assertThat(queryStrings(connection, """
                     SELECT table_name
@@ -135,9 +153,296 @@ class FlywayMigrationTest {
                         'trg_member_updated_at',
                         'trg_nfc_card_updated_at',
                         'trg_device_updated_at',
-                        'trg_attendance_record_updated_at'
+                        'trg_attendance_record_updated_at',
+                        'trg_member_birth_required_on_insert',
+                        'trg_member_birth_required_on_operational_update',
+                        'trg_membership_member_required_on_insert',
+                        'trg_membership_write_guard_on_update',
+                        'trg_card_assignment_closed_history_immutable'
                       )
-                    """)).isEqualTo(6);
+                    """)).isEqualTo(11);
+            assertThat(queryString(connection, """
+                    SELECT (NOT EXISTS (
+                        SELECT 1
+                        FROM pg_proc AS routine
+                        CROSS JOIN LATERAL aclexplode(
+                            COALESCE(
+                                routine.proacl,
+                                acldefault('f', routine.proowner)
+                            )
+                        ) AS privilege
+                        WHERE routine.oid IN (
+                              'public.attend_require_member_birth_on_write()'::regprocedure,
+                              'public.attend_require_operational_membership_member()'::regprocedure,
+                              'public.attend_require_closed_card_assignment_immutable()'::regprocedure
+                        )
+                          AND privilege.grantee = 0
+                          AND privilege.privilege_type = 'EXECUTE'
+                    ))::text
+                    """)).isEqualTo("true");
+        }
+    }
+
+    /**
+     * V009는 기존 생년월일 NULL을 조작하지 않으면서 이후 업무 write를 제한한다.
+     *
+     * <p>V008 상태에서 존재하던 NULL 행과 소속은 그대로 채택한다. 소속이 없는
+     * 레거시 행은 생년월일을 만들지 않고 비활성화할 수 있지만 신규 등록·기본정보
+     * 변경·활성화에는 미래가 아닌 정확한 날짜가 필요하다. 새 활성 소속도 같은
+     * 조건의 교사만 가리키며, 소속을 먼저 끝내지 않은 비활성화는 거부한다.</p>
+     */
+    @Test
+    void requiresVerifiedBirthAndConsistentMembershipWithoutInventingLegacyDates()
+            throws Exception {
+        Database database = createDatabase("verified_birth");
+        Flyway.configure()
+                .dataSource(database.url(), postgres.getUsername(), postgres.getPassword())
+                .locations(MIGRATION_LOCATION)
+                .defaultSchema("public")
+                .schemas("public")
+                .target(MigrationVersion.fromVersion("8"))
+                .validateOnMigrate(true)
+                .cleanDisabled(true)
+                .outOfOrder(false)
+                .load()
+                .migrate();
+
+        long legacyActiveMemberId;
+        long legacyInactiveMemberId;
+        long legacyMembershipMemberId;
+        long legacyFutureMemberId;
+        long departmentId;
+        try (Connection connection = database.connect();
+             Statement statement = connection.createStatement()) {
+            legacyActiveMemberId = queryLong(statement, """
+                    INSERT INTO public.member(name, active)
+                    VALUES ('생년월일 미확인 활성 교사', TRUE)
+                    RETURNING id
+                    """);
+            legacyInactiveMemberId = queryLong(statement, """
+                    INSERT INTO public.member(name)
+                    VALUES ('생년월일 미확인 비활성 교사')
+                    RETURNING id
+                    """);
+            legacyMembershipMemberId = queryLong(statement, """
+                    INSERT INTO public.member(name, active)
+                    VALUES ('기존 소속 생년월일 미확인 교사', TRUE)
+                    RETURNING id
+                    """);
+            legacyFutureMemberId = queryLong(statement, """
+                    INSERT INTO public.member(name, birth, active)
+                    VALUES ('기존 미래 생년월일 교사', DATE '2999-01-01', TRUE)
+                    RETURNING id
+                    """);
+            departmentId = queryLong(statement, """
+                    INSERT INTO public.department(name)
+                    VALUES ('V009 무결성 부서')
+                    RETURNING id
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO public.department_membership(
+                        department_id,
+                        member_id
+                    )
+                    VALUES (%d, %d)
+                    """.formatted(departmentId, legacyMembershipMemberId));
+        }
+
+        flyway(database).migrate();
+
+        try (Connection connection = database.connect();
+             Statement statement = connection.createStatement()) {
+            assertThat(queryString(statement, """
+                    SELECT birth::text
+                    FROM public.member
+                    WHERE id = %d
+                    """.formatted(legacyActiveMemberId))).isNull();
+            assertThat(queryString(statement, """
+                    SELECT active::text
+                    FROM public.member
+                    WHERE id = %d
+                    """.formatted(legacyActiveMemberId))).isEqualTo("true");
+            assertThat(queryInt(connection, """
+                    SELECT count(*)
+                    FROM public.department_membership
+                    WHERE department_id = %d
+                      AND member_id = %d
+                      AND ended_at IS NULL
+                    """.formatted(departmentId, legacyMembershipMemberId)))
+                    .isEqualTo(1);
+            long administratorId = queryLong(statement, """
+                    INSERT INTO public.account(username)
+                    VALUES ('v009-history-admin')
+                    RETURNING id
+                    """);
+
+            assertMemberBirthViolation(statement, """
+                    INSERT INTO public.member(name, active)
+                    VALUES ('신규 활성 NULL 교사', TRUE)
+                    """);
+            assertMemberBirthViolation(statement, """
+                    INSERT INTO public.member(name)
+                    VALUES ('신규 비활성 NULL 교사')
+                    """);
+            assertMemberBirthViolation(statement, """
+                    UPDATE public.member
+                    SET name = '생년월일 없는 기본정보 수정'
+                    WHERE id = %d
+                    """.formatted(legacyActiveMemberId));
+
+            statement.executeUpdate("""
+                    UPDATE public.member
+                    SET active = FALSE
+                    WHERE id = %d
+                    """.formatted(legacyActiveMemberId));
+            assertThat(queryString(statement, """
+                    SELECT birth::text
+                    FROM public.member
+                    WHERE id = %d
+                    """.formatted(legacyActiveMemberId))).isNull();
+
+            assertMemberBirthViolation(statement, """
+                    UPDATE public.member
+                    SET active = TRUE
+                    WHERE id = %d
+                    """.formatted(legacyInactiveMemberId));
+            assertMemberBirthViolation(statement, """
+                    UPDATE public.member
+                    SET phone = '010-9999-9999'
+                    WHERE id = %d
+                    """.formatted(legacyInactiveMemberId));
+
+            statement.executeUpdate("""
+                    UPDATE public.member
+                    SET name = '생년월일 확인 교사',
+                        birth = DATE '1990-01-02',
+                        active = TRUE
+                    WHERE id = %d
+                    """.formatted(legacyActiveMemberId));
+            assertThat(queryString(statement, """
+                    SELECT birth::text
+                    FROM public.member
+                    WHERE id = %d
+                    """.formatted(legacyActiveMemberId)))
+                    .isEqualTo("1990-01-02");
+            long verifiedMembershipId = queryLong(statement, """
+                    INSERT INTO public.department_membership(
+                        department_id,
+                        member_id,
+                        created_by_account_id
+                    )
+                    VALUES (%d, %d, %d)
+                    RETURNING id
+                    """.formatted(
+                            departmentId,
+                            legacyActiveMemberId,
+                            administratorId
+                    ));
+            assertMemberStateViolation(statement, """
+                    UPDATE public.member
+                    SET active = FALSE
+                    WHERE id = %d
+                    """.formatted(legacyActiveMemberId));
+            assertMemberBirthViolation(statement, """
+                    UPDATE public.member
+                    SET birth = NULL
+                    WHERE id = %d
+                    """.formatted(legacyActiveMemberId));
+            assertMemberFutureBirthViolation(statement, """
+                    INSERT INTO public.member(name, birth)
+                    VALUES ('신규 미래 생년월일 교사', DATE '2999-01-01')
+                    """);
+            assertMemberFutureBirthViolation(statement, """
+                    UPDATE public.member
+                    SET birth = DATE '2999-01-01'
+                    WHERE id = %d
+                    """.formatted(legacyActiveMemberId));
+            assertOperationalMembershipViolation(statement, """
+                    INSERT INTO public.department_membership(
+                        department_id,
+                        member_id
+                    )
+                    VALUES (%d, %d)
+                    """.formatted(departmentId, legacyInactiveMemberId));
+            assertOperationalMembershipViolation(statement, """
+                    INSERT INTO public.department_membership(
+                        department_id,
+                        member_id
+                    )
+                    VALUES (%d, %d)
+                    """.formatted(departmentId, legacyFutureMemberId));
+            assertMemberStateViolation(statement, """
+                    UPDATE public.member
+                    SET active = FALSE
+                    WHERE id = %d
+                    """.formatted(legacyMembershipMemberId));
+
+            long cardId = queryLong(statement, """
+                    INSERT INTO public.nfc_card(uid, status)
+                    VALUES ('AABBCCDD', 'ACTIVE')
+                    RETURNING id
+                    """);
+            long assignmentId = queryLong(statement, """
+                    INSERT INTO public.nfc_card_assignment(
+                        nfc_card_id,
+                        department_id,
+                        membership_id,
+                        member_id,
+                        assigned_by_account_id
+                    )
+                    VALUES (%d, %d, %d, %d, %d)
+                    RETURNING id
+                    """.formatted(
+                            cardId,
+                            departmentId,
+                            verifiedMembershipId,
+                            legacyActiveMemberId,
+                            administratorId
+                    ));
+            statement.executeUpdate("""
+                    UPDATE public.nfc_card_assignment
+                    SET unassigned_by_account_id = %d,
+                        unassigned_at = CURRENT_TIMESTAMP,
+                        end_reason = '카드 종료'
+                    WHERE id = %d
+                    """.formatted(administratorId, assignmentId));
+            assertClosedCardAssignmentViolation(statement, """
+                    UPDATE public.nfc_card_assignment
+                    SET unassigned_by_account_id = NULL,
+                        unassigned_at = NULL,
+                        end_reason = NULL
+                    WHERE id = %d
+                    """.formatted(assignmentId));
+            assertClosedCardAssignmentViolation(statement, """
+                    UPDATE public.nfc_card_assignment
+                    SET end_reason = '종료 사유 변조'
+                    WHERE id = %d
+                    """.formatted(assignmentId));
+
+            statement.executeUpdate("""
+                    UPDATE public.department_membership
+                    SET ended_by_account_id = %d,
+                        ended_at = CURRENT_TIMESTAMP,
+                        end_reason = '소속 종료'
+                    WHERE id = %d
+                    """.formatted(administratorId, verifiedMembershipId));
+            assertClosedMembershipViolation(statement, """
+                    UPDATE public.department_membership
+                    SET ended_by_account_id = NULL,
+                        ended_at = NULL,
+                        end_reason = NULL
+                    WHERE id = %d
+                    """.formatted(verifiedMembershipId));
+            assertClosedMembershipViolation(statement, """
+                    UPDATE public.department_membership
+                    SET end_reason = '종료 사유 변조'
+                    WHERE id = %d
+                    """.formatted(verifiedMembershipId));
+            statement.executeUpdate("""
+                    UPDATE public.member
+                    SET active = FALSE
+                    WHERE id = %d
+                    """.formatted(legacyActiveMemberId));
         }
     }
 
@@ -548,8 +853,8 @@ class FlywayMigrationTest {
                     RETURNING id
                     """);
             long member = queryLong(statement, """
-                    INSERT INTO public.member (name, active)
-                    VALUES ('소속 교사', TRUE)
+                    INSERT INTO public.member (name, birth, active)
+                    VALUES ('소속 교사', DATE '1990-05-06', TRUE)
                     RETURNING id
                     """);
             long membership = queryLong(statement, """
@@ -1233,7 +1538,15 @@ class FlywayMigrationTest {
                     SELECT count(*)
                     FROM public.flyway_schema_history
                     WHERE success
-                    """)).isEqualTo(9);
+                      AND version IS NOT NULL
+                    """)).isEqualTo(10);
+            assertThat(queryInt(connection, """
+                    SELECT count(*)
+                    FROM public.flyway_schema_history
+                    WHERE success
+                      AND version IS NULL
+                      AND script = 'R__update_member_column_comments.sql'
+                    """)).isEqualTo(1);
             assertThat(queryInt(connection, "SELECT count(*) FROM public.member"))
                     .isEqualTo(1);
             assertThat(queryInt(connection, "SELECT count(*) FROM public.authentications"))
@@ -1477,7 +1790,7 @@ class FlywayMigrationTest {
     }
 
     /**
-     * 애플리케이션 시작 검사가 정확히 성공한 V001~V008만 허용하는지 검증한다.
+     * 애플리케이션 시작 검사가 정확히 성공한 V001~V009만 허용하는지 검증한다.
      *
      * <p>history 없음, 구버전, 실패 처리된 migration, 애플리케이션보다 앞선
      * 버전을 모두 거부하고 정확한 버전 목록만 통과시킨다.</p>
@@ -1498,7 +1811,7 @@ class FlywayMigrationTest {
                 .locations(MIGRATION_LOCATION)
                 .defaultSchema("public")
                 .schemas("public")
-                .target(MigrationVersion.fromVersion("7"))
+                .target(MigrationVersion.fromVersion("8"))
                 .cleanDisabled(true)
                 .load()
                 .migrate();
@@ -1520,7 +1833,7 @@ class FlywayMigrationTest {
             statement.executeUpdate("""
                     UPDATE public.flyway_schema_history
                     SET success = FALSE
-                    WHERE version = '008'
+                    WHERE version = '009'
                     """);
             assertThatThrownBy(() ->
                     SchemaVersionGuard.verify(exact.dataSource()))
@@ -1530,8 +1843,8 @@ class FlywayMigrationTest {
             statement.executeUpdate("""
                     UPDATE public.flyway_schema_history
                     SET success = TRUE,
-                        version = '009'
-                    WHERE version = '008'
+                        version = '010'
+                    WHERE version = '009'
                     """);
             assertThatThrownBy(() ->
                     SchemaVersionGuard.verify(exact.dataSource()))
@@ -1543,9 +1856,10 @@ class FlywayMigrationTest {
     /**
      * migration 계정과 웹 runtime 계정의 실제 PostgreSQL 권한이 분리되는지 검증한다.
      *
-     * <p>한 테스트 안에서 역할 생성, 레거시 migration, V008 이후 grant와 runtime
-     * guard를 모두 실행한다. runtime의 정상 조회·수정은 허용하면서 DDL, Flyway
-     * history 변경, 교사 삭제와 레거시 출석 쓰기는 권한 오류로 막아야 한다.</p>
+     * <p>한 테스트 안에서 역할 생성, 레거시 migration, V009 이후 grant와 runtime
+     * guard를 모두 실행한다. runtime의 교사 등록·조회·수정은 실제 사용 컬럼까지
+     * 허용하면서 DDL, Flyway history 변경, 교사 삭제·card_uid 접근과 레거시
+     * 출석 쓰기는 권한 오류로 막아야 한다.</p>
      */
     @Test
     void separatesMigrationOwnerFromRuntimeDatabasePrivileges()
@@ -1609,15 +1923,67 @@ class FlywayMigrationTest {
                      runtimeDataSource.getConnection();
              Statement statement = runtimeConnection.createStatement()) {
             long memberId = queryLong(statement, """
-                    INSERT INTO public.member (name, phone, active)
-                    VALUES ('권한 테스트 교사', '010-0000-0000', TRUE)
+                    INSERT INTO public.member (name, phone, birth, active)
+                    VALUES (
+                        '권한 테스트 교사',
+                        '010-0000-0000',
+                        DATE '1990-01-02',
+                        TRUE
+                    )
+                    RETURNING id
+                    """);
+            long departmentId = queryLong(statement, """
+                    INSERT INTO public.department(name)
+                    VALUES ('runtime 권한 테스트 부서')
                     RETURNING id
                     """);
             statement.executeUpdate("""
+                    INSERT INTO public.department_membership(
+                        department_id,
+                        member_id
+                    )
+                    VALUES (%d, %d)
+                    """.formatted(departmentId, memberId));
+            statement.executeUpdate("""
                     UPDATE public.member
-                    SET phone = '010-1111-1111'
+                    SET phone = '010-1111-1111',
+                        birth = DATE '1991-02-03'
                     WHERE id = %d
                     """.formatted(memberId));
+
+            assertThat(queryString(statement, """
+                    SELECT birth::text
+                    FROM public.member
+                    WHERE id = %d
+                    """.formatted(memberId)))
+                    .isEqualTo("1991-02-03");
+            assertThat(queryString(statement, """
+                    SELECT created_at::text
+                    FROM public.member
+                    WHERE id = %d
+                    """.formatted(memberId)))
+                    .isNotBlank();
+            assertThat(queryString(statement, """
+                    SELECT has_function_privilege(
+                        current_user,
+                        'public.attend_require_member_birth_on_write()',
+                        'EXECUTE'
+                    )::text
+                    """)).isEqualTo("false");
+            assertThat(queryString(statement, """
+                    SELECT has_function_privilege(
+                        current_user,
+                        'public.attend_require_operational_membership_member()',
+                        'EXECUTE'
+                    )::text
+                    """)).isEqualTo("false");
+            assertThat(queryString(statement, """
+                    SELECT has_function_privilege(
+                        current_user,
+                        'public.attend_require_closed_card_assignment_immutable()',
+                        'EXECUTE'
+                    )::text
+                    """)).isEqualTo("false");
 
             assertPermissionDenied(
                     statement,
@@ -1630,12 +1996,27 @@ class FlywayMigrationTest {
             assertPermissionDenied(statement, """
                     UPDATE public.flyway_schema_history
                     SET success = FALSE
-                    WHERE version = '008'
+                    WHERE version = '009'
                     """);
             assertPermissionDenied(
                     statement,
                     "DELETE FROM public.member WHERE id = " + memberId
             );
+            assertPermissionDenied(statement, """
+                    SELECT age
+                    FROM public.member
+                    WHERE id = %d
+                    """.formatted(memberId));
+            assertPermissionDenied(statement, """
+                    SELECT card_uid
+                    FROM public.member
+                    WHERE id = %d
+                    """.formatted(memberId));
+            assertPermissionDenied(statement, """
+                    UPDATE public.member
+                    SET card_uid = 'blocked-card'
+                    WHERE id = %d
+                    """.formatted(memberId));
             assertPermissionDenied(statement, """
                     INSERT INTO public.attendance (
                         member_id,
@@ -1646,10 +2027,55 @@ class FlywayMigrationTest {
                     """.formatted(memberId));
         }
 
+        try (Connection migrationConnection =
+                     migrationDataSource.getConnection();
+             Statement statement = migrationConnection.createStatement()) {
+            statement.execute("""
+                    GRANT SELECT (age)
+                    ON TABLE public.member
+                    TO app_runtime
+                    """);
+        }
+        assertRuntimePrivilegeGuardRejects(runtimeDataSource);
+        try (Connection migrationConnection =
+                     migrationDataSource.getConnection();
+             Statement statement = migrationConnection.createStatement()) {
+            statement.execute("""
+                    REVOKE SELECT (age)
+                    ON TABLE public.member
+                    FROM app_runtime
+                    """);
+            statement.execute("""
+                    GRANT SELECT
+                    ON TABLE public.member
+                    TO app_runtime
+                    """);
+        }
+        assertRuntimePrivilegeGuardRejects(runtimeDataSource);
+        try (Connection migrationConnection =
+                     migrationDataSource.getConnection();
+             Statement statement = migrationConnection.createStatement()) {
+            executeSqlFile(
+                    statement,
+                    "ops/db/roles/003_grant_application_privileges.sql"
+            );
+        }
+        RuntimeDatabasePrivilegeGuard.verify(runtimeDataSource);
+
         assertThatThrownBy(() ->
                 RuntimeDatabasePrivilegeGuard.verify(
                         migrationDataSource
                 ))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("incompatible");
+    }
+
+    /** 운영 member 권한이 허용 경계보다 넓으면 기동 guard가 실패해야 한다. */
+    private static void assertRuntimePrivilegeGuardRejects(
+            DataSource dataSource
+    ) {
+        assertThatThrownBy(() ->
+                RuntimeDatabasePrivilegeGuard.verify(dataSource))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("incompatible");
     }
@@ -1810,6 +2236,93 @@ class FlywayMigrationTest {
                             .isEqualTo(expectedSqlState);
                     assertThat(exception.getMessage())
                             .contains(expectedConstraint);
+                });
+    }
+
+    /** 필수 생년월일 write trigger가 의도한 오류로 거부했는지 확인한다. */
+    private static void assertMemberBirthViolation(
+            Statement statement,
+            String sql
+    ) {
+        assertWriteViolation(
+                statement,
+                sql,
+                "member birth date is required for this write"
+        );
+    }
+
+    /** 미래 생년월일 write가 고정 오류로 거부됐는지 확인한다. */
+    private static void assertMemberFutureBirthViolation(
+            Statement statement,
+            String sql
+    ) {
+        assertWriteViolation(
+                statement,
+                sql,
+                "member birth date cannot be in the future"
+        );
+    }
+
+    /** 활성 소속이 남은 교사의 비활성화를 거부했는지 확인한다. */
+    private static void assertMemberStateViolation(
+            Statement statement,
+            String sql
+    ) {
+        assertWriteViolation(
+                statement,
+                sql,
+                "member with an active membership cannot be deactivated"
+        );
+    }
+
+    /** 운영 조건을 충족하지 않는 교사의 활성 소속 생성을 거부했는지 확인한다. */
+    private static void assertOperationalMembershipViolation(
+            Statement statement,
+            String sql
+    ) {
+        assertWriteViolation(
+                statement,
+                sql,
+                "active membership requires an active member with a verified birth date"
+        );
+    }
+
+    /** 종료된 소속 행의 재개방·변조를 거부했는지 확인한다. */
+    private static void assertClosedMembershipViolation(
+            Statement statement,
+            String sql
+    ) {
+        assertWriteViolation(
+                statement,
+                sql,
+                "closed membership history is immutable"
+        );
+    }
+
+    /** 종료된 카드 연결 행의 재개방·변조를 거부했는지 확인한다. */
+    private static void assertClosedCardAssignmentViolation(
+            Statement statement,
+            String sql
+    ) {
+        assertWriteViolation(
+                statement,
+                sql,
+                "closed card assignment history is immutable"
+        );
+    }
+
+    /** V009 업무 write trigger의 공통 SQLSTATE와 메시지를 확인한다. */
+    private static void assertWriteViolation(
+            Statement statement,
+            String sql,
+            String message
+    ) {
+        assertThatThrownBy(() -> statement.executeUpdate(sql))
+                .isInstanceOf(SQLException.class)
+                .satisfies(throwable -> {
+                    SQLException exception = (SQLException) throwable;
+                    assertThat(exception.getSQLState()).isEqualTo("23514");
+                    assertThat(exception.getMessage()).contains(message);
                 });
     }
 

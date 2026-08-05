@@ -15,8 +15,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 신규 교사, 활성 소속과 선택적인 NFC 카드 연결을 원자적으로 생성한다.
@@ -139,8 +142,24 @@ public class TeacherRosterService {
 		authorization.requireDepartmentAdmin(actor, departmentId);
 		departmentLock.lockActive(departmentId);
 		requireBirthNotFuture(command.birth());
-		if (mapper.lockActiveMembership(departmentId, memberId) == null
-				|| mapper.updateTeacher(
+		var before = mapper.lockActiveMembership(departmentId, memberId);
+		if (before == null) {
+			throw new BusinessRuleException("active teacher could not be updated");
+		}
+		List<String> changedFields = new ArrayList<>(3);
+		if (!Objects.equals(before.name(), command.name())) {
+			changedFields.add("name");
+		}
+		if (!Objects.equals(before.phone(), command.phone())) {
+			changedFields.add("phone");
+		}
+		if (!Objects.equals(before.birth(), command.birth())) {
+			changedFields.add("birth");
+		}
+		if (changedFields.isEmpty()) {
+			return;
+		}
+		if (mapper.updateTeacher(
 						departmentId,
 						memberId,
 						command.name(),
@@ -156,17 +175,14 @@ public class TeacherRosterService {
 				"MEMBER",
 				Long.toString(memberId),
 				null,
-				Map.of(
-						"nameChanged", true,
-						"phoneChanged", true,
-						"birthChanged", true),
+				Map.of("updatedFields", List.copyOf(changedFields)),
 				null);
 	}
 
 	/** 서버 업무 시계 기준 미래 생년월일 입력을 거부한다. */
 	private void requireBirthNotFuture(LocalDate birth) {
-		if (birth != null && birth.isAfter(LocalDate.now(clock))) {
-			throw new IllegalArgumentException("birth date must not be in the future");
+		if (birth.isAfter(LocalDate.now(clock))) {
+			throw new IllegalArgumentException("생년월일은 미래일 수 없습니다.");
 		}
 	}
 

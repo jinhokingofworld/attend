@@ -283,8 +283,8 @@ class M3SecurityIntegrationTest {
 		attendancePolicyService.publish(departmentActor, departmentId, policyId);
 		LocalDate today = LocalDate.now(clock);
 		long dashboardMemberId = insertAndReturnId("""
-				INSERT INTO public.member(name, active)
-				VALUES ('대시보드 교사', TRUE)
+				INSERT INTO public.member(name, birth, active)
+				VALUES ('대시보드 교사', DATE '1992-03-04', TRUE)
 				RETURNING id
 				""");
 		jdbcTemplate.update("""
@@ -383,7 +383,25 @@ class M3SecurityIntegrationTest {
 						.with(user(departmentPrincipal)))
 				.andExpect(status().isOk())
 				.andExpect(content().string(containsString("현재 멤버")))
+				.andExpect(content().string(containsString(
+						"type=\"date\" name=\"birth\" required")))
+				.andExpect(content().string(containsString("max=\"")))
 				.andExpect(content().string(containsString("data-row-href")));
+		mockMvc.perform(post("/admin/departments/" + departmentId
+						+ "/teachers")
+						.with(user(departmentPrincipal))
+						.with(csrf())
+						.param("name", "생년월일 누락 교사"))
+				.andExpect(status().is3xxRedirection())
+				.andExpect(redirectedUrl("/admin/departments/" + departmentId
+						+ "/teachers"))
+				.andExpect(flash().attribute(
+						"error", "생년월일은 필수입니다."));
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT count(*)
+				FROM public.member
+				WHERE name = '생년월일 누락 교사'
+				""", Integer.class)).isZero();
 		mockMvc.perform(get("/admin/departments/" + departmentId
 						+ "/teachers/" + memberId)
 						.with(user(departmentPrincipal)))
@@ -419,6 +437,47 @@ class M3SecurityIntegrationTest {
 				.andExpect(status().isOk())
 				.andExpect(content().string(containsString("수정 모드")))
 				.andExpect(content().string(containsString("카드 연결")));
+		String updatePath = "/admin/departments/" + departmentId
+				+ "/teachers/" + memberId + "/update";
+		String teacherPath = "/admin/departments/" + departmentId
+				+ "/teachers/" + memberId;
+		mockMvc.perform(post(updatePath)
+						.with(user(departmentPrincipal))
+						.with(csrf())
+						.param("name", "카드 대기 교사"))
+				.andExpect(status().is3xxRedirection())
+				.andExpect(redirectedUrl(teacherPath))
+				.andExpect(flash().attribute(
+						"error", "생년월일은 필수입니다."));
+		mockMvc.perform(post(updatePath)
+						.with(user(departmentPrincipal))
+						.with(csrf())
+						.param("name", "카드 대기 교사")
+						.param("birth", "2999-01-01"))
+				.andExpect(status().is3xxRedirection())
+				.andExpect(redirectedUrl(teacherPath))
+				.andExpect(flash().attribute(
+						"error", "생년월일은 미래일 수 없습니다."));
+		mockMvc.perform(post(updatePath)
+						.with(user(departmentPrincipal))
+						.with(csrf())
+						.param("name", "카드 대기 교사 수정")
+						.param("birth", "1991-04-16"))
+				.andExpect(status().is3xxRedirection())
+				.andExpect(redirectedUrl(teacherPath))
+				.andExpect(flash().attribute(
+						"message", "교사 정보를 수정했습니다."));
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT count(*)
+				FROM public.audit_log
+				WHERE department_id = ?
+				  AND action = 'TEACHER_UPDATED'
+				  AND after_data -> 'updatedFields' = '["name", "birth"]'::jsonb
+				  AND coalesce(before_data::text, '') NOT LIKE '%카드 대기 교사%'
+				  AND coalesce(after_data::text, '') NOT LIKE '%카드 대기 교사%'
+				  AND coalesce(before_data::text, '') NOT LIKE '%1990-03-15%'
+				  AND coalesce(after_data::text, '') NOT LIKE '%1991-04-16%'
+				""", Integer.class, departmentId)).isEqualTo(1);
 
 		mockMvc.perform(get("/admin/departments/" + departmentId
 						+ "/cards/inbox")
@@ -479,7 +538,140 @@ class M3SecurityIntegrationTest {
 				  AND assignment.unassigned_at IS NULL
 				  AND card.uid = '04ABCDEF'
 				  AND card.status = 'ACTIVE'
+					""", Integer.class, departmentId, memberId)).isEqualTo(1);
+	}
+
+	/**
+	 * 부서 제외 확인 화면의 미래 대상 건수가 변하면 재확인을 요구하고,
+	 * 확인한 현재 대상 전체만 소속·카드와 같은 트랜잭션에서 제외하는지 검증한다.
+	 */
+	@Test
+	void excludesTeacherAndAllEligibleFutureTargetsOnlyAfterExplicitConfirmation()
+			throws Exception {
+		AccountPrincipal departmentPrincipal = (AccountPrincipal)
+				userDetailsService.loadUserByUsername(DEPARTMENT_USERNAME);
+		var actor = new com.example.attend.access.api.AccountActor(departmentAccountId);
+		long memberId = insertAndReturnId("""
+				INSERT INTO public.member(name, birth, active)
+				VALUES ('미래 대상 교사', DATE '1993-04-05', TRUE)
+				RETURNING id
+				""");
+		jdbcTemplate.update("""
+				INSERT INTO public.department_membership(
+				    department_id, member_id, joined_at, created_by_account_id)
+				VALUES (?, ?, CURRENT_TIMESTAMP, ?)
+				""", departmentId, memberId, departmentAccountId);
+		long policyId = attendancePolicyService.createDraft(
+				actor,
+				departmentId,
+				new PolicyDraftCommand(
+						"미래 대상 정책",
+						LocalTime.of(8, 30),
+						List.of(
+								new PolicyBandInput(
+										1,
+										"정상",
+										AttendanceParentStatus.PRESENT,
+										LocalTime.of(9, 0)),
+								new PolicyBandInput(
+										2,
+										"지각",
+										AttendanceParentStatus.LATE,
+										LocalTime.of(9, 30)))));
+		attendancePolicyService.publish(actor, departmentId, policyId);
+		LocalDate futureDate = LocalDate.now(clock).plusDays(1);
+		long dayId = attendanceDayService.createDay(
+				actor, departmentId, futureDate, policyId);
+
+		String exclusionPath = "/admin/departments/" + departmentId
+				+ "/teachers/" + memberId + "/exclude";
+		mockMvc.perform(get(exclusionPath).with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(view().name("admin/department/teacher-exclude"))
+				.andExpect(content().string(containsString("미래 대상 교사")))
+				.andExpect(content().string(containsString(futureDate.toString())))
+				.andExpect(content().string(containsString(
+						"미래 출석일 1건에서도 제외됩니다.")))
+				.andExpect(content().string(containsString(
+						"name=\"expectedFutureAttendanceDayCount\"")))
+				.andExpect(content().string(not(containsString(
+						"name=\"futureAttendanceDayIds\""))));
+
+		mockMvc.perform(post(exclusionPath)
+						.with(user(departmentPrincipal))
+						.with(csrf())
+						.param("expectedFutureAttendanceDayCount", "1")
+						.param("cardDisposition", "AVAILABLE")
+						.param("reason", "사역 종료"))
+				.andExpect(status().is3xxRedirection())
+				.andExpect(redirectedUrl(exclusionPath))
+				.andExpect(flash().attribute(
+						"error", "부서 제외 영향을 확인해야 합니다."));
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT count(*)
+				FROM public.department_membership
+				WHERE department_id = ?
+				  AND member_id = ?
+				  AND ended_at IS NULL
 				""", Integer.class, departmentId, memberId)).isEqualTo(1);
+
+		LocalDate secondFutureDate = futureDate.plusDays(1);
+		long secondDayId = attendanceDayService.createDay(
+				actor, departmentId, secondFutureDate, policyId);
+		mockMvc.perform(post(exclusionPath)
+						.with(user(departmentPrincipal))
+						.with(csrf())
+						.param("expectedFutureAttendanceDayCount", "1")
+						.param("cardDisposition", "AVAILABLE")
+						.param("reason", "사역 종료")
+						.param("confirmImpact", "true"))
+				.andExpect(status().is3xxRedirection())
+				.andExpect(redirectedUrl(exclusionPath))
+				.andExpect(flash().attribute(
+						"error",
+						"미래 출석일 수가 변경되었습니다. 현재 영향을 다시 확인해 주세요."));
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT count(*)
+				FROM public.department_membership
+				WHERE department_id = ?
+				  AND member_id = ?
+				  AND ended_at IS NULL
+				""", Integer.class, departmentId, memberId)).isEqualTo(1);
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT count(*)
+				FROM public.attendance_target
+				WHERE attendance_day_id IN (?, ?)
+				  AND member_id = ?
+				  AND is_target
+				""", Integer.class, dayId, secondDayId, memberId)).isEqualTo(2);
+
+		mockMvc.perform(post(exclusionPath)
+						.with(user(departmentPrincipal))
+						.with(csrf())
+						.param("expectedFutureAttendanceDayCount", "2")
+						.param("cardDisposition", "AVAILABLE")
+						.param("reason", "사역 종료")
+						.param("confirmImpact", "true"))
+				.andExpect(status().is3xxRedirection())
+				.andExpect(redirectedUrl(
+						"/admin/departments/" + departmentId + "/teachers"))
+				.andExpect(flash().attribute(
+						"message", "교사를 부서에서 제외했습니다."));
+
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT count(*)
+				FROM public.attendance_target
+				WHERE attendance_day_id IN (?, ?)
+				  AND member_id = ?
+				  AND is_target
+				""", Integer.class, dayId, secondDayId, memberId)).isZero();
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT count(*)
+				FROM public.department_membership
+				WHERE department_id = ?
+				  AND member_id = ?
+				  AND ended_at IS NULL
+				""", Integer.class, departmentId, memberId)).isZero();
 	}
 
 	/**

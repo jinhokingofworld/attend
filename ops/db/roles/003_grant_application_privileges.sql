@@ -1,4 +1,4 @@
--- Post-migration grants for the V008 schema. Run as migration_owner or an
+-- Post-migration grants for the V009 schema. Run as migration_owner or an
 -- equivalent owner after guarded dbMigrate succeeds.
 --
 -- This script is intentionally explicit. A future migration that adds a table,
@@ -38,7 +38,7 @@ BEGIN
 
     IF missing_tables IS NOT NULL THEN
         RAISE EXCEPTION
-            'Runtime grants require the complete V008 schema; missing: %',
+            'Runtime grants require the complete V009 schema; missing: %',
             missing_tables;
     END IF;
 END
@@ -205,15 +205,19 @@ GRANT SELECT (
     id,
     name,
     phone,
+    birth,
+    created_at,
     active,
     updated_at
 ), INSERT (
     name,
     phone,
+    birth,
     active
 ), UPDATE (
     name,
     phone,
+    birth,
     active
 ) ON TABLE public.member
 TO app_runtime, cutover_writer;

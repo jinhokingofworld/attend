@@ -96,8 +96,8 @@ class DeviceApiIntegrationTest {
 				RETURNING id
 				""", OffsetDateTime.ofInstant(RECEIVED_AT, ZoneId.of("Asia/Seoul")));
 		long memberId = insertId("""
-				INSERT INTO public.member(name, active)
-				VALUES ('장치 시험 교사', TRUE)
+				INSERT INTO public.member(name, birth, active)
+				VALUES ('장치 시험 교사', DATE '1990-01-02', TRUE)
 				RETURNING id
 				""");
 		long membershipId = insertId("""

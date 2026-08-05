@@ -100,7 +100,7 @@
 		  )
 	</update>
 
-	<select id="lockTargetDays"
+	<select id="lockFutureTargetDays"
 			resultType="com.example.attend.attendance.infrastructure.mybatis.AttendanceDayRow">
 		SELECT
 			day.id,
@@ -119,12 +119,19 @@
 		WHERE day.department_id = #{departmentId}
 		  AND target.member_id = #{memberId}
 		  AND target.is_target
-		  AND day.id IN
-		  <foreach collection="attendanceDayIds" item="dayId" open="(" separator="," close=")">
-			#{dayId}
-		  </foreach>
+		  AND day.status = 'SCHEDULED'
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM public.attendance_record AS record
+			WHERE record.attendance_day_id = day.id
+		  )
+		  AND (
+			day.attendance_date &gt; #{today}
+			OR (day.attendance_date = #{today}
+				AND policy.check_in_start_time &gt; #{currentTime})
+		  )
 		ORDER BY day.id
-		FOR UPDATE OF day
+		FOR UPDATE OF day, target
 	</select>
 
 	<update id="excludeTarget">

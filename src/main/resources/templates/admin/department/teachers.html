@@ -28,7 +28,7 @@
         <form th:action="@{/admin/departments/{id}/teachers(id=${department.id})}" method="post">
             <label>이름 <input name="name" maxlength="255" required></label>
             <label>연락처 <input name="phone" maxlength="255"></label>
-            <label>생년월일 <input type="date" name="birth"></label>
+            <label>생년월일 <input type="date" name="birth" required th:max="${today}"></label>
             <label>NFC UID(선택) <input name="cardUid" placeholder="A1B2C3D4"></label>
             <button type="submit">교사 추가</button>
         </form>
@@ -53,7 +53,7 @@
                         <a th:href="@{/admin/departments/{departmentId}/teachers/{memberId}(departmentId=${department.id},memberId=${teacher.id})}"
                            th:text="${teacher.name}">교사</a>
                     </td>
-                    <td th:text="${teacher['display_age'] ?: '-'}">-</td>
+                    <td th:text="${teacher['display_age'] ?: '미상'}">미상</td>
                     <td th:text="${teacher['phone'] ?: '-'}">-</td>
                     <td th:text="${teacher['masked_uid'] ?: '미등록'}">미등록</td>
                     <td>

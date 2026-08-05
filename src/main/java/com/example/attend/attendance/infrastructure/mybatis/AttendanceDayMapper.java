@@ -5,6 +5,7 @@ import org.apache.ibatis.annotations.Param;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 
 /**
@@ -47,11 +48,12 @@ public interface AttendanceDayMapper {
 			@Param("attendanceDayId") long attendanceDayId,
 			@Param("policyVersionId") long policyVersionId);
 
-	/** 요청한 대상 날짜들을 ID 순서로 잠근다. */
-	List<AttendanceDayRow> lockTargetDays(
+	/** 시작 전이고 기록 없는 활성 대상 날짜 전체를 ID 순서로 잠근다. */
+	List<AttendanceDayRow> lockFutureTargetDays(
 			@Param("departmentId") long departmentId,
 			@Param("memberId") long memberId,
-			@Param("attendanceDayIds") List<Long> attendanceDayIds);
+			@Param("today") LocalDate today,
+			@Param("currentTime") LocalTime currentTime);
 
 	/** 일반 제외가 가능한 날짜의 대상자 상태를 비활성화한다. */
 	int excludeTarget(

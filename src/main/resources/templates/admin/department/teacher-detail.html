@@ -30,8 +30,8 @@
         <h2>기본정보</h2>
         <dl class="detail-grid">
             <div><dt>교사 ID</dt><dd th:text="${teacher.id}">1</dd></div>
-            <div><dt>나이</dt><dd th:text="${teacher['display_age'] ?: '-'}">-</dd></div>
-            <div><dt>생년월일</dt><dd th:text="${teacher['birth'] ?: '-'}">-</dd></div>
+            <div><dt>나이</dt><dd th:text="${teacher['display_age'] ?: '미상'}">미상</dd></div>
+            <div><dt>생년월일</dt><dd th:text="${teacher['birth'] ?: '미상'}">미상</dd></div>
             <div><dt>연락처</dt><dd th:text="${teacher['phone'] ?: '-'}">-</dd></div>
             <div><dt>NFC 카드</dt><dd th:text="${teacher['masked_uid'] ?: '미등록'}">미등록</dd></div>
             <div><dt>최초 등록일</dt><dd th:text="${teacher.created_at}">-</dd></div>
@@ -56,7 +56,7 @@
               th:action="@{/admin/departments/{departmentId}/teachers/{memberId}/update(departmentId=${department.id},memberId=${teacher.id})}">
             <label>이름 <input name="name" maxlength="255" th:value="${teacher.name}" required></label>
             <label>연락처 <input name="phone" maxlength="255" th:value="${teacher['phone']}"></label>
-            <label>생년월일 <input type="date" name="birth" th:value="${teacher['birth']}"></label>
+            <label>생년월일 <input type="date" name="birth" th:value="${teacher['birth']}" required th:max="${today}"></label>
             <button type="submit">기본정보 저장</button>
         </form>
 
@@ -89,20 +89,11 @@
         </form>
         <p><a th:href="@{/admin/departments/{id}/cards/inbox(id=${department.id})}">방금 태깅한 카드 등록함에서 연결하기</a></p>
 
-        <h3>부서 소속</h3>
-        <form method="post"
-              th:action="@{/admin/departments/{departmentId}/teachers/{memberId}/exclude(departmentId=${department.id},memberId=${teacher.id})}">
-            <label>활성 카드 처리
-                <select name="cardDisposition">
-                    <option value="AVAILABLE">회수</option>
-                    <option value="LOST">분실</option>
-                    <option value="RETIRED">폐기</option>
-                </select>
-            </label>
-            <label>제외 사유 <input name="reason" maxlength="500" required></label>
-            <button type="submit">부서에서 제외</button>
-        </form>
-    </section>
+		<h3>부서 소속</h3>
+		<p>부서 제외 전에 카드 처리와 이미 등록된 미래 출석 날짜의 영향을 확인해야 합니다.</p>
+		<a class="button-link button-link--danger"
+		   th:href="@{/admin/departments/{departmentId}/teachers/{memberId}/exclude(departmentId=${department.id},memberId=${teacher.id})}">부서에서 제외</a>
+	</section>
 
     <section>
         <h2>출석 통계</h2>
