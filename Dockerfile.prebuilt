@@ -1,0 +1,25 @@
+# syntax=docker/dockerfile:1
+
+# Packages architecture-independent Spring Boot JARs that were already built and
+# verified on the developer machine or in CI. This avoids running Gradle on the
+# memory-constrained deployment host and keeps cross-platform image builds fast.
+FROM eclipse-temurin:21-jre-alpine AS runtime-base
+RUN apk add --no-cache curl \
+    && addgroup -S attend \
+    && adduser -S -G attend -h /app attend
+WORKDIR /app
+USER attend
+
+FROM runtime-base AS runtime
+COPY --chown=attend:attend build/libs/attend-app.jar app.jar
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+
+FROM runtime-base AS migration
+COPY --chown=attend:attend build/libs/attend-migration.jar migration.jar
+ENTRYPOINT ["java", "-jar", "/app/migration.jar"]
+
+FROM runtime-base AS retention
+COPY --chown=attend:attend build/libs/attend-retention.jar retention.jar
+COPY --chown=attend:attend ops/retention/run-loop.sh run-retention.sh
+ENTRYPOINT ["sh", "/app/run-retention.sh"]

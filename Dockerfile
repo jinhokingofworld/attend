@@ -11,7 +11,7 @@ COPY settings.gradle build.gradle ./
 RUN chmod 0755 gradlew && ./gradlew dependencies --no-daemon
 
 COPY src src
-RUN ./gradlew bootJar migrationBootJar --no-daemon
+RUN ./gradlew bootJar migrationBootJar retentionBootJar --no-daemon
 
 FROM eclipse-temurin:21-jre-alpine AS runtime-base
 RUN apk add --no-cache curl \
@@ -28,3 +28,8 @@ ENTRYPOINT ["java", "-jar", "/app/app.jar"]
 FROM runtime-base AS migration
 COPY --from=build --chown=attend:attend /workspace/build/libs/attend-migration.jar migration.jar
 ENTRYPOINT ["java", "-jar", "/app/migration.jar"]
+
+FROM runtime-base AS retention
+COPY --from=build --chown=attend:attend /workspace/build/libs/attend-retention.jar retention.jar
+COPY --chown=attend:attend ops/retention/run-loop.sh run-retention.sh
+ENTRYPOINT ["sh", "/app/run-retention.sh"]

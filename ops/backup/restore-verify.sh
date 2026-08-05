@@ -5,6 +5,19 @@
 set -euo pipefail
 umask 077
 
+script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=ops/backup/status-contract.sh
+source "${script_directory}/status-contract.sh"
+
+backup_status_initialize || exit 2
+backup_status_enter_lock "${script_directory}/restore-verify.sh" "$@" || exit 2
+
+if [[ "${backup_status_configured}" == true ]] \
+    && ! backup_status_read_existing; then
+  printf '복원 시험 전에 유효한 백업 상태 파일이 필요합니다.\n' >&2
+  exit 2
+fi
+
 if ! command -v sha256sum >/dev/null 2>&1 \
     && ! command -v shasum >/dev/null 2>&1; then
   printf 'SHA-256 명령(sha256sum 또는 shasum)을 찾을 수 없습니다.\n' >&2
@@ -88,6 +101,23 @@ verification="${verification//[[:space:]]/}"
 if [[ "${verification}" != "OK" ]]; then
   printf '복원 스키마 검증 실패: %s\n' "${verification}" >&2
   exit 4
+fi
+
+if [[ "${backup_status_configured}" == true ]]; then
+  if ! backup_status_read_existing; then
+    printf '복원 시험 상태를 기록할 백업 상태 파일을 다시 읽지 못했습니다.\n' >&2
+    exit 6
+  fi
+  restore_verified_at="$(backup_status_now)"
+  if ! backup_status_write \
+      "${backup_status_existing_result}" \
+      "${restore_verified_at}" \
+      "${backup_status_existing_last_success_at}" \
+      "${backup_status_existing_storage_type}" \
+      "${restore_verified_at}"; then
+    printf '복원 시험 상태 파일을 기록하지 못했습니다.\n' >&2
+    exit 6
+  fi
 fi
 
 printf 'restore_verification=OK\ndump_file=%s\n' "${dump_file}"

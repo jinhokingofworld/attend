@@ -64,6 +64,15 @@ tasks.register('migrationBootJar', org.springframework.boot.gradle.tasks.bundlin
 	classpath = sourceSets.main.runtimeClasspath
 }
 
+tasks.register('retentionBootJar', org.springframework.boot.gradle.tasks.bundling.BootJar) {
+	group = 'build'
+	description = 'Builds the isolated audit-log retention worker artifact.'
+	archiveFileName = 'attend-retention.jar'
+	mainClass = 'com.example.attend.retention.AuditLogRetentionCli'
+	targetJavaVersion = JavaVersion.VERSION_21
+	classpath = sourceSets.main.runtimeClasspath
+}
+
 tasks.named('test') {
 	useJUnitPlatform()
 }

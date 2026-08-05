@@ -82,8 +82,7 @@ public class DeviceCheckInService {
 				principal.deviceId(),
 				principal.departmentId(),
 				request.requestId(),
-				request.uid(),
-				receivedAt) == 0) {
+				request.uid()) == 0) {
 			return replayOrConflict(principal, request, receivedAt);
 		}
 		if (!DeviceStatus.ACTIVE.name().equals(device.status())

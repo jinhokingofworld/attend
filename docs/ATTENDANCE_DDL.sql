@@ -169,9 +169,9 @@ CREATE TABLE public.member (
 );
 
 COMMENT ON COLUMN public.member.age IS
-    'Legacy column; not used by the new attendance domain.';
+    'Legacy migration evidence only; the new attendance domain does not read or write this column.';
 COMMENT ON COLUMN public.member.birth IS
-    'Legacy column; not used by the new attendance domain.';
+    'Teacher birth date used for birthday management and derived display age; required for registration, basic-information changes, and activation while legacy null rows remain unknown.';
 COMMENT ON COLUMN public.member.created_at IS
     'Legacy timestamp without time zone; not used for attendance decisions or statistics.';
 COMMENT ON COLUMN public.member.card_uid IS
@@ -902,6 +902,57 @@ CREATE INDEX idx_audit_day
     ON public.audit_log (attendance_day_id, occurred_at DESC)
     WHERE attendance_day_id IS NOT NULL;
 
+CREATE INDEX idx_audit_occurred_id
+    ON public.audit_log (occurred_at, id);
+
+CREATE FUNCTION public.attend_set_audit_occurred_at()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    NEW.occurred_at := CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.attend_set_audit_occurred_at() FROM PUBLIC;
+
+CREATE TRIGGER trg_audit_occurred_at
+BEFORE INSERT ON public.audit_log
+FOR EACH ROW
+EXECUTE FUNCTION public.attend_set_audit_occurred_at();
+
+CREATE FUNCTION public.attend_purge_expired_audit_log_batch()
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+    deleted_rows integer;
+BEGIN
+    WITH expired_ids AS (
+        SELECT audit.id
+        FROM public.audit_log AS audit
+        WHERE audit.occurred_at < CURRENT_TIMESTAMP - INTERVAL '2 years'
+        ORDER BY audit.occurred_at ASC, audit.id ASC
+        LIMIT 500
+        FOR UPDATE SKIP LOCKED
+    ), deleted AS (
+        DELETE FROM public.audit_log AS audit
+        USING expired_ids
+        WHERE audit.id = expired_ids.id
+        RETURNING 1
+    )
+    SELECT count(*) INTO deleted_rows
+    FROM deleted;
+
+    RETURN deleted_rows;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.attend_purge_expired_audit_log_batch() FROM PUBLIC;
+
 
 CREATE FUNCTION public.attend_set_updated_at()
 RETURNS TRIGGER
@@ -944,6 +995,164 @@ CREATE TRIGGER trg_attendance_record_updated_at
 BEFORE UPDATE ON public.attendance_record
 FOR EACH ROW
 EXECUTE FUNCTION public.attend_set_updated_at();
+
+
+-- Existing unverified legacy rows remain untouched. New teachers,
+-- basic-information changes, and activation require an exact non-future date.
+CREATE FUNCTION public.attend_require_member_birth_on_write()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    business_date DATE :=
+        (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::DATE;
+    requires_verified_birth BOOLEAN;
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        requires_verified_birth := TRUE;
+    ELSE
+        requires_verified_birth :=
+            NEW.active IS TRUE
+            OR NEW.name IS DISTINCT FROM OLD.name
+            OR NEW.age IS DISTINCT FROM OLD.age
+            OR NEW.phone IS DISTINCT FROM OLD.phone
+            OR NEW.birth IS DISTINCT FROM OLD.birth;
+    END IF;
+
+    IF requires_verified_birth AND NEW.birth IS NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = '23514',
+            MESSAGE = 'member birth date is required for this write',
+            CONSTRAINT = 'ck_member_birth_required_on_write';
+    END IF;
+
+    IF requires_verified_birth AND NEW.birth > business_date THEN
+        RAISE EXCEPTION USING
+            ERRCODE = '23514',
+            MESSAGE = 'member birth date cannot be in the future',
+            CONSTRAINT = 'ck_member_birth_not_future_on_write';
+    END IF;
+
+    IF TG_OP = 'UPDATE' THEN
+        IF OLD.active IS TRUE
+           AND NEW.active IS FALSE
+           AND EXISTS (
+               SELECT 1
+               FROM public.department_membership AS membership
+               WHERE membership.member_id = NEW.id
+                 AND membership.ended_at IS NULL
+           ) THEN
+            RAISE EXCEPTION USING
+                ERRCODE = '23514',
+                MESSAGE = 'member with an active membership cannot be deactivated',
+                CONSTRAINT = 'ck_member_active_membership_on_write';
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.attend_require_member_birth_on_write() FROM PUBLIC;
+
+CREATE TRIGGER trg_member_birth_required_on_insert
+BEFORE INSERT ON public.member
+FOR EACH ROW
+EXECUTE FUNCTION public.attend_require_member_birth_on_write();
+
+CREATE TRIGGER trg_member_birth_required_on_operational_update
+BEFORE UPDATE OF name, age, phone, birth, active ON public.member
+FOR EACH ROW
+EXECUTE FUNCTION public.attend_require_member_birth_on_write();
+
+
+-- An open membership may point only at an active member with a verified birth
+-- date. Locking the member serializes this write with member deactivation.
+CREATE FUNCTION public.attend_require_operational_membership_member()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    member_active BOOLEAN;
+    member_birth DATE;
+    business_date DATE :=
+        (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::DATE;
+BEGIN
+    IF TG_OP = 'UPDATE' AND OLD.ended_at IS NOT NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = '23514',
+            MESSAGE = 'closed membership history is immutable',
+            CONSTRAINT = 'ck_closed_membership_immutable_on_write';
+    END IF;
+
+    IF NEW.ended_at IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+
+    SELECT member.active, member.birth
+      INTO member_active, member_birth
+      FROM public.member AS member
+     WHERE member.id = NEW.member_id
+     FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RETURN NEW;
+    END IF;
+
+    IF member_active IS NOT TRUE
+       OR member_birth IS NULL
+       OR member_birth > business_date THEN
+        RAISE EXCEPTION USING
+            ERRCODE = '23514',
+            MESSAGE = 'active membership requires an active member with a verified birth date',
+            CONSTRAINT = 'ck_membership_operational_member_on_write';
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION
+    public.attend_require_operational_membership_member()
+FROM PUBLIC;
+
+CREATE TRIGGER trg_membership_member_required_on_insert
+BEFORE INSERT ON public.department_membership
+FOR EACH ROW
+EXECUTE FUNCTION public.attend_require_operational_membership_member();
+
+CREATE TRIGGER trg_membership_write_guard_on_update
+BEFORE UPDATE ON public.department_membership
+FOR EACH ROW
+EXECUTE FUNCTION public.attend_require_operational_membership_member();
+
+
+-- Closed card assignments are immutable history. Reconnecting a card creates
+-- a new assignment row instead of reopening or rewriting the old one.
+CREATE FUNCTION public.attend_require_closed_card_assignment_immutable()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF OLD.unassigned_at IS NOT NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = '23514',
+            MESSAGE = 'closed card assignment history is immutable',
+            CONSTRAINT = 'ck_closed_card_assignment_immutable_on_write';
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION
+    public.attend_require_closed_card_assignment_immutable()
+FROM PUBLIC;
+
+CREATE TRIGGER trg_card_assignment_closed_history_immutable
+BEFORE UPDATE ON public.nfc_card_assignment
+FOR EACH ROW
+EXECUTE FUNCTION public.attend_require_closed_card_assignment_immutable();
 
 
 -- The following multi-row and cross-table rules must be validated in the

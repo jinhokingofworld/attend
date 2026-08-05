@@ -2,6 +2,13 @@
 .gradle
 .idea
 build
+!build/
+build/*
+!build/libs/
+build/libs/*
+!build/libs/attend-app.jar
+!build/libs/attend-migration.jar
+!build/libs/attend-retention.jar
 .env
 .env.*
 !.env.example

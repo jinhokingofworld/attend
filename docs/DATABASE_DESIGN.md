@@ -302,13 +302,13 @@ erDiagram
 
 | 테이블 | 역할 | 핵심 제약 |
 |---|---|---|
-| `member` | 출석 대상 구성원의 기준 정보. 기존 테이블 재사용 | 이름 필수, 연락처 선택, 부서 제외 시 물리 삭제 금지 |
-| `department_membership` | 구성원의 부서 소속 이력 | MVP에서 구성원별 활성 소속 최대 한 건, 소속 제외 처리 관리자·사유 보존 |
+| `member` | 출석 대상 구성원의 기준 정보. 기존 테이블 재사용 | 이름 필수, 신규·기본정보 수정·활성화에 정확한 비미래 생년월일, 부서 제외 시 물리 삭제 금지 |
+| `department_membership` | 구성원의 부서 소속 이력 | MVP에서 구성원별 활성 소속 최대 한 건, 활성 소속은 활성·생년월일 확인 교사만 허용, 종료 행 불변, 소속 제외 처리 관리자·사유 보존 |
 | `nfc_card` | 물리 NFC 카드 | 정규화한 UID 전역 유일, 이벤트의 카드 ID–UID 복합 참조 기준 |
-| `nfc_card_assignment` | 카드와 부서 소속 구성원의 연결 이력 | 카드별·구성원별 활성 연결 각각 최대 한 건, 자기 부서 활성 소속만 연결 |
+| `nfc_card_assignment` | 카드와 부서 소속 구성원의 연결 이력 | 카드별·구성원별 활성 연결 각각 최대 한 건, 자기 부서 활성 소속만 연결, 종료 행 불변 |
 | `device` | Arduino/NFC 단말기와 인증정보 | 장치 코드 유일, 한 부서에 고정 귀속, `ACTIVE`는 현재 key의 시험 증거 필수 |
 
-`member`는 관리자 로그인용 `account`와 다른 개념이다. 기존 `member.id`, `name`, `phone`, `created_at`의 타입과 값을 보존하고 신규 운영에 필요한 `active`, `updated_at`을 추가한다. 단, 빈 문자열 전화번호는 immutable 원본 백업과 명시적 승인·정정 기록 후 `NULL`로 정규화할 수 있다. `active`의 기본값은 신규·레거시 경로 모두 `FALSE`이며, 승인된 구성원만 소속 생성과 같은 트랜잭션에서 활성화한다. 기존 행에 처음 설정되는 `updated_at`은 원본 변경 시각이 아니라 스키마 채택 시각이다. 기존 `created_at`은 레거시 표시용일 뿐 업무 시각으로 사용하지 않는다. 기존 `age`, `birth`는 신규 화면과 업무 로직에서 사용하지 않되 보유기간 정책이 확정되기 전까지 물리 삭제하지 않는다.
+`member`는 관리자 로그인용 `account`와 다른 개념이다. 기존 `member.id`, `name`, `phone`, `created_at`의 타입과 값을 보존하고 신규 운영에 필요한 `active`, `updated_at`을 추가한다. 단, 빈 문자열 전화번호는 immutable 원본 백업과 명시적 승인·정정 기록 후 `NULL`로 정규화할 수 있다. `active`의 기본값은 신규·레거시 경로 모두 `FALSE`이며, 승인된 구성원만 소속 생성과 같은 트랜잭션에서 활성화한다. 기존 행에 처음 설정되는 `updated_at`은 원본 변경 시각이 아니라 스키마 채택 시각이다. 기존 `created_at`은 레거시 표시용일 뿐 업무 시각으로 사용하지 않는다. 신규 등록, 활성 교사의 기본정보 수정과 활성화에는 생일 관리와 만 나이 계산이라는 승인된 업무 목적을 위해 미래가 아닌 정확한 `birth`가 필수이며, 나이는 저장값이 아니라 조회일 기준으로 계산한다. DB trigger도 같은 조건과 활성 소속–교사 상태 일관성을 강제하되 기존 행을 일괄 검사하거나 수정하지 않는다. 기존 정수 `age`는 원본 호환을 위해 보존할 뿐 신규 화면의 현재 나이나 업무 판정에 사용하거나 수정하지 않는다. 레거시 `birth IS NULL`은 승인된 정정 전까지 생년월일과 파생 나이 미상으로 유지하며 `age`나 다른 자료에서 날짜를 추정해 채우지 않는다.
 
 기존 `member.card_uid`는 이관 입력으로만 사용한다. 검증된 UID를 `nfc_card`와 `nfc_card_assignment`로 옮긴 뒤 신규 애플리케이션은 `member.card_uid`를 읽거나 수정하지 않는다. 카드의 현재 상태와 연결 이력에 대한 유일한 기준은 새 카드 테이블들이다.
 
@@ -373,13 +373,15 @@ MVP에서 `device.department_id`는 생성 후 불변이다. 다른 부서로 �
 | 테이블 | 역할 | 핵심 제약 |
 |---|---|---|
 | `tag_event_log` | 인증되고 UID 형식이 유효한 장치 요청과 최초 확정 응답 보존 | `(device_id, request_id)` 유일, request ID는 `[A-Za-z0-9_-]` 1~64자 |
-| `audit_log` | 관리자·시스템의 업무 변경 이력. `DEVICE` actor는 후속 비태깅 장치 작업을 위한 예약 형태 | `idempotency_key`가 있으면 유일 |
+| `audit_log` | 관리자·시스템의 업무 변경 이력. `DEVICE` actor는 후속 비태깅 장치 작업을 위한 예약 형태 | `idempotency_key`가 있으면 유일; `occurred_at`은 DB INSERT trigger가 결정 |
 
 `tag_event_log.response_body`는 동일 요청 재시도 시 최초 HTTP 상태와 응답 본문을 재현하기 위해 저장한다. 미등록 카드는 `result_code = 'UNKNOWN_UID'`인 최근 이벤트에서 조회한다. 저장 가능한 `result_code`는 내부 선점 상태 `PROCESSING`과 `CHECKED_IN`, `LATE`, `ALREADY_CHECKED_IN`, `UNKNOWN_UID`, `INACTIVE_CARD`, `NOT_DEPARTMENT_MEMBER`, `NO_ATTENDANCE_DAY`, `NOT_ATTENDANCE_TARGET`, `CHECK_IN_NOT_OPEN`, `CHECK_IN_CLOSED`로 제한한다. `NOT_ATTENDANCE_TARGET`은 날짜는 존재하지만 해당 교사의 활성 `attendance_target`이 없음을 뜻하며 부서 소속 실패와 구분한다. 인증 전 `DEVICE_UNAUTHORIZED`, 형식 검증 단계의 `INVALID_REQUEST`, 기존 이벤트를 보존해야 하는 `REQUEST_ID_CONFLICT`, 트랜잭션을 롤백하는 `SERVER_ERROR`는 이 행의 결과 코드로 저장하지 않는다.
 
 정상·실패·중복 태깅은 `tag_event_log`에만 저장하고 같은 내용을 `audit_log`에 중복 저장하지 않는다. 같은 `(device_id, request_id)` 재시도는 유일 제약으로 event 한 행만 사용한다. 새 request ID로 실제 재태깅한 시도는 별도 event이므로 보존하되 `(attendance_day_id, member_id)` 유일 제약으로 최종 출석 기록은 한 건만 유지한다.
 
 자동 마감 감사 로그의 `idempotency_key`는 `attendance-day:{dayId}:finalize` 형식으로 생성해 한 날짜에 한 건만 남긴다.
+
+`audit_log.occurred_at`은 runtime이 명시한 값이 아니라 PostgreSQL INSERT trigger가 정한다. 2년 retention worker는 이 DB 시각보다 엄격히 오래된 행만 시간순 500개씩 삭제하며, 일반 웹 runtime에는 `UPDATE`·`DELETE`나 retention 함수 실행 권한을 주지 않는다.
 
 ---
 
@@ -538,6 +540,7 @@ attendance_record:
 | `tag_event_log(department_id, received_at DESC) WHERE result_code = 'UNKNOWN_UID'` | 미등록 카드 등록함 |
 | `audit_log(department_id, occurred_at DESC)` | 부서 감사 이력 |
 | `audit_log(target_type, target_id, occurred_at DESC)` | 특정 데이터의 변경 이력 |
+| `audit_log(occurred_at, id)` | 전역 audit retention의 시간순 작은 batch 선택 |
 
 PostgreSQL은 외래 키 컬럼의 인덱스를 자동 생성하지 않으므로 실제 조인·필터에 쓰이는 FK 인덱스를 명시적으로 생성한다.
 
@@ -563,16 +566,16 @@ flowchart LR
 구성원을 부서에서 제외할 때는 다음 작업을 한 트랜잭션에서 수행한다.
 
 1. 해당 `department` 행을 잠그고 활성 상태와 부서 관리자 권한을 검증한다.
-2. 오늘 출석일과 관리자가 대상에서 제외하려는 미래 출석일 ID를 찾는다.
+2. `SCHEDULED`, 태깅 시작 전, 날짜 전체 출석 기록 0건인 미래 출석일과 해당 교사의 활성 대상자를 모두 찾는다.
 3. 영향받는 `attendance_day`를 ID 오름차순으로 잠근다.
 4. 부서 소속과 활성 카드 연결을 잠근다.
-5. 비어 있지 않은 제외 사유, 인증 세션에서 얻은 처리 관리자, 소속과 날짜 상태를 다시 검증한다.
+5. 비어 있지 않은 제외 사유, 인증 세션에서 얻은 처리 관리자, 관리자가 확인한 후보 건수, 소속·날짜 상태·시작 시각·날짜 전체 기록 0건을 다시 검증한다.
 6. `department_membership.ended_at`, `ended_by_account_id`와 활성 카드 연결의 `unassigned_at`, `unassigned_by_account_id`를 기록하고, 회수·분실·폐기 선택에 따라 카드 상태를 `AVAILABLE`, `LOST`, `RETIRED` 중 하나로 변경한다. 종료된 assignment의 카드를 `ACTIVE`로 남기지 않는다.
 7. 다른 활성 소속이 없으면 `member.active = FALSE`로 변경한다.
-8. 잠근 날짜 중 태깅 시작 전인 `attendance_target.is_target`만 `FALSE`로 변경한다.
+8. 잠근 후보 날짜의 해당 교사 `attendance_target.is_target`을 모두 `FALSE`로 변경한다.
 9. 변경 전후 값과 작업자를 `audit_log`에 기록하고 커밋한다.
 
-부서 제외 작업 자체로는 과거 출석일과 이미 태깅이 시작된 날짜의 대상자·출석 기록을 변경하지 않는다. 실제 출석자의 명단 누락은 아래의 별도 수동 등록 절차만 예외다.
+부서 제외 작업 자체로는 과거 출석일, 이미 태깅이 시작된 날짜와 출석 기록이 하나라도 있는 날짜의 대상자·출석 기록을 변경하지 않는다. 교사를 다시 소속에 추가해도 기존 미래 날짜의 비활성 대상자를 자동 복원하지 않는다. 실제 출석자의 명단 누락은 아래의 별도 수동 등록 절차만 예외다.
 
 ### 6.2 출석 대상 날짜 등록
 
@@ -681,7 +684,7 @@ Spring 스케줄러는 실행 계기만 제공한다. 결석 생성과 날짜 �
 
 1. 기존 `id`, `name`, `phone`과 원본 생성 시각을 보존한다.
 2. 신규 운영용 `active`, `updated_at` 컬럼과 필요한 제약을 추가한다.
-3. `age`, `birth`는 신규 화면과 업무 로직에서 사용하지 않지만 보유기간 결정 전에는 삭제하지 않는다.
+3. 신규 등록·활성 교사 기본정보 수정·활성화에는 생일 관리와 만 나이 계산에 필요한 미래가 아닌 정확한 `birth`를 사용한다. 기존 정수 `age`는 원본 호환을 위해 보존하되 신규 화면의 현재 나이나 업무 판정에 사용하거나 수정하지 않는다. 레거시 결측 생년월일과 파생 나이는 승인된 정정 전까지 미상으로 표시하며 기존 정수 나이로 임의의 날짜를 만들지 않는다.
 4. `card_uid`는 검증된 카드 이관 입력으로만 사용하고, 이관 후 신규 코드에서는 읽거나 수정하지 않는다.
 5. 신규 FK는 모두 `member(id)`를 참조하고 컬럼명은 `member_id`로 통일한다.
 6. 애플리케이션에서 구성원을 물리 삭제하지 않으며 기존 출석·로그 FK의 `ON DELETE CASCADE`도 `RESTRICT`로 교체한다.

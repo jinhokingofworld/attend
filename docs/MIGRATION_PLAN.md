@@ -106,7 +106,7 @@ AND 출석 기록 없음
 |---|---|---|
 | 기존 `member` | PK를 유지해 기준 구성원으로 채택 | 부서 매핑과 운영자 승인 필요 |
 | 연락처 | 기존 `member`에 원문 보존, 신규 화면 노출은 선택 | 빈 문자열은 원본 백업·승인·정정 기록 후 `NULL` 정규화 가능 |
-| 나이·생년월일 | 기존 `member`에 원문 보존, 신규 업무에서는 미사용 | 신규 MVP에 불필요 |
+| 나이·생년월일 | 유효한 기존 `birth`는 정확한 날짜로 보존하고 만 나이·생일 관리에 사용; 정수 `age`는 원본 호환용으로만 보존 | 신규 등록·활성 교사 기본정보 수정·활성화에는 미래가 아닌 정확한 `birth` 필수. 레거시 `birth IS NULL`은 확인된 날짜로 정정하기 전까지 생년월일·파생 나이 미상이며 `age`로 날짜를 역산하지 않음 |
 | NFC UID | 선별 이관 가능 | 형식·길이·중복 검증 및 카드 소유자 확인 필요 |
 | 로그인 계정 | 선별 이관 가능 | 샘플 계정 제외, 역할 재승인과 비밀번호 재설정 필요 |
 | 명시적 `IN_TIME` | 레거시 이력으로만 보존 | 신규 정책 구간을 증명할 수 없음 |
@@ -345,7 +345,7 @@ V001의 레거시 확장 경로는 다음만 수행한다.
 - `attendance`와 `attendance_log`의 `member` FK를 `ON DELETE RESTRICT`로 교체
 - `member.created_at`은 `TIMESTAMP WITHOUT TIME ZONE` 그대로 유지하고 판정·통계에 사용하지 않음
 - 기존 행에 처음 채워지는 `updated_at`은 원본 생성·수정 시각이 아니라 V001 적용 시각을 의미하며, 이 값을 과거 변경 시각으로 해석하지 않음
-- `age`, `birth`, `created_at`, `card_uid`에는 레거시·비업무 컬럼임을 나타내는 DB comment를 추가
+- V001은 기존 호환성을 위해 `age`, `birth`, `created_at`, `card_uid`에 레거시 comment를 추가한다. 이후 repeatable metadata migration이 `age`를 신규 업무에서 사용하지 않는 원본 호환값, `birth`를 신규 등록·기본정보 수정·활성화에 필요한 생년월일이자 생일 관리·만 나이 계산의 기준값으로 정정하며 적용된 V001 checksum은 바꾸지 않는다.
 
 fresh DB 경로도 최종 컬럼, 기본값, 제약과 comment가 레거시 확장 결과와 같도록 `member`를 생성한다. `member_id_seq`가 `max(id)`보다 뒤처진 경우에만 안전하게 올리고 이미 앞선 sequence를 낮추지 않는다.
 
@@ -391,7 +391,7 @@ legacy_member_id,department_key,activate_member,retain_phone,approved_by
 - `legacy_member_id`로 기존 `member` 행을 직접 연결하고 PK를 바꾸지 않는다.
 - 이름이 같다는 이유로 구성원 행을 병합하거나 새 행으로 복제하지 않는다.
 - 부서를 이름, 카드 UID 또는 출석 기록으로 추정하지 않는다.
-- `age`, `birth`는 기존 컬럼에 보존하되 신규 화면과 업무 query에서 사용하지 않는다.
+- 신규 등록·활성 교사 기본정보 수정·활성화에는 미래가 아닌 정확한 `birth`를 필수로 입력하고 생일 관리와 만 나이 계산에 사용한다. 기존 정수 `age`는 원본 호환을 위해 보존할 뿐 신규 화면의 현재 나이나 업무 판정에 사용하거나 수정하지 않는다. 레거시 결측값과 파생 나이는 확인된 날짜로 정정하기 전까지 미상으로 두며 정수 `age`로 생년월일을 역산하지 않는다.
 - `phone`은 운영 필요성과 개인정보 처리 승인이 있을 때만 신규 화면에 노출한다.
 - 신규 `department`, `account`, `nfc_card`의 `created_at`은 컷오버 시각으로 기록한다.
 - 신규 `joined_at`은 과거 가입일을 추정하지 않고 컷오버 시각으로 기록한다.
@@ -460,7 +460,7 @@ MVP에서는 예외 없이 다음과 같이 처리한다.
 - 원래 장치와 request ID를 모르는 로그를 신규 `tag_event_log`로 변환하지 않는다.
 - 레거시 조회 화면을 만들 경우 신규 공식 통계 repository와 별도 query 경계를 사용한다.
 - 컷오버 시 기존 네 테이블의 immutable dump와 row count·해시를 보존한다.
-- 신규 runtime DB 역할은 `member`의 신규 업무 컬럼만 최소 권한으로 사용하고 `age`, `birth`, `card_uid`, 레거시 `created_at`을 수정하지 않는다.
+- 신규 runtime DB 역할은 레거시 `created_at`을 읽기만 하고 `birth`는 승인된 부서 교사 화면에서만 조회·입력·수정한다. 원본 호환 정수 `age`와 `card_uid`는 신규 업무 query에서 읽거나 수정하지 않는다.
 - 신규 runtime DB 역할에는 `authentications`, `attendance`, `attendance_log`의 `INSERT`, `UPDATE`, `DELETE` 권한을 주지 않는다.
 - 레거시 조회가 필요하면 명시적인 `SELECT` 권한 또는 읽기 전용 view만 제공한다.
 
@@ -651,7 +651,7 @@ cluster-global 역할 백업에는 비밀번호 해시가 포함될 수 있으�
 - V008은 함수 생성 직후 `attend_set_updated_at()`의 `PUBLIC EXECUTE` 권한을 회수한다.
 - `authentications`, `attendance`, `attendance_log`의 읽기 전용 상태는 코드 관례가 아니라 `REVOKE`로 강제한다.
 - `legacy_writer`에도 table-level `UPDATE ON member`를 주지 않는다. 안전 릴리스가 사용하는 기존 컬럼만 column-level로 허용해 제거한 카드 수정 경로를 DB 권한으로도 차단한다.
-- `member`는 column-level 권한으로 필요한 컬럼만 조회하고 `name`, `phone`, `active`만 INSERT·UPDATE하게 한다. `updated_at`은 trigger만 갱신하며, `age`, `birth`, `card_uid`, 레거시 `created_at`의 runtime 조회·수정과 모든 `member` DELETE는 차단한다.
+- `member`는 column-level 권한으로 `id`, `name`, `phone`, `birth`, `created_at`, `active`, `updated_at`만 조회한다. `name`, `phone`, `birth`, `active`만 INSERT·UPDATE하고 `created_at`, `updated_at`은 직접 수정하지 않는다. `updated_at`은 trigger만 갱신하며 원본 호환 정수 `age`, `card_uid`의 runtime 접근과 모든 `member` DELETE는 차단한다.
 - 신규 애플리케이션의 `member` query는 명시적 컬럼 목록을 사용한다. 권한으로 차단한 레거시 컬럼까지 요구하는 `SELECT *` Mapper를 신규 배포물에 남기지 않는다.
 - 애플리케이션 artifact의 요구 schema version과 history를 시작 시 비교하되 `app_runtime`은 `flyway_schema_history`를 읽을 수만 있고 변경할 수 없다. V009 release는 history 부재, 실패 행, V001~V009의 누락·중복·초과 version에서 기동을 실패한다. 문자열 `MAX(version)`은 사용하지 않고 Flyway `MigrationVersion`으로 전체 적용 순서를 비교하며 checksum은 runner의 `flyway validate`로 검증한다.
 - 신규 테이블, identity sequence와 함수 권한은 재현 가능한 별도 권한 스크립트로 관리한다.

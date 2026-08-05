@@ -11,8 +11,9 @@
 4. `migration_owner`로 guarded `dbMigrate`를 실행한다.
 5. V009 검증 후 객체 소유자로
    `003_grant_application_privileges.sql`을 실행한다.
-6. `app_runtime`, `cutover_writer`, `legacy_writer`의 비밀번호는 필요한 시점에만
-   별도로 발급하고 애플리케이션에는 `app_runtime`만 주입한다.
+6. `app_runtime`, `cutover_writer`, `legacy_writer`, `retention_worker`의 비밀번호는 필요한 시점에만
+   별도로 발급한다. 웹 애플리케이션에는 `app_runtime`만, 분리된 retention container에는
+   `retention_worker`만 주입한다.
 
 레거시 DB에서는 `migration_owner`가 승인된 네 테이블, 세 sequence와 두 enum의
 소유자이거나 그 소유 역할의 구성원이어야 한다. guarded runner가 이 조건을

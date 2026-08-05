@@ -3,6 +3,7 @@ package com.example.attend.access.infrastructure.mybatis;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
@@ -107,5 +108,7 @@ public interface DepartmentAdminQueryMapper {
 
 	/** 미등록·비활성 카드 이벤트를 UID별 최근 한 건으로 조회한다. */
 	List<Map<String, Object>> selectCardInbox(
-			@Param("departmentId") long departmentId);
+			@Param("departmentId") long departmentId,
+			@Param("receivedSince") Instant receivedSince,
+			@Param("limit") int limit);
 }

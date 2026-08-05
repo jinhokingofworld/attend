@@ -16,7 +16,8 @@ import java.sql.Statement;
  * <p>환경변수의 사용자명이 {@code app_runtime}이라고 적혀 있는지만 확인하면
  * 이름과 실제 권한이 다른 계정을 막을 수 없다. 이 guard는 현재 연결로 PostgreSQL
  * 권한 함수를 직접 호출해 영구·임시 DDL, Flyway history 변경, 교사 물리 삭제,
- * 레거시 테이블 DML과 trigger 함수 직접 실행이 모두 차단됐는지 확인한다.</p>
+ * 레거시 테이블 DML, {@code member} 금지 컬럼과 trigger 함수 직접 실행이 모두
+ * 차단됐는지 확인한다.</p>
  */
 @Component
 @Profile("prod")
@@ -42,7 +43,7 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
     }
 
     /**
-     * 현재 DB 사용자가 V009 runtime 최소 권한 경계를 지키는지 확인한다.
+     * 현재 DB 사용자가 V011 runtime 최소 권한 경계를 지키는지 확인한다.
      *
      * @param dataSource 검사할 운영 데이터소스
      * @throws IllegalStateException 권한이 과도하거나 필수 조회 권한이 없을 때
@@ -111,6 +112,37 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                             current_user,
                             'public.member',
                             'TRIGGER'
+                        )
+                        AND has_table_privilege(
+                            current_user,
+                            'public.audit_log',
+                            'SELECT,INSERT'
+                        )
+                        AND NOT has_table_privilege(
+                            current_user,
+                            'public.audit_log',
+                            'UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+                        )
+                        AND has_table_privilege(
+                            current_user,
+                            'public.tag_event_log',
+                            'SELECT,INSERT'
+                        )
+                        AND NOT has_table_privilege(
+                            current_user,
+                            'public.tag_event_log',
+                            'UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+                        )
+                        AND NOT has_column_privilege(
+                            current_user,
+                            'public.tag_event_log',
+                            'received_at',
+                            'UPDATE'
+                        )
+                        AND NOT has_table_privilege(
+                            current_user,
+                            'public.tag_event_log',
+                            'DELETE,TRUNCATE,REFERENCES,TRIGGER'
                         )
                         AND NOT EXISTS (
                             SELECT 1
@@ -244,6 +276,26 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                         AND NOT has_function_privilege(
                             current_user,
                             'public.attend_require_closed_card_assignment_immutable()',
+                            'EXECUTE'
+                        )
+                        AND NOT has_function_privilege(
+                            current_user,
+                            'public.attend_set_audit_occurred_at()',
+                            'EXECUTE'
+                        )
+                        AND NOT has_function_privilege(
+                            current_user,
+                            'public.attend_set_tag_event_received_at()',
+                            'EXECUTE'
+                        )
+                        AND NOT has_function_privilege(
+                            current_user,
+                            'public.attend_purge_expired_audit_log_batch()',
+                            'EXECUTE'
+                        )
+                        AND NOT has_function_privilege(
+                            current_user,
+                            'public.attend_purge_expired_tag_event_log_batch()',
                             'EXECUTE'
                         )
                         AND NOT EXISTS (

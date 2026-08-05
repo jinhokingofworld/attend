@@ -23,6 +23,7 @@ Attend MVP는 **단일 Spring Boot 애플리케이션으로 배포하는 모듈�
 8. 자동 결석은 PostgreSQL stored procedure에 별도로 구현하지 않는다. Spring 스케줄러는 실행 계기만 제공하고, 결석 생성과 날짜 마감은 하나의 애플리케이션 서비스 트랜잭션이 처리한다.
 9. 운영 스키마 변경은 웹 애플리케이션이 아니라 별도 Flyway migration runner가 수행한다.
 10. MVP는 단일 애플리케이션 인스턴스를 기본으로 하며 Redis, 메시지 브로커, Kubernetes와 마이크로서비스를 도입하지 않는다.
+11. `audit_log` 2년 삭제는 웹 app과 다른 credential을 쓰는 작은 retention worker container가 DB의 고정 batch 함수만 호출한다.
 
 이 문서는 목표 구조를 정의한다. 현재 코드가 이미 이 구조로 구현됐다는 의미는 아니다.
 

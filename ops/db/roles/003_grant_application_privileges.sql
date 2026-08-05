@@ -1,4 +1,4 @@
--- Post-migration grants for the V009 schema. Run as migration_owner or an
+-- Post-migration grants for the V011 schema. Run as migration_owner or an
 -- equivalent owner after guarded dbMigrate succeeds.
 --
 -- This script is intentionally explicit. A future migration that adds a table,
@@ -38,8 +38,22 @@ BEGIN
 
     IF missing_tables IS NOT NULL THEN
         RAISE EXCEPTION
-            'Runtime grants require the complete V009 schema; missing: %',
+            'Runtime grants require the complete V011 schema; missing: %',
             missing_tables;
+    END IF;
+
+    IF pg_catalog.to_regprocedure(
+            'public.attend_purge_expired_audit_log_batch()'
+       ) IS NULL THEN
+        RAISE EXCEPTION
+            'Runtime grants require the V011 audit retention function';
+    END IF;
+
+    IF pg_catalog.to_regprocedure(
+            'public.attend_purge_expired_tag_event_log_batch()'
+       ) IS NULL THEN
+        RAISE EXCEPTION
+            'Runtime grants require the V011 tag-event retention function';
     END IF;
 END
 $required_schema$;
@@ -49,11 +63,11 @@ REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC;
 REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
 
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public
-    FROM app_runtime, cutover_writer, legacy_writer;
+    FROM app_runtime, cutover_writer, legacy_writer, retention_worker;
 REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public
-    FROM app_runtime, cutover_writer, legacy_writer;
+    FROM app_runtime, cutover_writer, legacy_writer, retention_worker;
 REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public
-    FROM app_runtime, cutover_writer, legacy_writer;
+    FROM app_runtime, cutover_writer, legacy_writer, retention_worker;
 
 -- Table-level REVOKE does not remove older column-level grants.
 REVOKE ALL PRIVILEGES (
@@ -67,7 +81,7 @@ REVOKE ALL PRIVILEGES (
     active,
     updated_at
 ) ON TABLE public.member
-FROM app_runtime, cutover_writer, legacy_writer;
+FROM app_runtime, cutover_writer, legacy_writer, retention_worker;
 
 REVOKE ALL PRIVILEGES (
     id,
@@ -96,9 +110,17 @@ REVOKE ALL PRIVILEGES (
 FROM app_runtime, cutover_writer, legacy_writer;
 
 GRANT USAGE ON SCHEMA public
-    TO app_runtime, cutover_writer, legacy_writer;
+    TO app_runtime, cutover_writer, legacy_writer, retention_worker;
 REVOKE CREATE ON SCHEMA public
-    FROM app_runtime, cutover_writer, legacy_writer;
+    FROM app_runtime, cutover_writer, legacy_writer, retention_worker;
+
+-- This worker may only invoke the fixed-cutoff batch function. It has no
+-- direct table, sequence, or other function privileges, and its credential is
+-- never injected into the web application container.
+GRANT EXECUTE ON FUNCTION public.attend_purge_expired_audit_log_batch()
+TO retention_worker;
+GRANT EXECUTE ON FUNCTION public.attend_purge_expired_tag_event_log_batch()
+TO retention_worker;
 
 -- New runtime and temporary cutover identities share the same application
 -- boundary. cutover_writer is separate so its login can be disabled after use.

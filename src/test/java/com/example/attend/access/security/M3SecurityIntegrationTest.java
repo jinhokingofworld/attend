@@ -237,6 +237,9 @@ class M3SecurityIntegrationTest {
 		mockMvc.perform(get("/admin/system/departments")
 						.with(user(departmentPrincipal)))
 				.andExpect(status().isForbidden());
+		mockMvc.perform(get("/admin/system/operations")
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isForbidden());
 		long otherDepartmentId = insertAndReturnId(
 				"INSERT INTO public.department(name) VALUES (?) RETURNING id",
 				"다른 부서");
@@ -377,6 +380,19 @@ class M3SecurityIntegrationTest {
 				        404, '{"code":"UNKNOWN_UID"}'::jsonb, 'UNKNOWN_UID')
 				RETURNING id
 				""", deviceId, departmentId);
+		long expiredEventId = insertAndReturnId("""
+				INSERT INTO public.tag_event_log(
+				    device_id, department_id, request_id, uid, result_code,
+				    http_status, response_body, failure_type)
+				VALUES (?, ?, 'm3-expired-inbox-event', '04AAAAAA', 'UNKNOWN_UID',
+				        404, '{"code":"UNKNOWN_UID"}'::jsonb, 'UNKNOWN_UID')
+				RETURNING id
+				""", deviceId, departmentId);
+		jdbcTemplate.update("""
+				UPDATE public.tag_event_log
+				SET received_at = CURRENT_TIMESTAMP - INTERVAL '8 days'
+				WHERE id = ?
+				""", expiredEventId);
 
 		mockMvc.perform(get("/admin/departments/" + departmentId
 						+ "/teachers")
@@ -482,9 +498,26 @@ class M3SecurityIntegrationTest {
 		mockMvc.perform(get("/admin/departments/" + departmentId
 						+ "/cards/inbox")
 						.with(user(departmentPrincipal)))
-				.andExpect(status().isOk())
-				.andExpect(content().string(containsString("****CDEF")))
-				.andExpect(content().string(not(containsString("04ABCDEF"))));
+					.andExpect(status().isOk())
+					.andExpect(content().string(containsString("****CDEF")))
+					.andExpect(content().string(not(containsString("****AAAA"))))
+					.andExpect(content().string(not(containsString("04ABCDEF"))));
+
+		mockMvc.perform(post("/admin/departments/" + departmentId
+						+ "/cards/inbox/" + expiredEventId + "/connect")
+						.with(user(departmentPrincipal))
+						.with(csrf())
+						.param("memberId", Long.toString(memberId)))
+				.andExpect(status().is3xxRedirection())
+				.andExpect(redirectedUrl("/admin/departments/" + departmentId
+						+ "/cards/inbox"))
+				.andExpect(flash().attribute("error",
+						"카드 등록 요청이 이미 처리되었거나 더 이상 사용할 수 없습니다."));
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT count(*)
+				FROM public.nfc_card
+				WHERE uid = '04AAAAAA'
+					""", Integer.class)).isZero();
 
 		mockMvc.perform(post("/admin/departments/" + departmentId
 						+ "/cards/inbox/" + eventId + "/connect")

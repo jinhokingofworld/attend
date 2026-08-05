@@ -16,8 +16,7 @@ public interface DeviceCheckInMapper {
 			@Param("deviceId") long deviceId,
 			@Param("departmentId") long departmentId,
 			@Param("requestId") String requestId,
-			@Param("uid") String uid,
-			@Param("receivedAt") Instant receivedAt);
+			@Param("uid") String uid);
 
 	/** 선점에 실패한 동일 요청의 최초 확정 응답을 읽는다. */
 	TagEventRow selectEvent(
