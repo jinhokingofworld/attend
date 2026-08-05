@@ -4,6 +4,9 @@ import com.example.attend.access.application.AdminWriteGate;
 import com.example.attend.access.application.DepartmentAdminQueryService;
 import com.example.attend.access.security.AccountPrincipal;
 import com.example.attend.attendance.application.AttendanceCorrectionService;
+import com.example.attend.attendance.application.AttendanceDayBatchResult;
+import com.example.attend.attendance.application.AttendanceDayRecurrence;
+import com.example.attend.attendance.application.AttendanceDayScheduleCommand;
 import com.example.attend.attendance.application.AttendanceDayService;
 import com.example.attend.attendance.application.AttendancePolicyService;
 import com.example.attend.attendance.application.AttendanceStatistics;
@@ -35,6 +38,7 @@ import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.time.Clock;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -44,6 +48,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * 기존 M2 조직·출석 서비스를 부서 범위 MVC command와 화면에 연결한다.
@@ -520,22 +525,48 @@ public final class DepartmentAdminController {
 		return "admin/department/attendance-days";
 	}
 
-	/** 날짜를 만들고 현재 활성 교사를 대상으로 snapshot한다. */
+	/** 날짜 또는 반복 규칙으로 출석 날짜를 만들고 현재 활성 교사를 대상으로 snapshot한다. */
 	@PostMapping("/admin/departments/{departmentId}/attendance-days")
 	public String createAttendanceDay(
 			@AuthenticationPrincipal AccountPrincipal principal,
 			@PathVariable long departmentId,
 			@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
 					LocalDate attendanceDate,
+			@RequestParam(required = false)
+			@DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+					LocalDate endDate,
 			@RequestParam long policyVersionId,
+			@RequestParam(defaultValue = "NONE")
+					AttendanceDayRecurrence recurrence,
+			@RequestParam(defaultValue = "1") int interval,
+			@RequestParam(required = false) List<DayOfWeek> weeklyDays,
+			@RequestParam(required = false) List<Integer> monthlyDays,
+			@RequestParam(required = false) Integer yearlyMonth,
+			@RequestParam(required = false) Integer yearlyDay,
 			RedirectAttributes redirect) {
-		return command(
-				() -> dayService.createDay(
-						principal.toActor(),
-						departmentId,
-						attendanceDate,
-						policyVersionId),
-				"출석 날짜를 생성했습니다.",
+		return commandWithMessage(
+				() -> {
+					if (recurrence == AttendanceDayRecurrence.NONE) {
+						dayService.createDay(
+								principal.toActor(), departmentId, attendanceDate, policyVersionId);
+						return "출석 날짜를 생성했습니다.";
+					}
+					LocalDate effectiveEndDate = requireEndDate(endDate);
+					AttendanceDayBatchResult result = dayService.createDays(
+							principal.toActor(),
+							departmentId,
+							new AttendanceDayScheduleCommand(
+									attendanceDate,
+									effectiveEndDate,
+									policyVersionId,
+									recurrence,
+									interval,
+									toSet(weeklyDays),
+									toSet(monthlyDays),
+									yearlyMonth,
+									yearlyDay));
+					return attendanceDayBatchMessage(result);
+				},
 				daysPath(departmentId),
 				redirect);
 	}
@@ -768,6 +799,38 @@ public final class DepartmentAdminController {
 			redirect.addFlashAttribute("error", exception.getMessage());
 			return "redirect:" + failureRedirectPath;
 		}
+	}
+
+	private String commandWithMessage(
+			Supplier<String> command,
+			String redirectPath,
+			RedirectAttributes redirect) {
+		try {
+			writeGate.requireEnabled();
+			redirect.addFlashAttribute("message", command.get());
+		} catch (IllegalArgumentException | BusinessRuleException exception) {
+			redirect.addFlashAttribute("error", exception.getMessage());
+		}
+		return "redirect:" + redirectPath;
+	}
+
+	private static LocalDate requireEndDate(LocalDate endDate) {
+		if (endDate == null) {
+			throw new IllegalArgumentException("반복 종료일을 입력하세요.");
+		}
+		return endDate;
+	}
+
+	private static <T> Set<T> toSet(List<T> values) {
+		return values == null ? Set.of() : Set.copyOf(values);
+	}
+
+	private static String attendanceDayBatchMessage(AttendanceDayBatchResult result) {
+		if (result.skippedExistingCount() == 0) {
+			return "출석 날짜 " + result.createdCount() + "건을 생성했습니다.";
+		}
+		return "출석 날짜 " + result.createdCount() + "건을 생성했고, 이미 존재하는 "
+				+ result.skippedExistingCount() + "건은 건너뛰었습니다.";
 	}
 
 	private static List<PolicyBandInput> toBands(
