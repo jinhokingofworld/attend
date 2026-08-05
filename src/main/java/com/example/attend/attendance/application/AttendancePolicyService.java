@@ -96,7 +96,8 @@ public class AttendancePolicyService {
 	) {
 		writeAuthorization.requireEnabled();
 		authorizeAndLock(actor, departmentId);
-		requireDraft(departmentId, policyVersionId);
+		PolicyVersionRow draft = requireDraft(departmentId, policyVersionId);
+		List<AttendanceBand> previousBands = mapper.selectBands(policyVersionId);
 		requireSingleUpdate(mapper.updateDraft(
 				departmentId,
 				policyVersionId,
@@ -104,6 +105,26 @@ public class AttendancePolicyService {
 				command.checkInStartTime()));
 		mapper.deleteDraftBands(policyVersionId);
 		insertBands(policyVersionId, command.bands());
+		auditLogWriter.writeAccount(
+				departmentId,
+				actor,
+				null,
+				"POLICY_DRAFT_REPLACED",
+				"ATTENDANCE_POLICY_VERSION",
+				Long.toString(policyVersionId),
+				policyDraftAuditData(
+						draft.name(),
+						draft.checkInStartTime().toString(),
+						previousBands.stream()
+								.map(AttendancePolicyService::bandAuditData)
+								.toList()),
+				policyDraftAuditData(
+						command.name(),
+						command.checkInStartTime().toString(),
+						command.bands().stream()
+								.map(AttendancePolicyService::bandAuditData)
+								.toList()),
+				null);
 	}
 
 	/**
@@ -169,6 +190,45 @@ public class AttendancePolicyService {
 		for (PolicyBandInput band : bands) {
 			mapper.insertBand(policyVersionId, band);
 		}
+	}
+
+	private static Map<String, Object> policyDraftAuditData(
+			String name,
+			String checkInStartTime,
+			List<Map<String, Object>> bands) {
+		return Map.of(
+				"name", name,
+				"checkInStartTime", checkInStartTime,
+				"bandCount", bands.size(),
+				"bands", bands);
+	}
+
+	private static Map<String, Object> bandAuditData(AttendanceBand band) {
+		return bandAuditData(
+				band.sequenceNo(),
+				band.label(),
+				band.parentStatus().name(),
+				band.upperTime().toString());
+	}
+
+	private static Map<String, Object> bandAuditData(PolicyBandInput band) {
+		return bandAuditData(
+				band.sequenceNo(),
+				band.label(),
+				band.parentStatus().name(),
+				band.upperTime().toString());
+	}
+
+	private static Map<String, Object> bandAuditData(
+			int sequenceNo,
+			String label,
+			String parentStatus,
+			String upperTime) {
+		return Map.of(
+				"sequenceNo", sequenceNo,
+				"label", label,
+				"parentStatus", parentStatus,
+				"upperTime", upperTime);
 	}
 
 	/**

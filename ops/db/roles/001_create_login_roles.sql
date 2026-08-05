@@ -14,7 +14,8 @@ BEGIN
         'migration_owner',
         'app_runtime',
         'cutover_writer',
-        'legacy_writer'
+        'legacy_writer',
+        'retention_worker'
     ]
     LOOP
         IF NOT EXISTS (

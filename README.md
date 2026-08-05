@@ -359,11 +359,12 @@ src/main/java/com/example/attend
 ├── device          # 장치 인증과 출석 API
 ├── audit           # 업무 변경 감사 기록
 ├── database        # Flyway, preflight, schema·권한 guard
+├── retention       # 웹과 분리된 audit(2년)·tag event(90일) retention worker
 └── operations      # health와 민감정보 로그 처리
 
-src/main/resources/db/migration  # V001~V008 Flyway migration
+src/main/resources/db/migration  # V001~V011 + repeatable Flyway migration
 firmware/attend-nfc              # WiFiNINA 기반 Arduino 펌웨어
-ops                              # Caddy, DB role, backup·restore
+ops                              # Caddy, DB role, retention, backup·restore
 scripts                          # 로컬 E2E와 HTTP simulator
 docs                             # 프로젝트 기준 문서
 ```
@@ -410,8 +411,57 @@ docs                             # 프로젝트 기준 문서
 - DB URL, 사용자명과 비밀번호를 분리하고 secret source에서 주입합니다.
 - 최초 migration은 읽기 전용 `dbPreflight`가 `FRESH`로 판정한 빈 Neon DB에만 적용합니다.
 - migration 계정과 애플리케이션 runtime 계정의 권한을 분리합니다.
-- 실제 개인정보를 넣기 전에 백업 위치·보유 기간·삭제 담당자를 확정합니다.
+- 업무 DB 보유기간은 확정되어 `audit_log`는 2년, `tag_event_log`는 90일 뒤 자동 삭제합니다. backup은 별도 승인 전에는 시작하지 않으며, 도입 시 보유 기간·저장 위치·삭제 담당자를 확정합니다.
 - 장치 API와 자동 마감은 제한 시험 후 순서대로 활성화합니다.
+
+### Oracle E2.1.Micro 파일럿
+
+`compose.oci-micro.yaml`은 외부 Neon을 사용하는 Oracle Linux 9
+`VM.Standard.E2.1.Micro` 1GB 호스트의 **파일럿 전용** 제한값입니다. 고가용성이나 운영
+승인을 뜻하지 않으며, 반드시 미리 적재한 `linux/amd64` 애플리케이션 이미지와 운영
+Compose에 함께 사용합니다. 고정 commit의 개발·CI 환경에서 검증된 JAR를
+`Dockerfile.prebuilt`로 패키징합니다.
+
+```bash
+./gradlew check bootJar migrationBootJar retentionBootJar --no-daemon
+export ATTEND_IMAGE_TAG="$(git rev-parse --short=12 HEAD)-amd64"
+docker buildx build --platform linux/amd64 \
+  --file Dockerfile.prebuilt --target runtime \
+  --tag "attend:${ATTEND_IMAGE_TAG}" --load .
+docker buildx build --platform linux/amd64 \
+  --file Dockerfile.prebuilt --target migration \
+  --tag "attend-migration:${ATTEND_IMAGE_TAG}" --load .
+docker buildx build --platform linux/amd64 \
+  --file Dockerfile.prebuilt --target retention \
+  --tag "attend-retention:${ATTEND_IMAGE_TAG}" --load .
+docker save --output "attend-images-${ATTEND_IMAGE_TAG}.tar" \
+  "attend:${ATTEND_IMAGE_TAG}" \
+  "attend-migration:${ATTEND_IMAGE_TAG}" \
+  "attend-retention:${ATTEND_IMAGE_TAG}"
+```
+
+생성한 tar와 같은 commit의 Compose 파일을 서버로 전달하고 app 및 Caddy 이미지를 미리
+적재합니다. 서버에서 source image를 빌드하지 않는 기동 명령은 다음과 같습니다.
+
+```bash
+export ATTEND_IMAGE_TAG="$(git rev-parse --short=12 HEAD)-amd64"
+docker load --input "attend-images-${ATTEND_IMAGE_TAG}.tar"
+docker pull --platform linux/amd64 caddy:2-alpine
+docker image inspect "attend:${ATTEND_IMAGE_TAG}" \
+  --format '{{.Os}}/{{.Architecture}} {{.Id}}'
+docker compose --env-file /etc/attend/attend.env \
+  -f compose.prod.yaml \
+  -f compose.oci-micro.yaml \
+  config --no-env-resolution --quiet
+docker compose --env-file /etc/attend/attend.env \
+  -f compose.prod.yaml \
+  -f compose.oci-micro.yaml \
+  up -d --no-build --pull never
+```
+
+Image inspect 출력의 플랫폼은 반드시 `linux/amd64`여야 하고, `--pull never`를
+사용하므로 Caddy 이미지도 서버에 미리 적재되어 있어야 합니다. 상세한 사전조건과 health
+확인은 [운영·파일럿 실행서](docs/M5_M6_OPERATIONS_RUNBOOK.md)를 따릅니다.
 
 ## 13. 이 프로젝트에서 다룬 핵심 주제
 

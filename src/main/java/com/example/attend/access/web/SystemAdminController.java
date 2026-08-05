@@ -9,14 +9,18 @@ import com.example.attend.access.infrastructure.mybatis.AccountAdministrationRow
 import com.example.attend.access.security.AccountPrincipal;
 import com.example.attend.common.error.BusinessRuleException;
 import com.example.attend.operations.OperationsRuntimeStatusService;
+import org.springframework.dao.DataAccessException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
+import org.springframework.transaction.TransactionException;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
+
+import java.util.Map;
 
 /**
  * 시스템 관리자의 부서·계정·역할 MVC 화면을 제공한다.
@@ -133,9 +137,22 @@ public final class SystemAdminController {
 			@AuthenticationPrincipal AccountPrincipal principal,
 			Model model) {
 		addCommon(principal, model);
-		model.addAttribute("operations",
-				administrationService.operations(principal.toActor()));
-		model.addAttribute("runtimeStatus", runtimeStatusService.current());
+		boolean databaseFailed = false;
+		try {
+			model.addAttribute("operations",
+					administrationService.operations(principal.toActor()));
+			model.addAttribute("operationsUnavailable", false);
+		} catch (DataAccessException | TransactionException exception) {
+			// This route already requires the session's ROLE_SYSTEM_ADMIN. Only the
+			// non-sensitive diagnostic page degrades when DB re-authorization cannot
+			// run; every command and all data-bearing pages remain fail-closed.
+			model.addAttribute("operations", unavailableOperations());
+			model.addAttribute("operationsUnavailable", true);
+			databaseFailed = true;
+		}
+		model.addAttribute("runtimeStatus", databaseFailed
+				? runtimeStatusService.currentAfterDatabaseFailure()
+				: runtimeStatusService.current());
 		return "admin/system/operations";
 	}
 
@@ -301,6 +318,15 @@ public final class SystemAdminController {
 	private void addCommon(AccountPrincipal principal, Model model) {
 		model.addAttribute("principal", principal);
 		model.addAttribute("writeEnabled", writeGate.isEnabled());
+	}
+
+	private static Map<String, Object> unavailableOperations() {
+		return Map.of(
+				"active_department_count", "확인 불가",
+				"overdue_day_count", "확인 불가",
+				"active_device_count", "확인 불가",
+				"inactive_device_count", "확인 불가",
+				"revoked_device_count", "확인 불가");
 	}
 
 	private static String safeMessage(RuntimeException exception) {

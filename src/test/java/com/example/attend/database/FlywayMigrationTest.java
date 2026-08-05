@@ -32,7 +32,7 @@ import static com.example.attend.database.DatabasePreflightInspector.PreflightSt
 import static com.example.attend.database.DatabasePreflightInspector.PreflightStatus.REJECTED;
 
 /**
- * 실제 PostgreSQL 15에서 V001~V009 migration의 안전성과 핵심 제약조건을 검증한다.
+ * 실제 PostgreSQL 15에서 V001~V011 migration의 안전성과 핵심 제약조건을 검증한다.
  *
  * <p>H2 같은 대체 DB로는 PostgreSQL catalog, partial unique index, 복합 외래 키,
  * SQLSTATE가 실제 운영 DB와 같다고 보장할 수 없다. 따라서 Testcontainers로
@@ -58,7 +58,7 @@ class FlywayMigrationTest {
             new PostgreSQLContainer<>("postgres:15-alpine");
 
     /**
-     * 빈 DB가 올바르게 분류되고 V009까지 정확히 한 번 적용되는지 검증한다.
+     * 빈 DB가 올바르게 분류되고 V011까지 정확히 한 번 적용되는지 검증한다.
      *
      * <p>잘못된 운영자 승인값에서는 history조차 만들지 않아야 하며, 같은
      * migration을 다시 실행해도 결과가 바뀌지 않는 멱등성도 함께 확인한다.</p>
@@ -101,7 +101,7 @@ class FlywayMigrationTest {
                     FROM public.flyway_schema_history
                     WHERE success
                       AND version IS NOT NULL
-                    """)).isEqualTo(9);
+                    """ )).isEqualTo(11);
 
             assertThat(queryInt(connection, """
                     SELECT count(*)
@@ -158,9 +158,23 @@ class FlywayMigrationTest {
                         'trg_member_birth_required_on_operational_update',
                         'trg_membership_member_required_on_insert',
                         'trg_membership_write_guard_on_update',
-                        'trg_card_assignment_closed_history_immutable'
+                        'trg_card_assignment_closed_history_immutable',
+                        'trg_audit_occurred_at',
+                        'trg_tag_event_received_at'
                       )
-                    """)).isEqualTo(11);
+                    """)).isEqualTo(13);
+            assertThat(queryString(connection, """
+                    SELECT indexdef
+                    FROM pg_indexes
+                    WHERE schemaname = 'public'
+                      AND indexname = 'idx_audit_occurred_id'
+                    """)).contains("(occurred_at, id)");
+            assertThat(queryString(connection, """
+                    SELECT indexdef
+                    FROM pg_indexes
+                    WHERE schemaname = 'public'
+                      AND indexname = 'idx_tag_event_received_id'
+                    """)).contains("(received_at, id)");
             assertThat(queryString(connection, """
                     SELECT (NOT EXISTS (
                         SELECT 1
@@ -174,11 +188,228 @@ class FlywayMigrationTest {
                         WHERE routine.oid IN (
                               'public.attend_require_member_birth_on_write()'::regprocedure,
                               'public.attend_require_operational_membership_member()'::regprocedure,
-                              'public.attend_require_closed_card_assignment_immutable()'::regprocedure
+                              'public.attend_require_closed_card_assignment_immutable()'::regprocedure,
+                              'public.attend_set_audit_occurred_at()'::regprocedure,
+                              'public.attend_set_tag_event_received_at()'::regprocedure,
+                              'public.attend_purge_expired_audit_log_batch()'::regprocedure,
+                              'public.attend_purge_expired_tag_event_log_batch()'::regprocedure
                         )
                           AND privilege.grantee = 0
                           AND privilege.privilege_type = 'EXECUTE'
                     ))::text
+                    """)).isEqualTo("true");
+        }
+    }
+
+    /**
+     * V010은 기존의 만료 감사 행을 500개씩만 삭제하고 이후 INSERT 시각은
+     * PostgreSQL이 강제한다.
+     *
+     * <p>V009 상태에서 적재한 행을 사용해 migration 전의 정상 이력도 정리 대상이
+     * 되는지 검증한다. 호출자는 cutoff를 넘길 수 없으므로 2년보다 최근인 행은
+     * batch가 여러 번 실행돼도 남아야 한다.</p>
+     */
+    @Test
+    void purgesOnlyExpiredAuditLogRowsInBoundedDatabaseBatches()
+            throws Exception {
+        Database database = createDatabase("audit_retention");
+        Flyway.configure()
+                .dataSource(database.url(), postgres.getUsername(), postgres.getPassword())
+                .locations(MIGRATION_LOCATION)
+                .defaultSchema("public")
+                .schemas("public")
+                .target(MigrationVersion.fromVersion("9"))
+                .validateOnMigrate(true)
+                .cleanDisabled(true)
+                .outOfOrder(false)
+                .load()
+                .migrate();
+
+        try (Connection connection = database.connect();
+             Statement statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO public.audit_log (
+                        actor_type,
+                        action,
+                        target_type,
+                        target_id,
+                        occurred_at
+                    )
+                    SELECT
+                        'SYSTEM',
+                        'RETENTION_TEST_EXPIRED',
+                        'AUDIT_RETENTION_TEST',
+                        'expired-' || generated.value,
+                        CURRENT_TIMESTAMP - INTERVAL '2 years 1 day'
+                    FROM generate_series(1, 501) AS generated(value)
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO public.audit_log (
+                        actor_type,
+                        action,
+                        target_type,
+                        target_id,
+                        occurred_at
+                    )
+                    VALUES
+                        (
+                            'SYSTEM',
+                            'RETENTION_TEST_RECENT',
+                            'AUDIT_RETENTION_TEST',
+                            'recent',
+                            CURRENT_TIMESTAMP - INTERVAL '1 day'
+                        ),
+                        (
+                            'SYSTEM',
+                            'RETENTION_TEST_NEAR_CUTOFF',
+                            'AUDIT_RETENTION_TEST',
+                            'near-cutoff',
+                            CURRENT_TIMESTAMP - INTERVAL '2 years' + INTERVAL '1 day'
+                        )
+                    """);
+        }
+
+        flyway(database).migrate();
+
+        try (Connection connection = database.connect();
+             Statement statement = connection.createStatement()) {
+            assertThat(queryInt(connection, """
+                    SELECT public.attend_purge_expired_audit_log_batch()
+                    """)).isEqualTo(500);
+            assertThat(queryInt(connection, """
+                    SELECT count(*)
+                    FROM public.audit_log
+                    WHERE action = 'RETENTION_TEST_EXPIRED'
+                    """)).isEqualTo(1);
+            assertThat(queryInt(connection, """
+                    SELECT public.attend_purge_expired_audit_log_batch()
+                    """)).isEqualTo(1);
+            assertThat(queryInt(connection, """
+                    SELECT public.attend_purge_expired_audit_log_batch()
+                    """)).isZero();
+            assertThat(queryInt(connection, """
+                    SELECT count(*)
+                    FROM public.audit_log
+                    WHERE target_type = 'AUDIT_RETENTION_TEST'
+                    """)).isEqualTo(2);
+            assertThat(queryString(statement, """
+                    INSERT INTO public.audit_log (
+                        actor_type,
+                        action,
+                        target_type,
+                        target_id,
+                        occurred_at
+                    )
+                    VALUES (
+                        'SYSTEM',
+                        'RETENTION_TEST_SERVER_TIME',
+                        'AUDIT_RETENTION_TEST',
+                        'server-time',
+                        TIMESTAMPTZ '2000-01-01 00:00:00+00'
+                    )
+                    RETURNING (
+                        occurred_at > CURRENT_TIMESTAMP - INTERVAL '1 minute'
+                    )::text
+                    """)).isEqualTo("true");
+        }
+    }
+
+    /** V011은 90일을 지난 태깅 이벤트만 500개씩 삭제한다. */
+    @Test
+    void purgesOnlyExpiredTagEventLogRowsInBoundedDatabaseBatches()
+            throws Exception {
+        Database database = createDatabase("tag_event_retention");
+        Flyway.configure()
+                .dataSource(database.url(), postgres.getUsername(), postgres.getPassword())
+                .locations(MIGRATION_LOCATION)
+                .defaultSchema("public")
+                .schemas("public")
+                .target(MigrationVersion.fromVersion("10"))
+                .validateOnMigrate(true)
+                .cleanDisabled(true)
+                .outOfOrder(false)
+                .load()
+                .migrate();
+
+        try (Connection connection = database.connect();
+             Statement statement = connection.createStatement()) {
+            long departmentId = queryLong(statement, """
+                    INSERT INTO public.department(name)
+                    VALUES ('tag retention department')
+                    RETURNING id
+                    """);
+            long deviceId = queryLong(statement, """
+                    INSERT INTO public.device(
+                        department_id, device_code, name, credential_hash
+                    )
+                    VALUES (%d, 'tag-retention-device', 'retention device', 'hash')
+                    RETURNING id
+                    """.formatted(departmentId));
+            statement.executeUpdate("""
+                    INSERT INTO public.tag_event_log (
+                        device_id, department_id, request_id, uid,
+                        result_code, http_status, response_body, received_at
+                    )
+                    SELECT
+                        %d,
+                        %d,
+                        'expired-' || generated.value,
+                        'A1B2C3D4',
+                        'UNKNOWN_UID',
+                        404,
+                        '{}'::jsonb,
+                        CURRENT_TIMESTAMP - INTERVAL '91 days'
+                    FROM generate_series(1, 501) AS generated(value)
+                    """.formatted(deviceId, departmentId));
+            statement.executeUpdate("""
+                    INSERT INTO public.tag_event_log (
+                        device_id, department_id, request_id, uid,
+                        result_code, http_status, response_body, received_at
+                    )
+                    VALUES
+                        (%d, %d, 'recent', 'A1B2C3D4', 'UNKNOWN_UID', 404,
+                         '{}'::jsonb, CURRENT_TIMESTAMP - INTERVAL '1 day'),
+                        (%d, %d, 'near-cutoff', 'A1B2C3D4', 'UNKNOWN_UID', 404,
+                         '{}'::jsonb, CURRENT_TIMESTAMP - INTERVAL '89 days')
+                    """.formatted(deviceId, departmentId, deviceId, departmentId));
+        }
+
+        flyway(database).migrate();
+
+        try (Connection connection = database.connect();
+             Statement statement = connection.createStatement()) {
+            assertThat(queryInt(connection, """
+                    SELECT public.attend_purge_expired_tag_event_log_batch()
+                    """)).isEqualTo(500);
+            assertThat(queryInt(connection, """
+                    SELECT count(*)
+                    FROM public.tag_event_log
+                    WHERE request_id LIKE 'expired-%%'
+                    """)).isEqualTo(1);
+            assertThat(queryInt(connection, """
+                    SELECT public.attend_purge_expired_tag_event_log_batch()
+                    """)).isEqualTo(1);
+            assertThat(queryInt(connection, """
+                    SELECT public.attend_purge_expired_tag_event_log_batch()
+                    """)).isZero();
+            assertThat(queryInt(connection, """
+                    SELECT count(*)
+                    FROM public.tag_event_log
+                    WHERE request_id IN ('recent', 'near-cutoff')
+                    """)).isEqualTo(2);
+            assertThat(queryString(statement, """
+                    INSERT INTO public.tag_event_log (
+                        device_id, department_id, request_id, uid,
+                        result_code, http_status, response_body, received_at
+                    )
+                    SELECT id, department_id, 'server-time', 'A1B2C3D4',
+                           'UNKNOWN_UID', 404, '{}'::jsonb,
+                           TIMESTAMPTZ '2000-01-01 00:00:00+00'
+                    FROM public.device
+                    WHERE device_code = 'tag-retention-device'
+                    RETURNING (
+                        received_at > CURRENT_TIMESTAMP - INTERVAL '1 minute'
+                    )::text
                     """)).isEqualTo("true");
         }
     }
@@ -1539,7 +1770,7 @@ class FlywayMigrationTest {
                     FROM public.flyway_schema_history
                     WHERE success
                       AND version IS NOT NULL
-                    """)).isEqualTo(10);
+                    """)).isEqualTo(12);
             assertThat(queryInt(connection, """
                     SELECT count(*)
                     FROM public.flyway_schema_history
@@ -1790,7 +2021,7 @@ class FlywayMigrationTest {
     }
 
     /**
-     * 애플리케이션 시작 검사가 정확히 성공한 V001~V009만 허용하는지 검증한다.
+     * 애플리케이션 시작 검사가 정확히 성공한 V001~V011만 허용하는지 검증한다.
      *
      * <p>history 없음, 구버전, 실패 처리된 migration, 애플리케이션보다 앞선
      * 버전을 모두 거부하고 정확한 버전 목록만 통과시킨다.</p>
@@ -1833,7 +2064,7 @@ class FlywayMigrationTest {
             statement.executeUpdate("""
                     UPDATE public.flyway_schema_history
                     SET success = FALSE
-                    WHERE version = '009'
+                    WHERE version = '011'
                     """);
             assertThatThrownBy(() ->
                     SchemaVersionGuard.verify(exact.dataSource()))
@@ -1843,8 +2074,8 @@ class FlywayMigrationTest {
             statement.executeUpdate("""
                     UPDATE public.flyway_schema_history
                     SET success = TRUE,
-                        version = '010'
-                    WHERE version = '009'
+                        version = '012'
+                    WHERE version = '011'
                     """);
             assertThatThrownBy(() ->
                     SchemaVersionGuard.verify(exact.dataSource()))
@@ -1856,7 +2087,7 @@ class FlywayMigrationTest {
     /**
      * migration 계정과 웹 runtime 계정의 실제 PostgreSQL 권한이 분리되는지 검증한다.
      *
-     * <p>한 테스트 안에서 역할 생성, 레거시 migration, V009 이후 grant와 runtime
+     * <p>한 테스트 안에서 역할 생성, 레거시 migration, V011 이후 grant와 runtime
      * guard를 모두 실행한다. runtime의 교사 등록·조회·수정은 실제 사용 컬럼까지
      * 허용하면서 DDL, Flyway history 변경, 교사 삭제·card_uid 접근과 레거시
      * 출석 쓰기는 권한 오류로 막아야 한다.</p>
@@ -1867,6 +2098,7 @@ class FlywayMigrationTest {
         Database database = createDatabase("roles");
         String migrationPassword = "test-only-migration-password";
         String runtimePassword = "test-only-runtime-password";
+        String retentionPassword = "test-only-retention-password";
 
         try (Connection admin = database.connect();
              Statement statement = admin.createStatement()) {
@@ -1880,6 +2112,9 @@ class FlywayMigrationTest {
             statement.execute("""
                     ALTER ROLE app_runtime PASSWORD '%s'
                     """.formatted(runtimePassword));
+            statement.execute("""
+                    ALTER ROLE retention_worker PASSWORD '%s'
+                    """.formatted(retentionPassword));
             executeSqlFile(
                     statement,
                     "ops/db/roles/002_prepare_database_for_migration.sql"
@@ -1916,8 +2151,36 @@ class FlywayMigrationTest {
 
         DriverManagerDataSource runtimeDataSource =
                 database.dataSource("app_runtime", runtimePassword);
+        DriverManagerDataSource retentionDataSource =
+                database.dataSource("retention_worker", retentionPassword);
         SchemaVersionGuard.verify(runtimeDataSource);
         RuntimeDatabasePrivilegeGuard.verify(runtimeDataSource);
+
+        long expiredAuditId;
+        try (Connection migrationConnection =
+                     migrationDataSource.getConnection();
+             Statement statement = migrationConnection.createStatement()) {
+            expiredAuditId = queryLong(statement, """
+                    INSERT INTO public.audit_log (
+                        actor_type,
+                        action,
+                        target_type,
+                        target_id
+                    )
+                    VALUES (
+                        'SYSTEM',
+                        'RETENTION_ROLE_TEST',
+                        'AUDIT_RETENTION_TEST',
+                        'expired-role-row'
+                    )
+                    RETURNING id
+                    """);
+            statement.executeUpdate("""
+                    UPDATE public.audit_log
+                    SET occurred_at = CURRENT_TIMESTAMP - INTERVAL '2 years 1 day'
+                    WHERE id = %d
+                    """.formatted(expiredAuditId));
+        }
 
         try (Connection runtimeConnection =
                      runtimeDataSource.getConnection();
@@ -1964,9 +2227,42 @@ class FlywayMigrationTest {
                     """.formatted(memberId)))
                     .isNotBlank();
             assertThat(queryString(statement, """
+                    INSERT INTO public.audit_log (
+                        actor_type,
+                        action,
+                        target_type,
+                        target_id,
+                        occurred_at
+                    )
+                    VALUES (
+                        'SYSTEM',
+                        'RETENTION_RUNTIME_TIMESTAMP_TEST',
+                        'AUDIT_RETENTION_TEST',
+                        'runtime-insert',
+                        TIMESTAMPTZ '2000-01-01 00:00:00+00'
+                    )
+                    RETURNING (
+                        occurred_at > CURRENT_TIMESTAMP - INTERVAL '1 minute'
+                    )::text
+                    """)).isEqualTo("true");
+            assertThat(queryString(statement, """
                     SELECT has_function_privilege(
                         current_user,
                         'public.attend_require_member_birth_on_write()',
+                        'EXECUTE'
+                    )::text
+                    """)).isEqualTo("false");
+            assertThat(queryString(statement, """
+                    SELECT has_function_privilege(
+                        current_user,
+                        'public.attend_purge_expired_audit_log_batch()',
+                        'EXECUTE'
+                    )::text
+                    """)).isEqualTo("false");
+            assertThat(queryString(statement, """
+                    SELECT has_function_privilege(
+                        current_user,
+                        'public.attend_purge_expired_tag_event_log_batch()',
                         'EXECUTE'
                     )::text
                     """)).isEqualTo("false");
@@ -1996,7 +2292,7 @@ class FlywayMigrationTest {
             assertPermissionDenied(statement, """
                     UPDATE public.flyway_schema_history
                     SET success = FALSE
-                    WHERE version = '009'
+                    WHERE version = '010'
                     """);
             assertPermissionDenied(
                     statement,
@@ -2018,6 +2314,20 @@ class FlywayMigrationTest {
                     WHERE id = %d
                     """.formatted(memberId));
             assertPermissionDenied(statement, """
+                    DELETE FROM public.audit_log
+                    WHERE id = %d
+                    """.formatted(expiredAuditId));
+            assertPermissionDenied(statement, """
+                    SELECT public.attend_purge_expired_audit_log_batch()
+                    """);
+            assertPermissionDenied(statement, """
+                    SELECT public.attend_purge_expired_tag_event_log_batch()
+                    """);
+            assertPermissionDenied(statement, """
+                    DELETE FROM public.tag_event_log
+                    WHERE FALSE
+                    """);
+            assertPermissionDenied(statement, """
                     INSERT INTO public.attendance (
                         member_id,
                         attend_date,
@@ -2025,6 +2335,66 @@ class FlywayMigrationTest {
                     )
                     VALUES (%d, CURRENT_DATE, 'IN_TIME')
                     """.formatted(memberId));
+        }
+
+        try (Connection retentionConnection =
+                     retentionDataSource.getConnection();
+             Statement statement = retentionConnection.createStatement()) {
+            assertThat(queryString(statement, """
+                    SELECT has_function_privilege(
+                        current_user,
+                        'public.attend_purge_expired_audit_log_batch()',
+                        'EXECUTE'
+                    )::text
+                    """)).isEqualTo("true");
+            assertThat(queryString(statement, """
+                    SELECT has_function_privilege(
+                        current_user,
+                        'public.attend_purge_expired_tag_event_log_batch()',
+                        'EXECUTE'
+                    )::text
+                    """)).isEqualTo("true");
+            assertThat(queryString(statement, """
+                    SELECT has_function_privilege(
+                        current_user,
+                        'public.attend_set_audit_occurred_at()',
+                        'EXECUTE'
+                    )::text
+                    """)).isEqualTo("false");
+            assertPermissionDenied(statement, """
+                    SELECT *
+                    FROM public.audit_log
+                    """);
+            assertPermissionDenied(statement, """
+                    DELETE FROM public.audit_log
+                    WHERE id = %d
+                    """.formatted(expiredAuditId));
+            assertPermissionDenied(statement, """
+                    DELETE FROM public.tag_event_log
+                    WHERE FALSE
+                    """);
+            assertPermissionDenied(
+                    statement,
+                    "CREATE TABLE public.retention_must_not_create (id BIGINT)"
+            );
+            assertPermissionDenied(
+                    statement,
+                    "CREATE TEMP TABLE retention_temp_must_not_create (id BIGINT)"
+            );
+            assertThat(queryInt(retentionConnection, """
+                    SELECT public.attend_purge_expired_audit_log_batch()
+                    """)).isEqualTo(1);
+            assertThat(queryInt(retentionConnection, """
+                    SELECT public.attend_purge_expired_tag_event_log_batch()
+                    """)).isZero();
+        }
+        try (Connection migrationConnection =
+                     migrationDataSource.getConnection()) {
+            assertThat(queryInt(migrationConnection, """
+                    SELECT count(*)
+                    FROM public.audit_log
+                    WHERE id = %d
+                    """.formatted(expiredAuditId))).isZero();
         }
 
         try (Connection migrationConnection =
@@ -2048,6 +2418,25 @@ class FlywayMigrationTest {
             statement.execute("""
                     GRANT SELECT
                     ON TABLE public.member
+                    TO app_runtime
+                    """);
+        }
+        assertRuntimePrivilegeGuardRejects(runtimeDataSource);
+        try (Connection migrationConnection =
+                     migrationDataSource.getConnection();
+             Statement statement = migrationConnection.createStatement()) {
+            executeSqlFile(
+                    statement,
+                    "ops/db/roles/003_grant_application_privileges.sql"
+            );
+        }
+        RuntimeDatabasePrivilegeGuard.verify(runtimeDataSource);
+
+        try (Connection migrationConnection =
+                     migrationDataSource.getConnection();
+             Statement statement = migrationConnection.createStatement()) {
+            statement.execute("""
+                    GRANT DELETE ON TABLE public.audit_log
                     TO app_runtime
                     """);
         }

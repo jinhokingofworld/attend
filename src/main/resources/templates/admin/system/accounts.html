@@ -10,7 +10,7 @@
     <a th:if="${writeEnabled}" th:href="@{/admin/system/accounts/new}">계정 생성</a>
     <table>
         <caption>관리자 계정</caption>
-        <thead><tr><th>사용자명</th><th>상태</th><th>시스템 역할</th><th>담당 부서</th></tr></thead>
+        <thead><tr><th>사용자명</th><th>상태</th><th>플랫폼 역할</th><th>담당 부서</th></tr></thead>
         <tbody>
         <tr th:each="account : ${accounts}">
             <td><a th:href="@{/admin/system/accounts/{id}(id=${account.id})}"
@@ -21,7 +21,7 @@
         </tr>
         </tbody>
     </table>
-    <a th:href="@{/admin/system}">시스템 홈</a>
+    <a th:href="@{/admin/system}">플랫폼 운영 홈</a>
 </main>
 </body>
 </html>

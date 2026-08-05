@@ -1,11 +1,12 @@
 <!DOCTYPE html>
 <html lang="ko" xmlns:th="http://www.thymeleaf.org">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>시스템 관리</title>    <link rel="stylesheet" th:href="@{/css/admin.css}">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>플랫폼 운영</title>    <link rel="stylesheet" th:href="@{/css/admin.css}">
 </head>
 <body>
 <header th:replace="~{fragments/admin-shell :: header}"></header>
 <main>
-    <h1>시스템 관리</h1>
+    <h1>플랫폼 운영</h1>
+    <p>개발자·플랫폼 운영자 전용 화면입니다. 고객 측 부서 관리자에게는 노출되지 않습니다.</p>
     <p th:unless="${writeEnabled}">현재 관리자 쓰기가 중지된 읽기 전용 모드입니다.</p>
     <nav>
         <a th:href="@{/admin/system/departments}">부서</a>

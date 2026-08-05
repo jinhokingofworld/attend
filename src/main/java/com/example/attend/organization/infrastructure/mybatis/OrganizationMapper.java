@@ -72,11 +72,13 @@ public interface OrganizationMapper {
 	 *
 	 * @param departmentId 부서 식별자
 	 * @param eventId 태깅 이벤트 식별자
+	 * @param receivedSince 연결을 허용하는 가장 이른 수신 시각
 	 * @return 연결 가능한 원본 UID, 없으면 {@code null}
 	 */
 	String selectAssignableTagEventUid(
 			@Param("departmentId") long departmentId,
-			@Param("eventId") long eventId);
+			@Param("eventId") long eventId,
+			@Param("receivedSince") Instant receivedSince);
 
 	/**
 	 * 이벤트가 승인된 부서에 속하는지만 확인한다.

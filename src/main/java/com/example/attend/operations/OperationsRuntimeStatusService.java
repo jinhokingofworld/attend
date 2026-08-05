@@ -16,6 +16,8 @@ public final class OperationsRuntimeStatusService {
 	private final AdminSecurityProperties adminProperties;
 	private final DeviceApiProperties deviceProperties;
 	private final Environment environment;
+	private final DatabaseRuntimeStatusSource databaseStatusSource;
+	private final BackupRuntimeStatusSource backupStatusSource;
 	private final Instant startedAt;
 	private final String version;
 
@@ -24,11 +26,15 @@ public final class OperationsRuntimeStatusService {
 			AdminSecurityProperties adminProperties,
 			DeviceApiProperties deviceProperties,
 			Environment environment,
+			DatabaseRuntimeStatusSource databaseStatusSource,
+			BackupRuntimeStatusSource backupStatusSource,
 			ApplicationContext applicationContext,
 			ObjectProvider<BuildProperties> buildPropertiesProvider) {
 		this.adminProperties = adminProperties;
 		this.deviceProperties = deviceProperties;
 		this.environment = environment;
+		this.databaseStatusSource = databaseStatusSource;
+		this.backupStatusSource = backupStatusSource;
 		this.startedAt = Instant.ofEpochMilli(applicationContext.getStartupDate());
 		BuildProperties buildProperties = buildPropertiesProvider.getIfAvailable();
 		this.version = buildProperties == null ? "개발 빌드" : buildProperties.getVersion();
@@ -36,6 +42,15 @@ public final class OperationsRuntimeStatusService {
 
 	/** 운영 화면에 허용된 제한된 정보만 immutable 응답으로 만든다. */
 	public OperationsRuntimeStatus current() {
+		return current(databaseStatusSource.current());
+	}
+
+	/** 이미 실패한 DB 경로를 재시도하지 않고 비민감 장애 상태를 조립한다. */
+	public OperationsRuntimeStatus currentAfterDatabaseFailure() {
+		return current("장애 · DB 연결 또는 업무 집계 확인 실패");
+	}
+
+	private OperationsRuntimeStatus current(String databaseStatus) {
 		return new OperationsRuntimeStatus(
 				version,
 				startedAt,
@@ -43,7 +58,7 @@ public final class OperationsRuntimeStatusService {
 				deviceProperties.enabled(),
 				environment.getProperty(
 						"attendance.scheduler.enabled", Boolean.class, false),
-				"연결됨 · Flyway V008 기동 검증 통과",
-				"확인 불가 · 상태 source 미구성");
+				databaseStatus,
+				backupStatusSource.current());
 	}
 }

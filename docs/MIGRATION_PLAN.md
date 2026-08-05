@@ -61,7 +61,7 @@ MVP의 데이터베이스 변경 도구는 **Flyway**로 통일한다.
 
 | 근거 | 착수 시 상태 | 위험 | 구현 조치 |
 |---|---|---|---|
-| 기존 `src/main/resources/schema.sql` | 시작 SQL에 네 테이블과 enum의 `DROP` 포함 | 앱 재시작만으로 전체 데이터 삭제 가능 | 운영 classpath에서 삭제하고 비파괴 Flyway V001~V008로 교체 |
+| 기존 `src/main/resources/schema.sql` | 시작 SQL에 네 테이블과 enum의 `DROP` 포함 | 앱 재시작만으로 전체 데이터 삭제 가능 | 운영 classpath에서 삭제하고 비파괴 Flyway V001~V010으로 교체 |
 | `src/main/resources/application.properties` | SQL 초기화를 환경변수로 재활성화할 수 있었음 | 오설정 시 파괴적 SQL 실행 가능 | `spring.sql.init.mode=never`를 고정하고 파괴적 SQL resource 제거 |
 | `src/main/resources/application.properties` | `DB_URL`이 없으면 localhost로 fallback | 운영 설정 누락을 숨기고 의도하지 않은 DB에 접속 가능 | 개발 fallback은 유지하되 `prod` 프로필은 URL·계정·비밀번호를 필수값으로 재정의 |
 | 기존 `src/main/resources/data.sql` | 공개된 샘플 계정·비밀번호 해시와 잘못된 UID 포함 | 알려진 자격증명과 사용할 수 없는 카드가 생성될 수 있음 | 운영 classpath에서 삭제하고 migration seed 금지 |
@@ -106,7 +106,7 @@ AND 출석 기록 없음
 |---|---|---|
 | 기존 `member` | PK를 유지해 기준 구성원으로 채택 | 부서 매핑과 운영자 승인 필요 |
 | 연락처 | 기존 `member`에 원문 보존, 신규 화면 노출은 선택 | 빈 문자열은 원본 백업·승인·정정 기록 후 `NULL` 정규화 가능 |
-| 나이·생년월일 | 기존 `member`에 원문 보존, 신규 업무에서는 미사용 | 신규 MVP에 불필요 |
+| 나이·생년월일 | 유효한 기존 `birth`는 정확한 날짜로 보존하고 만 나이·생일 관리에 사용; 정수 `age`는 원본 호환용으로만 보존 | 신규 등록·활성 교사 기본정보 수정·활성화에는 미래가 아닌 정확한 `birth` 필수. 레거시 `birth IS NULL`은 확인된 날짜로 정정하기 전까지 생년월일·파생 나이 미상이며 `age`로 날짜를 역산하지 않음 |
 | NFC UID | 선별 이관 가능 | 형식·길이·중복 검증 및 카드 소유자 확인 필요 |
 | 로그인 계정 | 선별 이관 가능 | 샘플 계정 제외, 역할 재승인과 비밀번호 재설정 필요 |
 | 명시적 `IN_TIME` | 레거시 이력으로만 보존 | 신규 정책 구간을 증명할 수 없음 |
@@ -217,7 +217,7 @@ MIGRATION_SOURCE_CLASS=NEW_OR_SAMPLE | LEGACY_OPERATIONAL
 ./gradlew dbMigrate
 ```
 
-`dbMigrate`는 V008을 고정 target으로 사용한다. Flyway를 호출하기 전에 read-only transaction에서 V001의 catalog·데이터 검사를 실행하고, fresh 또는 정확한 legacy 후보만 허용한다. 이 사전검사는 V001의 `ACCESS EXCLUSIVE` 잠금을 메모리에서 `ACCESS SHARE`로 바꾼 검증 블록을 실행해 실제 DDL 직전의 read-only 위반에 도달한 경우만 통과시킨다. 파일 자체는 수정하지 않으며 V001은 실제 적용 시 다시 원래의 exclusive lock과 전체 검사를 수행한다.
+`dbMigrate`는 V010을 고정 target으로 사용한다. Flyway를 호출하기 전에 read-only transaction에서 V001의 catalog·데이터 검사를 실행하고, fresh 또는 정확한 legacy 후보만 허용한다. 이 사전검사는 V001의 `ACCESS EXCLUSIVE` 잠금을 메모리에서 `ACCESS SHARE`로 바꾼 검증 블록을 실행해 실제 DDL 직전의 read-only 위반에 도달한 경우만 통과시킨다. 파일 자체는 수정하지 않으며 V001은 실제 적용 시 다시 원래의 exclusive lock과 전체 검사를 수행한다.
 
 사전검사가 거부한 DB에는 `flyway_schema_history`도 만들지 않는다. 기존 공개 샘플 계정은 원문 비밀번호나 BCrypt hash를 artifact에 넣지 않고 공개된 비밀번호 hash 자체의 one-way fingerprint denylist로 탐지해 baseline 전에 중단한다. 사용자명이나 권한을 바꿔도 같은 공개 hash면 거부하며, 실제 V001도 exclusive lock을 잡은 뒤 같은 fingerprint를 재검사한다. 기술 검사가 fresh 또는 legacy 형태를 확인해도 실제 용도는 추정하지 않으며 `MIGRATION_SOURCE_CLASS`에는 운영 책임자의 승인 기록과 같은 분류만 입력한다.
 
@@ -225,7 +225,7 @@ MIGRATION_SOURCE_CLASS=NEW_OR_SAMPLE | LEGACY_OPERATIONAL
 - 운영 웹 애플리케이션 계정에는 DDL 권한을 주지 않는다.
 - runner의 Flyway 버전은 애플리케이션 dependency와 같고 `cleanDisabled=true`, baseline 자동화 금지, schema와 location을 코드로 고정한다.
 - 로컬 runtime도 먼저 `dbMigrate`를 실행하고 앱 시작 Flyway는 끈다. 테스트 프로필만 Testcontainers DB에 앱 시작 migration을 허용한다.
-- `prod` 프로필은 시작 시 성공한 V001~V008 이력을 정확히 비교하고 history 부재·실패·누락·초과 version이면 기동을 실패한다.
+- `prod` 프로필은 시작 시 성공한 V001~V010 이력을 정확히 비교하고 history 부재·실패·누락·초과 version이면 기동을 실패한다.
 
 적용 원칙은 다음과 같다.
 
@@ -251,7 +251,7 @@ MIGRATION_SOURCE_CLASS=NEW_OR_SAMPLE | LEGACY_OPERATIONAL
 2. 기존 `member`, `authentications`, `attendance`, `attendance_log`의 스키마와 건수를 기록한다.
 3. `public.flyway_schema_history`가 없고 `member`가 승인된 레거시 형태와 정확히 일치하는지 확인한다.
 4. `MIGRATION_SOURCE_CLASS=LEGACY_OPERATIONAL` 승인과 read-only preflight가 일치할 때 guarded runner가 **version 0** baseline을 한 번만 명시적으로 수행한다.
-5. 같은 runner가 V001부터 신규 테이블을 기존 테이블 옆에 생성하고 V008에서 고정 종료한 뒤 validate한다.
+5. 같은 runner가 V001부터 신규 테이블을 기존 테이블 옆에 생성하고 V010에서 고정 종료한 뒤 validate한다.
 
 baseline은 기존 구조가 올바르다는 검증도, 백업도 아니다. baseline 시점의 schema-only dump, 객체 목록과 row count를 별도로 보존한다.
 
@@ -301,6 +301,9 @@ ORDER BY installed_rank;
 | V006 | `V006__create_event_and_audit_log.sql` | `tag_event_log`, `audit_log` |
 | V007 | `V007__add_indexes_and_scope_guards.sql` | 복합 FK, 부분 유일 인덱스, 조회·마감 인덱스 |
 | V008 | `V008__add_updated_at_triggers.sql` | 고유 이름의 `attend_set_updated_at()` 함수·trigger와 함수의 `PUBLIC EXECUTE` 회수 |
+| V009 | `V009__require_birth_for_active_member_writes.sql` | 기존 결측 행은 그대로 보존하되 신규 등록·기본정보 수정·활성화에 미래가 아닌 정확한 생년월일을 강제하고, 활성 소속–교사 상태 불일치와 종료 소속·카드 연결 이력의 재개방·변조를 차단 |
+| V010 | `V010__add_audit_log_retention_worker.sql` | audit 시각 DB 강제, 전역 retention 인덱스와 고정 2년·500행 `SECURITY DEFINER` purge 함수 추가. 권한 script는 별도 `retention_worker`에 이 함수 실행만 부여 |
+| R | `R__update_member_column_comments.sql` | 적용된 V001 checksum은 바꾸지 않고 `age`·`birth` catalog 설명을 현재 최소수집 계약과 동기화 |
 
 V002는 비밀번호가 없는 `PENDING_SETUP`, 비밀번호가 설정된 `ACTIVE`, 두 형태를 보존할 수 있는 `DISABLED` 상태와 nullable 비밀번호 필드의 일관성 `CHECK`를 함께 생성한다. `account_credential_token`은 `INVITATION`·`RESET`, 64자 lowercase HMAC-SHA-256 hash, 대상·발급 계정, 최대 30분의 발급·만료 시각과 사용·무효 시각을 저장한다. 계정·목적별 미사용·미무효 token 한 건을 보장하는 부분 유일 인덱스는 V007에서 생성한다. V002 적용과 V007에 분리된 부분 유일성을 포함한 PostgreSQL DB 테스트 통과가 계정 생성·회원가입 초대·reset command의 출시 gate다. 원문 token은 관리자가 1회 표시 링크를 복사해 승인된 1:1 메신저로 전달하며, 운영 공개 base URL·HTTPS 승인은 별도 운영 gate다.
 
@@ -344,7 +347,7 @@ V001의 레거시 확장 경로는 다음만 수행한다.
 - `attendance`와 `attendance_log`의 `member` FK를 `ON DELETE RESTRICT`로 교체
 - `member.created_at`은 `TIMESTAMP WITHOUT TIME ZONE` 그대로 유지하고 판정·통계에 사용하지 않음
 - 기존 행에 처음 채워지는 `updated_at`은 원본 생성·수정 시각이 아니라 V001 적용 시각을 의미하며, 이 값을 과거 변경 시각으로 해석하지 않음
-- `age`, `birth`, `created_at`, `card_uid`에는 레거시·비업무 컬럼임을 나타내는 DB comment를 추가
+- V001은 기존 호환성을 위해 `age`, `birth`, `created_at`, `card_uid`에 레거시 comment를 추가한다. 이후 repeatable metadata migration이 `age`를 신규 업무에서 사용하지 않는 원본 호환값, `birth`를 신규 등록·기본정보 수정·활성화에 필요한 생년월일이자 생일 관리·만 나이 계산의 기준값으로 정정하며 적용된 V001 checksum은 바꾸지 않는다.
 
 fresh DB 경로도 최종 컬럼, 기본값, 제약과 comment가 레거시 확장 결과와 같도록 `member`를 생성한다. `member_id_seq`가 `max(id)`보다 뒤처진 경우에만 안전하게 올리고 이미 앞선 sequence를 낮추지 않는다.
 
@@ -390,7 +393,7 @@ legacy_member_id,department_key,activate_member,retain_phone,approved_by
 - `legacy_member_id`로 기존 `member` 행을 직접 연결하고 PK를 바꾸지 않는다.
 - 이름이 같다는 이유로 구성원 행을 병합하거나 새 행으로 복제하지 않는다.
 - 부서를 이름, 카드 UID 또는 출석 기록으로 추정하지 않는다.
-- `age`, `birth`는 기존 컬럼에 보존하되 신규 화면과 업무 query에서 사용하지 않는다.
+- 신규 등록·활성 교사 기본정보 수정·활성화에는 미래가 아닌 정확한 `birth`를 필수로 입력하고 생일 관리와 만 나이 계산에 사용한다. 기존 정수 `age`는 원본 호환을 위해 보존할 뿐 신규 화면의 현재 나이나 업무 판정에 사용하거나 수정하지 않는다. 레거시 결측값과 파생 나이는 확인된 날짜로 정정하기 전까지 미상으로 두며 정수 `age`로 생년월일을 역산하지 않는다.
 - `phone`은 운영 필요성과 개인정보 처리 승인이 있을 때만 신규 화면에 노출한다.
 - 신규 `department`, `account`, `nfc_card`의 `created_at`은 컷오버 시각으로 기록한다.
 - 신규 `joined_at`은 과거 가입일을 추정하지 않고 컷오버 시각으로 기록한다.
@@ -459,7 +462,7 @@ MVP에서는 예외 없이 다음과 같이 처리한다.
 - 원래 장치와 request ID를 모르는 로그를 신규 `tag_event_log`로 변환하지 않는다.
 - 레거시 조회 화면을 만들 경우 신규 공식 통계 repository와 별도 query 경계를 사용한다.
 - 컷오버 시 기존 네 테이블의 immutable dump와 row count·해시를 보존한다.
-- 신규 runtime DB 역할은 `member`의 신규 업무 컬럼만 최소 권한으로 사용하고 `age`, `birth`, `card_uid`, 레거시 `created_at`을 수정하지 않는다.
+- 신규 runtime DB 역할은 레거시 `created_at`을 읽기만 하고 `birth`는 승인된 부서 교사 화면에서만 조회·입력·수정한다. 원본 호환 정수 `age`와 `card_uid`는 신규 업무 query에서 읽거나 수정하지 않는다.
 - 신규 runtime DB 역할에는 `authentications`, `attendance`, `attendance_log`의 `INSERT`, `UPDATE`, `DELETE` 권한을 주지 않는다.
 - 레거시 조회가 필요하면 명시적인 `SELECT` 권한 또는 읽기 전용 view만 제공한다.
 
@@ -650,9 +653,10 @@ cluster-global 역할 백업에는 비밀번호 해시가 포함될 수 있으�
 - V008은 함수 생성 직후 `attend_set_updated_at()`의 `PUBLIC EXECUTE` 권한을 회수한다.
 - `authentications`, `attendance`, `attendance_log`의 읽기 전용 상태는 코드 관례가 아니라 `REVOKE`로 강제한다.
 - `legacy_writer`에도 table-level `UPDATE ON member`를 주지 않는다. 안전 릴리스가 사용하는 기존 컬럼만 column-level로 허용해 제거한 카드 수정 경로를 DB 권한으로도 차단한다.
-- `member`는 column-level 권한으로 필요한 컬럼만 조회하고 `name`, `phone`, `active`만 INSERT·UPDATE하게 한다. `updated_at`은 trigger만 갱신하며, `age`, `birth`, `card_uid`, 레거시 `created_at`의 runtime 조회·수정과 모든 `member` DELETE는 차단한다.
+- `member`는 column-level 권한으로 `id`, `name`, `phone`, `birth`, `created_at`, `active`, `updated_at`만 조회한다. `name`, `phone`, `birth`, `active`만 INSERT·UPDATE하고 `created_at`, `updated_at`은 직접 수정하지 않는다. `updated_at`은 trigger만 갱신하며 원본 호환 정수 `age`, `card_uid`의 runtime 접근과 모든 `member` DELETE는 차단한다.
 - 신규 애플리케이션의 `member` query는 명시적 컬럼 목록을 사용한다. 권한으로 차단한 레거시 컬럼까지 요구하는 `SELECT *` Mapper를 신규 배포물에 남기지 않는다.
-- 애플리케이션 artifact의 요구 schema version과 history를 시작 시 비교하되 `app_runtime`은 `flyway_schema_history`를 읽을 수만 있고 변경할 수 없다. V008 release는 history 부재, 실패 행, V001~V008의 누락·중복·초과 version에서 기동을 실패한다. 문자열 `MAX(version)`은 사용하지 않고 Flyway `MigrationVersion`으로 전체 적용 순서를 비교하며 checksum은 runner의 `flyway validate`로 검증한다.
+- 애플리케이션 artifact의 요구 schema version과 history를 시작 시 비교하되 `app_runtime`은 `flyway_schema_history`를 읽을 수만 있고 변경할 수 없다. V010 release는 history 부재, 실패 행, V001~V010의 누락·중복·초과 version에서 기동을 실패한다. 문자열 `MAX(version)`은 사용하지 않고 Flyway `MigrationVersion`으로 전체 적용 순서를 비교하며 checksum은 runner의 `flyway validate`로 검증한다.
+- V010 retention은 웹 runtime grant에 `DELETE`를 추가하지 않는다. 별도 `retention_worker`가 direct table 권한 없이 고정 2년 cutoff function만 실행하며, worker credential은 웹 container에 주입하지 않는다.
 - 신규 테이블, identity sequence와 함수 권한은 재현 가능한 별도 권한 스크립트로 관리한다.
 - 신규 배포물에 세 레거시 테이블 쓰기 Mapper, 기존 `member.card_uid` 수정과 `DELETE FROM member` 경로가 포함되지 않았는지 확인한다.
 - 롤백 때문에 `legacy_writer`가 다시 필요하면 승인 후 제한된 시간 동안만 복구한다.
@@ -682,10 +686,10 @@ cluster-global 역할 백업에는 비밀번호 해시가 포함될 수 있으�
 
 ### 9.2 2단계: M1 스키마 리허설
 
-1. 새 빈 PostgreSQL DB에 V001~V008을 적용하고 catalog·부정 테스트를 수행한다.
+1. 새 빈 PostgreSQL DB에 V001~V010을 적용하고 catalog·부정 테스트를 수행한다.
 2. 제거된 기존 `schema.sql`과 동일한 `member`, `authentications`, `attendance`, `attendance_log` 테스트 fixture를 만든다.
 3. fixture의 version 0 baseline 사전조건과 결과를 검증한다.
-4. fixture에 V001~V008을 적용한다. `member` 행·PK·원본 컬럼·sequence, `authentications` 전체, `attendance`·`attendance_log` 행과 원본 컬럼이 보존되는지 확인한다. 두 출석 테이블의 `member` FK 삭제 동작이 승인된 `CASCADE → RESTRICT` 변경 외에는 달라지지 않았는지도 확인한다.
+4. fixture에 V001~V010을 적용한다. `member` 행·PK·원본 컬럼·sequence, `authentications` 전체, `attendance`·`attendance_log` 행과 원본 컬럼이 보존되는지 확인한다. 두 출석 테이블의 `member` FK 삭제 동작이 승인된 `CASCADE → RESTRICT` 변경 외에는 달라지지 않았는지도 확인한다.
 5. fresh 경로와 레거시 채택 경로의 최종 `member` 컬럼·제약이 일치하는지 catalog로 비교한다.
 6. 실제 운영 DB가 있으면 최근 백업을 격리 DB에 복원해 같은 schema 절차를 수행한다.
 7. 각 경로를 다시 만든 깨끗한 DB에서 처음부터 한 번 더 재현한다.
@@ -712,7 +716,7 @@ M1 리허설은 신규 앱의 관리자·출석·장치 기능, 실제 importer�
 
 ### 9.4 4단계: 실제 운영 컷오버
 
-이 단계는 V001~V008만으로 실행하지 않는다. M2의 교차 테이블 업무 규칙과 자동 마감 트랜잭션, M3 관리자 보안, M4 장치 API가 자동화된 부정·동시성 테스트를 통과하고, 전체 release의 `flyway_target_version`과 migration checksum이 승인된 뒤에만 진행한다.
+이 단계는 V001~V010만으로 실행하지 않는다. M2의 교차 테이블 업무 규칙과 자동 마감 트랜잭션, M3 관리자 보안, M4 장치 API가 자동화된 부정·동시성 테스트를 통과하고, 전체 release의 `flyway_target_version`과 migration checksum이 승인된 뒤에만 진행한다.
 
 1. 실제 출석이 없는 maintenance window를 시작한다.
 2. 관리자 쓰기, 장치 API와 스케줄러를 중지한다.
@@ -750,8 +754,8 @@ MVP feature flag는 process 시작 시 환경 또는 외부 Spring 설정에서 
 
 | 검증 대상 | 합격 기준 |
 |---|---|
-| 빈 DB | V001~V008만으로 전체 신규 스키마 생성 |
-| 운영 복제본 | baseline 0 이후 V001~V008 성공 |
+| 빈 DB | V001~V010만으로 전체 신규 스키마 생성 |
+| 운영 복제본 | baseline 0 이후 V001~V010 성공 |
 | `member` 채택 | 원본 PK·행·sequence·레거시 컬럼 보존, 기록된 빈 전화번호 정규화만 예외, 승인 행만 활성화 |
 | 전체 release | 고정 artifact에서 승인된 `flyway_target_version`까지 적용되고 checksum 일치 |
 | Flyway 상태 | 실패·pending·checksum 불일치 없음 |
@@ -980,10 +984,10 @@ M1은 신규 기능 전체가 아니라 안전한 DB 변경 기반을 완성하�
 
 - [ ] 운영 시작 경로에서 파괴적 `schema.sql`과 샘플 `data.sql`이 실행되지 않음
 - [ ] 개발·테스트·운영 데이터소스가 분리됨
-- [ ] 빈 PostgreSQL DB를 V001~V008로 재구성함
+- [ ] 빈 PostgreSQL DB를 V001~V010으로 재구성함
 - [ ] 대표 레거시 fixture에서 baseline 0과 migration을 두 번 재현함
 - [ ] 실제 운영 DB가 있다면 승인된 복제본에서도 같은 절차를 재현함
-- [ ] baseline 결과에 version 0 `BASELINE`과 V001~V008이 모두 존재함
+- [ ] baseline 결과에 version 0 `BASELINE`과 V001~V010이 모두 존재함
 - [ ] 적용된 migration의 checksum과 `validate`가 정상임
 - [ ] 앱 연속 두 번 재시작 후 schema와 데이터가 변하지 않음
 - [ ] 기존 `member` 물리 삭제 API·Mapper가 제거되고 관련 FK가 `ON DELETE RESTRICT`임

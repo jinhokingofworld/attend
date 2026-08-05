@@ -267,6 +267,36 @@ class M2ApplicationIntegrationTest {
 										"1차 지각",
 										AttendanceParentStatus.LATE,
 										LocalTime.of(9, 15)))));
+		policyService.replaceDraft(
+				actor,
+				authority.departmentId(),
+				policyId,
+				new PolicyDraftCommand(
+						"주일 기본 정책 수정",
+						LocalTime.of(8, 30),
+						List.of(
+								new PolicyBandInput(
+										1,
+										"정상 출석",
+										AttendanceParentStatus.PRESENT,
+										LocalTime.of(9, 0)),
+								new PolicyBandInput(
+										2,
+										"지각 수정",
+										AttendanceParentStatus.LATE,
+										LocalTime.of(9, 20)))));
+		assertThat(queryInt("""
+				SELECT count(*)
+				FROM public.audit_log
+				WHERE department_id = ?
+				  AND action = 'POLICY_DRAFT_REPLACED'
+				  AND before_data ->> 'name' = '주일 기본 정책'
+				  AND after_data ->> 'name' = '주일 기본 정책 수정'
+				  AND before_data #>> '{bands,1,label}' = '1차 지각'
+				  AND after_data #>> '{bands,1,label}' = '지각 수정'
+				  AND before_data #>> '{bands,1,upperTime}' = '09:15'
+				  AND after_data #>> '{bands,1,upperTime}' = '09:20'
+				""", authority.departmentId())).isEqualTo(1);
 		policyService.publish(actor, authority.departmentId(), policyId);
 
 		assertThatThrownBy(() -> policyService.replaceDraft(

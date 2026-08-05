@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 
@@ -26,6 +27,8 @@ import java.util.Map;
  */
 @Service
 public class CardManagementService {
+
+	private static final Duration CARD_INBOX_RETENTION = Duration.ofDays(7);
 
 	private final DepartmentAuthorization authorization;
 	private final AdminWriteAuthorization writeAuthorization;
@@ -86,7 +89,9 @@ public class CardManagementService {
 	) {
 		writeAuthorization.requireEnabled();
 		authorizeAndLock(actor, departmentId);
-		String uid = mapper.selectAssignableTagEventUid(departmentId, eventId);
+		Instant receivedSince = clock.instant().minus(CARD_INBOX_RETENTION);
+		String uid = mapper.selectAssignableTagEventUid(
+				departmentId, eventId, receivedSince);
 		if (uid == null) {
 			if (mapper.existsTagEvent(departmentId, eventId)) {
 				throw new BusinessRuleException(
