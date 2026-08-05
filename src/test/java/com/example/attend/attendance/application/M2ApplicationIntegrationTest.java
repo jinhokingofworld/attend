@@ -36,6 +36,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -634,6 +635,56 @@ class M2ApplicationIntegrationTest {
 				LocalDate.of(2026, 7, 31),
 				1L))
 				.isInstanceOf(DepartmentAccessDeniedException.class);
+	}
+
+	@Test
+	void createsRecurringDaysSnapshotsTargetsAndSkipsExistingDates() {
+		clock.setInstant(atSeoul(
+				LocalDate.of(2026, 8, 1),
+				LocalTime.of(8, 0)));
+		TestAuthority authority = createAuthority();
+		AccountActor actor = new AccountActor(authority.accountId());
+		TeacherRegistrationResult teacher = teacherRosterService.addTeacher(
+				actor,
+				authority.departmentId(),
+				new AddTeacherCommand("반복 생성 교사", null, null));
+		long policyId = createPublishedPolicy(actor, authority.departmentId());
+		AttendanceDayScheduleCommand command = new AttendanceDayScheduleCommand(
+				LocalDate.of(2026, 8, 2),
+				LocalDate.of(2026, 8, 6),
+				policyId,
+				AttendanceDayRecurrence.DAILY,
+				2,
+				Set.of(), Set.of(), null, null);
+
+		AttendanceDayBatchResult first = dayService.createDays(
+				actor, authority.departmentId(), command);
+		AttendanceDayBatchResult second = dayService.createDays(
+				actor, authority.departmentId(), command);
+
+		assertThat(first).isEqualTo(new AttendanceDayBatchResult(3, 0));
+		assertThat(second).isEqualTo(new AttendanceDayBatchResult(0, 3));
+		assertThat(queryInt("""
+				SELECT count(*)
+				FROM public.attendance_day
+				WHERE department_id = ?
+				  AND attendance_date BETWEEN ? AND ?
+				""", authority.departmentId(),
+				LocalDate.of(2026, 8, 2), LocalDate.of(2026, 8, 6))).isEqualTo(3);
+		assertThat(queryInt("""
+				SELECT count(*)
+				FROM public.attendance_target AS target
+				JOIN public.attendance_day AS day
+				  ON day.id = target.attendance_day_id
+				WHERE day.department_id = ?
+				  AND target.member_id = ?
+				""", authority.departmentId(), teacher.memberId())).isEqualTo(3);
+		assertThat(queryInt("""
+				SELECT count(*)
+				FROM public.audit_log
+				WHERE department_id = ?
+				  AND action = 'ATTENDANCE_DAY_CREATED'
+				""", authority.departmentId())).isEqualTo(3);
 	}
 
 	/**

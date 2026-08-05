@@ -14,8 +14,8 @@ import java.util.List;
 @Mapper
 public interface AttendanceDayMapper {
 
-	/** 출석일을 만들고 식별자를 반환한다. */
-	long insertDay(
+	/** 같은 부서·날짜가 없을 때만 출석일을 만들고 식별자를 반환한다. */
+	Long insertDayIfAbsent(
 			@Param("departmentId") long departmentId,
 			@Param("attendanceDate") LocalDate attendanceDate,
 			@Param("policyVersionId") long policyVersionId,
