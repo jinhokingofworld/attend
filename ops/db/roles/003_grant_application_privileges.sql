@@ -69,6 +69,32 @@ REVOKE ALL PRIVILEGES (
 ) ON TABLE public.member
 FROM app_runtime, cutover_writer, legacy_writer;
 
+REVOKE ALL PRIVILEGES (
+    id,
+    department_id,
+    member_id,
+    joined_at,
+    ended_at,
+    created_by_account_id,
+    ended_by_account_id,
+    end_reason
+) ON TABLE public.department_membership
+FROM app_runtime, cutover_writer, legacy_writer;
+
+REVOKE ALL PRIVILEGES (
+    id,
+    nfc_card_id,
+    department_id,
+    membership_id,
+    member_id,
+    assigned_by_account_id,
+    unassigned_by_account_id,
+    assigned_at,
+    unassigned_at,
+    end_reason
+) ON TABLE public.nfc_card_assignment
+FROM app_runtime, cutover_writer, legacy_writer;
+
 GRANT USAGE ON SCHEMA public
     TO app_runtime, cutover_writer, legacy_writer;
 REVOKE CREATE ON SCHEMA public

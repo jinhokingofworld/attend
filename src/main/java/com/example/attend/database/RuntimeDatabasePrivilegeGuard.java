@@ -163,6 +163,69 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                                 forbidden.privilege_type
                             )
                         )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM (
+                                VALUES
+                                    ('department_membership', 'UPDATE'),
+                                    ('department_membership', 'DELETE'),
+                                    ('department_membership', 'TRUNCATE'),
+                                    ('department_membership', 'REFERENCES'),
+                                    ('department_membership', 'TRIGGER'),
+                                    ('nfc_card_assignment', 'UPDATE'),
+                                    ('nfc_card_assignment', 'DELETE'),
+                                    ('nfc_card_assignment', 'TRUNCATE'),
+                                    ('nfc_card_assignment', 'REFERENCES'),
+                                    ('nfc_card_assignment', 'TRIGGER')
+                            ) AS forbidden(table_name, privilege_type)
+                            WHERE has_table_privilege(
+                                current_user,
+                                'public.' || forbidden.table_name,
+                                forbidden.privilege_type
+                            )
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM (
+                                VALUES
+                                    ('department_membership', 'ended_at'),
+                                    ('department_membership', 'ended_by_account_id'),
+                                    ('department_membership', 'end_reason'),
+                                    ('nfc_card_assignment', 'unassigned_by_account_id'),
+                                    ('nfc_card_assignment', 'unassigned_at'),
+                                    ('nfc_card_assignment', 'end_reason')
+                            ) AS required(table_name, column_name)
+                            WHERE NOT has_column_privilege(
+                                current_user,
+                                'public.' || required.table_name,
+                                required.column_name,
+                                'UPDATE'
+                            )
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM (
+                                VALUES
+                                    ('department_membership', 'id'),
+                                    ('department_membership', 'department_id'),
+                                    ('department_membership', 'member_id'),
+                                    ('department_membership', 'joined_at'),
+                                    ('department_membership', 'created_by_account_id'),
+                                    ('nfc_card_assignment', 'id'),
+                                    ('nfc_card_assignment', 'nfc_card_id'),
+                                    ('nfc_card_assignment', 'department_id'),
+                                    ('nfc_card_assignment', 'membership_id'),
+                                    ('nfc_card_assignment', 'member_id'),
+                                    ('nfc_card_assignment', 'assigned_by_account_id'),
+                                    ('nfc_card_assignment', 'assigned_at')
+                            ) AS forbidden(table_name, column_name)
+                            WHERE has_column_privilege(
+                                current_user,
+                                'public.' || forbidden.table_name,
+                                forbidden.column_name,
+                                'UPDATE'
+                            )
+                        )
                         AND NOT has_function_privilege(
                             current_user,
                             'public.attend_set_updated_at()',

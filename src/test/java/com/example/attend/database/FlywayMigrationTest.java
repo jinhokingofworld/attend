@@ -19,6 +19,7 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -1646,6 +1647,94 @@ class FlywayMigrationTest {
     }
 
     /**
+     * 레거시 schema에 V009 함수가 먼저 있으면 baseline을 기록하기 전에 거부한다.
+     *
+     * <p>baseline은 별도 commit이므로 이 검사가 없으면 V001~V008의 성공 이력만
+     * 남긴 채 V009에서 실패할 수 있다. 거부 경로에서는 레거시 행과 충돌 함수가
+     * 그대로 남고 Flyway history·신규 테이블이 생기지 않아야 한다.</p>
+     */
+    @Test
+    void rejectsUnmanagedV009FunctionBeforeLegacyBaseline() throws Exception {
+        Database database = createDatabase("legacy_v009_function_collision");
+
+        try (Connection connection = database.connect();
+             Statement statement = connection.createStatement()) {
+            ScriptUtils.executeSqlScript(
+                    connection,
+                    new ClassPathResource("db/legacy/legacy-schema.sql")
+            );
+            statement.executeUpdate("""
+                    INSERT INTO public.member(name)
+                    VALUES ('보존해야 할 레거시 교사')
+                    """);
+            createV009BirthTriggerFunction(statement);
+        }
+
+        DatabasePreflightInspector.PreflightResult preflight =
+                new DatabasePreflightInspector().inspect(database.dataSource());
+        assertThat(preflight.status()).isEqualTo(REJECTED);
+        assertThat(preflight.reason()).contains("V009 function");
+        assertThatThrownBy(() -> new DatabaseMigrationRunner().migrate(
+                database.dataSource(),
+                LEGACY_OPERATIONAL
+        )).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("preflight rejected");
+
+        try (Connection connection = database.connect()) {
+            assertThat(queryString(connection, """
+                    SELECT to_regclass('public.flyway_schema_history')::text
+                    """)).isNull();
+            assertThat(queryString(connection, """
+                    SELECT to_regclass('public.department')::text
+                    """)).isNull();
+            assertThat(queryInt(connection, """
+                    SELECT count(*)
+                    FROM public.member
+                    WHERE name = '보존해야 할 레거시 교사'
+                    """)).isEqualTo(1);
+            assertThat(queryString(connection, """
+                    SELECT to_regprocedure(
+                        'public.attend_require_member_birth_on_write()'
+                    )::text
+                    """)).isEqualTo("attend_require_member_birth_on_write()");
+        }
+    }
+
+    /** 함수만 있는 빈 schema도 V009 충돌로 분류해 migration 전 중단한다. */
+    @Test
+    void rejectsUnmanagedV009FunctionInOtherwiseFreshSchema() throws Exception {
+        Database database = createDatabase("fresh_v009_function_collision");
+
+        try (Connection connection = database.connect();
+             Statement statement = connection.createStatement()) {
+            createV009BirthTriggerFunction(statement);
+        }
+
+        DatabasePreflightInspector.PreflightResult preflight =
+                new DatabasePreflightInspector().inspect(database.dataSource());
+        assertThat(preflight.status()).isEqualTo(REJECTED);
+        assertThatThrownBy(() -> new DatabaseMigrationRunner().migrate(
+                database.dataSource(),
+                NEW_OR_SAMPLE
+        )).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("preflight rejected");
+
+        try (Connection connection = database.connect()) {
+            assertThat(queryString(connection, """
+                    SELECT to_regclass('public.flyway_schema_history')::text
+                    """)).isNull();
+            assertThat(queryString(connection, """
+                    SELECT to_regclass('public.department')::text
+                    """)).isNull();
+            assertThat(queryString(connection, """
+                    SELECT to_regprocedure(
+                        'public.attend_require_member_birth_on_write()'
+                    )::text
+                    """)).isEqualTo("attend_require_member_birth_on_write()");
+        }
+    }
+
+    /**
      * 이름만 같은 알 수 없는 {@code member} 테이블을 레거시로 추측하지 않는지 검증한다.
      *
      * <p>거부된 DB에서는 기존 행을 수정하지 않고, 새 업무 테이블과 Flyway
@@ -2030,6 +2119,78 @@ class FlywayMigrationTest {
         try (Connection migrationConnection =
                      migrationDataSource.getConnection();
              Statement statement = migrationConnection.createStatement()) {
+            assertThat(queryString(statement, """
+                    SELECT has_table_privilege(
+                        'app_runtime',
+                        'public.department_membership',
+                        'UPDATE'
+                    )::text
+                    """)).isEqualTo("false");
+            assertThat(queryString(statement, """
+                    SELECT has_table_privilege(
+                        'app_runtime',
+                        'public.nfc_card_assignment',
+                        'UPDATE'
+                    )::text
+                    """)).isEqualTo("false");
+            assertThat(queryString(statement, """
+                    SELECT has_column_privilege(
+                        'app_runtime',
+                        'public.department_membership',
+                        'ended_at',
+                        'UPDATE'
+                    )::text
+                    """)).isEqualTo("true");
+            assertThat(queryString(statement, """
+                    SELECT has_column_privilege(
+                        'app_runtime',
+                        'public.nfc_card_assignment',
+                        'unassigned_at',
+                        'UPDATE'
+                    )::text
+                    """)).isEqualTo("true");
+
+            for (String table : List.of(
+                    "department_membership",
+                    "nfc_card_assignment"
+            )) {
+                for (String privilege : List.of(
+                        "UPDATE",
+                        "DELETE",
+                        "TRUNCATE",
+                        "REFERENCES",
+                        "TRIGGER"
+                )) {
+                    statement.execute("GRANT %s ON TABLE public.%s TO app_runtime"
+                            .formatted(privilege, table));
+                    assertRuntimePrivilegeGuardRejects(runtimeDataSource);
+                    executeSqlFile(
+                            statement,
+                            "ops/db/roles/003_grant_application_privileges.sql"
+                    );
+                    RuntimeDatabasePrivilegeGuard.verify(runtimeDataSource);
+                }
+            }
+
+            for (String tableAndColumn : List.of(
+                    "department_membership.joined_at",
+                    "nfc_card_assignment.assigned_at"
+            )) {
+                String[] parts = tableAndColumn.split("\\.", 2);
+                statement.execute("GRANT UPDATE (%s) ON TABLE public.%s TO app_runtime"
+                        .formatted(parts[1], parts[0]));
+                assertRuntimePrivilegeGuardRejects(runtimeDataSource);
+                executeSqlFile(
+                        statement,
+                        "ops/db/roles/003_grant_application_privileges.sql"
+                );
+                RuntimeDatabasePrivilegeGuard.verify(runtimeDataSource);
+            }
+        }
+
+        try (Connection migrationConnection =
+                     migrationDataSource.getConnection();
+             Statement statement = migrationConnection.createStatement()) {
             statement.execute("""
                     GRANT SELECT (age)
                     ON TABLE public.member
@@ -2208,6 +2369,21 @@ class FlywayMigrationTest {
             }
             return values;
         }
+    }
+
+    /** 사전검사 충돌 회귀용 V009 zero-argument trigger 함수를 만든다. */
+    private static void createV009BirthTriggerFunction(Statement statement)
+            throws SQLException {
+        statement.execute("""
+                CREATE FUNCTION public.attend_require_member_birth_on_write()
+                RETURNS TRIGGER
+                LANGUAGE plpgsql
+                AS $function$
+                BEGIN
+                    RETURN NEW;
+                END;
+                $function$
+                """);
     }
 
     /**

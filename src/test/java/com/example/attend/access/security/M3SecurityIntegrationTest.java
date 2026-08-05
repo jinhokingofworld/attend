@@ -542,7 +542,7 @@ class M3SecurityIntegrationTest {
 	}
 
 	/**
-	 * 부서 제외 확인 화면의 미래 대상 건수가 변하면 재확인을 요구하고,
+	 * 부서 제외 확인 화면에서 본 미래 대상 식별자 집합이 바뀌면 재확인을 요구하고,
 	 * 확인한 현재 대상 전체만 소속·카드와 같은 트랜잭션에서 제외하는지 검증한다.
 	 */
 	@Test
@@ -593,14 +593,15 @@ class M3SecurityIntegrationTest {
 				.andExpect(content().string(containsString(
 						"미래 출석일 1건에서도 제외됩니다.")))
 				.andExpect(content().string(containsString(
-						"name=\"expectedFutureAttendanceDayCount\"")))
+						"name=\"expectedFutureAttendanceDayIds\"")))
+				.andExpect(content().string(containsString(
+						"value=\"" + dayId + "\"")))
 				.andExpect(content().string(not(containsString(
-						"name=\"futureAttendanceDayIds\""))));
+						"name=\"expectedFutureAttendanceDayCount\""))));
 
 		mockMvc.perform(post(exclusionPath)
 						.with(user(departmentPrincipal))
 						.with(csrf())
-						.param("expectedFutureAttendanceDayCount", "1")
 						.param("cardDisposition", "AVAILABLE")
 						.param("reason", "사역 종료"))
 				.andExpect(status().is3xxRedirection())
@@ -615,13 +616,22 @@ class M3SecurityIntegrationTest {
 				  AND ended_at IS NULL
 				""", Integer.class, departmentId, memberId)).isEqualTo(1);
 
+		jdbcTemplate.update("""
+				UPDATE public.attendance_target
+				SET is_target = FALSE,
+					changed_by_account_id = ?,
+					changed_at = CURRENT_TIMESTAMP,
+					change_reason = '확인 후 대상 교체'
+				WHERE attendance_day_id = ?
+				  AND member_id = ?
+				""", departmentAccountId, dayId, memberId);
 		LocalDate secondFutureDate = futureDate.plusDays(1);
 		long secondDayId = attendanceDayService.createDay(
 				actor, departmentId, secondFutureDate, policyId);
 		mockMvc.perform(post(exclusionPath)
 						.with(user(departmentPrincipal))
 						.with(csrf())
-						.param("expectedFutureAttendanceDayCount", "1")
+						.param("expectedFutureAttendanceDayIds", Long.toString(dayId))
 						.param("cardDisposition", "AVAILABLE")
 						.param("reason", "사역 종료")
 						.param("confirmImpact", "true"))
@@ -629,7 +639,7 @@ class M3SecurityIntegrationTest {
 				.andExpect(redirectedUrl(exclusionPath))
 				.andExpect(flash().attribute(
 						"error",
-						"미래 출석일 수가 변경되었습니다. 현재 영향을 다시 확인해 주세요."));
+						"미래 출석일 대상이 변경되었습니다. 현재 영향을 다시 확인해 주세요."));
 		assertThat(jdbcTemplate.queryForObject("""
 				SELECT count(*)
 				FROM public.department_membership
@@ -643,12 +653,18 @@ class M3SecurityIntegrationTest {
 				WHERE attendance_day_id IN (?, ?)
 				  AND member_id = ?
 				  AND is_target
-				""", Integer.class, dayId, secondDayId, memberId)).isEqualTo(2);
+				""", Integer.class, dayId, secondDayId, memberId)).isEqualTo(1);
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT is_target
+				FROM public.attendance_target
+				WHERE attendance_day_id = ?
+				  AND member_id = ?
+				""", Boolean.class, secondDayId, memberId)).isTrue();
 
 		mockMvc.perform(post(exclusionPath)
 						.with(user(departmentPrincipal))
 						.with(csrf())
-						.param("expectedFutureAttendanceDayCount", "2")
+						.param("expectedFutureAttendanceDayIds", Long.toString(secondDayId))
 						.param("cardDisposition", "AVAILABLE")
 						.param("reason", "사역 종료")
 						.param("confirmImpact", "true"))

@@ -2,6 +2,7 @@ package com.example.attend.operations;
 
 import com.example.attend.config.AdminSecurityProperties;
 import com.example.attend.config.DeviceApiProperties;
+import com.example.attend.database.DatabaseMigrationRunner;
 import java.time.Instant;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.info.BuildProperties;
@@ -43,7 +44,18 @@ public final class OperationsRuntimeStatusService {
 				deviceProperties.enabled(),
 				environment.getProperty(
 						"attendance.scheduler.enabled", Boolean.class, false),
-				"연결됨 · Flyway V008 기동 검증 통과",
+				"연결됨 · Flyway V%s 기동 검증 통과".formatted(
+						formattedMigrationTargetVersion()),
 				"확인 불가 · 상태 source 미구성");
+	}
+
+	/** 현재 정수 target은 세 자리로 표시하고, 향후 dotted version은 그대로 보존한다. */
+	private static String formattedMigrationTargetVersion() {
+		String version = DatabaseMigrationRunner.TARGET_VERSION.getVersion();
+		if (!version.isEmpty()
+				&& version.chars().allMatch(Character::isDigit)) {
+			return "0".repeat(Math.max(0, 3 - version.length())) + version;
+		}
+		return version;
 	}
 }

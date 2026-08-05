@@ -45,8 +45,10 @@
             </ul>
         </fieldset>
 
-        <input type="hidden" name="expectedFutureAttendanceDayCount"
-               th:value="${futureAttendanceDayCount}">
+        <input type="hidden"
+               th:each="day : ${futureAttendanceDays}"
+               name="expectedFutureAttendanceDayIds"
+               th:value="${day.id}">
 
         <label>활성 카드 처리
             <select name="cardDisposition" required>

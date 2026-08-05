@@ -361,7 +361,7 @@ src/main/java/com/example/attend
 ├── database        # Flyway, preflight, schema·권한 guard
 └── operations      # health와 민감정보 로그 처리
 
-src/main/resources/db/migration  # V001~V008 Flyway migration
+src/main/resources/db/migration  # V001~V009 Flyway migration
 firmware/attend-nfc              # WiFiNINA 기반 Arduino 펌웨어
 ops                              # Caddy, DB role, backup·restore
 scripts                          # 로컬 E2E와 HTTP simulator

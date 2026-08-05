@@ -43,6 +43,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 기존 M2 조직·출석 서비스를 부서 범위 MVC command와 화면에 연결한다.
@@ -271,7 +272,10 @@ public final class DepartmentAdminController {
 			@AuthenticationPrincipal AccountPrincipal principal,
 			@PathVariable long departmentId,
 			@PathVariable long memberId,
-			@RequestParam int expectedFutureAttendanceDayCount,
+			@RequestParam(
+					name = "expectedFutureAttendanceDayIds",
+					required = false
+			) Set<Long> expectedFutureAttendanceDayIds,
 			@RequestParam CardDisposition cardDisposition,
 			@RequestParam String reason,
 			@RequestParam(defaultValue = "false") boolean confirmImpact,
@@ -287,7 +291,9 @@ public final class DepartmentAdminController {
 								departmentId,
 								memberId,
 								new ExcludeTeacherCommand(
-										expectedFutureAttendanceDayCount,
+										expectedFutureAttendanceDayIds == null
+												? Set.of()
+												: expectedFutureAttendanceDayIds,
 										cardDisposition,
 										reason));
 					},

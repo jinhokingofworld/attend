@@ -174,7 +174,7 @@ a {
     color: #fff;
 }
 
-.button-link--danger:hover {
+.button-link.button-link--danger:hover {
     background: #8f1d14;
 }
 

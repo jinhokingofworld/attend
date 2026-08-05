@@ -91,7 +91,7 @@ Attend MVP는 화면이 열리고 NFC 요청 한 건이 성공하는 것만으�
 | Security/MVC | MockMvc + 실제 security 설정 + Testcontainers | 두 filter chain, CSRF, 세션, IDOR, PRG | 실제 PostgreSQL |
 | Device contract | OpenAPI validation + HTTP integration | schema, status, header, body 제한, 재시도 계약 | 기동한 Spring Boot |
 | Concurrency | 두 개 이상의 독립 DB connection/transaction | 잠금 순서와 race condition | 실제 PostgreSQL |
-| Migration | 빈 DB·레거시 fixture·복원 DB | V001~V008, baseline 0, 권한, 재현성 | 별도 PostgreSQL |
+| Migration | 빈 DB·레거시 fixture·복원 DB | V001~V009, baseline 0, 권한, 재현성 | 별도 PostgreSQL |
 | Firmware integration | 실제 Arduino·NFC reader·운영 유사 네트워크 | UID, HTTP, timeout, LED·부저 | staging 서버 |
 | E2E·파일럿 | 실제 관리자·교사·장치 | 전체 업무 흐름과 운영 절차 | 운영 유사/실환경 |
 
@@ -437,13 +437,13 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 
 | ID | 환경·작업 | 합격 기준 |
 |---|---|---|
-| MIG-FRESH-001 | 완전히 빈 DB에 V001~V008 적용 | baseline 행 없이 전체 목표 schema 생성 |
+| MIG-FRESH-001 | 완전히 빈 DB에 V001~V009 적용 | baseline 행 없이 전체 목표 schema 생성 |
 | MIG-FRESH-002 | 같은 migration 집합을 다시 실행하고 validate | 두 번째 schema·data 변경 없음 |
 | MIG-SAFE-001 | `NEW_OR_SAMPLE` DB에 baseline 시도 | baseline 금지, history·schema 변경 없음 |
 | MIG-SAFE-002 | 승인된 `LEGACY_OPERATIONAL` fixture | 사전조건 통과 후 명시적 version 0 `BASELINE` 정확히 한 행, PK·행·sequence 보존 |
 | MIG-SAFE-003 | `UNKNOWN` 분류 DB | 삭제·baseline·migration·이관 없이 중단 |
 | MIG-SAFE-004 | 기존 Flyway history가 있는 DB에서 새 baseline 시도 | 자동 추정하지 않고 중단, 기존 history 불변 |
-| MIG-SAFE-005 | 신규 15개 테이블·`attend_set_updated_at()`·이름 충돌 객체 중 하나 선존재 | baseline·migration 전 무변경 실패 |
+| MIG-SAFE-005 | 신규 15개 테이블·V008/V009 trigger 함수·이름 충돌 객체 중 하나 선존재 | baseline·migration 전 무변경 실패 |
 | MIG-SAFE-006 | 레거시 네 테이블 누락, 제3의 `member` 구조 또는 활성 writer 존재 | 사전점검 실패, DDL·data 변경 없음 |
 | MIG-SAFE-007 | `baselineOnMigrate=true` 또는 version 0이 아닌 자동 baseline 설정 | 배포 설정 검사 실패 |
 | MIG-SAFE-008 | 제거된 기존 seed의 알려진 password-hash fingerprint가 사용자명·권한과 무관하게 존재 | 원문·hash 노출 없이 read-only preflight 거부, history·계정 행 불변; V001 직접 호출도 거부 |
@@ -452,8 +452,8 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | MIG-RUNNER-002 | 적용 파일 checksum 변경 | runner의 `flyway validate` 실패, 배포 중단 |
 | MIG-RUNNER-003 | pending·out-of-order·repeatable checksum 불일치 | runner의 `info`·`validate` gate 실패 |
 | MIG-RUNNER-004 | 운영 runner에서 `clean` 시도 | `cleanDisabled=true`로 거부 |
-| MIG-RUNTIME-001 | 성공한 versioned history가 V001~V008과 정확히 일치 | runtime 기동 허용 |
-| MIG-RUNTIME-002 | history 없음·실패 행·version 누락·V008 미만·승인 target 초과 각각 | runtime이 쓰기 받기 전에 fail fast |
+| MIG-RUNTIME-001 | 성공한 versioned history가 V001~V009과 정확히 일치 | runtime 기동 허용 |
+| MIG-RUNTIME-002 | history 없음·실패 행·version 누락·V009 미만·승인 target 초과 각각 | runtime이 쓰기 받기 전에 fail fast |
 | MIG-RUNTIME-003 | `001` 같은 표시 형식과 숫자 version 비교 | 문자열 `MAX(version)`이 아니라 Flyway `MigrationVersion`으로 판정 |
 | MIG-RUNTIME-004 | `migration_owner` credential을 웹 runtime에 설정 | 설정 검증 실패 |
 | MIG-GRANT-001 | `app_runtime` DDL·history write·member DELETE·legacy DML | table·column·sequence·function 권한으로 거부 |

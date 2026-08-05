@@ -36,6 +36,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -374,7 +375,7 @@ class M2ApplicationIntegrationTest {
 				authority.departmentId(),
 				firstTeacher.memberId(),
 				new ExcludeTeacherCommand(
-						0,
+						Set.of(),
 						CardDisposition.LOST,
 						"부서 사역 종료"));
 
@@ -404,7 +405,7 @@ class M2ApplicationIntegrationTest {
 
 	/**
 	 * 부서 제외는 확정된 과거·시작 후·기록 있는 날짜를 보존하고,
-	 * 시작 전이며 기록 없는 대상만 자동 제외하는지 검증한다.
+	 * 확인한 시작 전·기록 없는 대상 집합만 자동 제외하는지 검증한다.
 	 */
 	@Test
 	void excludesOnlyUnstartedRecordlessTargetsAndKeepsThemExcludedAfterRejoin() {
@@ -470,7 +471,7 @@ class M2ApplicationIntegrationTest {
 				authority.departmentId(),
 				teacher.memberId(),
 				new ExcludeTeacherCommand(
-						2,
+						Set.of(pastDayId),
 						CardDisposition.AVAILABLE,
 						"부서 이동")))
 				.isInstanceOf(BusinessRuleException.class)
@@ -487,7 +488,7 @@ class M2ApplicationIntegrationTest {
 				authority.departmentId(),
 				teacher.memberId(),
 				new ExcludeTeacherCommand(
-						1,
+						Set.of(eligibleFutureDayId),
 						CardDisposition.AVAILABLE,
 						"부서 이동"));
 

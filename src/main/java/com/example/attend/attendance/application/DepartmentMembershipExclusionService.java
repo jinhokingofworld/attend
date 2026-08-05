@@ -19,6 +19,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 미래 대상자 변경과 조직 소속·카드 종료를 하나의 트랜잭션으로 처리한다.
@@ -59,7 +60,7 @@ public class DepartmentMembershipExclusionService {
 	}
 
 	/**
-	 * 확인한 수의 시작 전 날짜를 자동 제외하고 조직 상태를 함께 종료한다.
+	 * 확인한 시작 전 날짜 전체를 자동 제외하고 조직 상태를 함께 종료한다.
 	 */
 	@Transactional
 	public void exclude(
@@ -79,9 +80,13 @@ public class DepartmentMembershipExclusionService {
 				memberId,
 				businessNow.toLocalDate(),
 				businessNow.toLocalTime());
-		if (days.size() != command.expectedFutureAttendanceDayCount()) {
+		Set<Long> actualFutureAttendanceDayIds = days.stream()
+				.map(AttendanceDayRow::id)
+				.collect(java.util.stream.Collectors.toUnmodifiableSet());
+		if (!actualFutureAttendanceDayIds.equals(
+				command.expectedFutureAttendanceDayIds())) {
 			throw new BusinessRuleException(
-					"미래 출석일 수가 변경되었습니다. 현재 영향을 다시 확인해 주세요.");
+					"미래 출석일 대상이 변경되었습니다. 현재 영향을 다시 확인해 주세요.");
 		}
 		for (AttendanceDayRow day : days) {
 			requireTargetCanBeExcluded(day, occurredAt);
