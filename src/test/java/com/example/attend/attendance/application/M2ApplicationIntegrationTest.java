@@ -96,6 +96,63 @@ class M2ApplicationIntegrationTest {
 	@Autowired
 	private ApplicationContext applicationContext;
 
+	/** 신규·수정 command는 생일과 만 나이의 근거인 정확한 생년월일을 요구한다. */
+	@Test
+	void requiresExactBirthDateAndRejectsFutureBirthDate() {
+		assertThatThrownBy(() -> new AddTeacherCommand(
+				"생년월일 누락 교사", null, null, null))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("생년월일은 필수입니다.");
+		assertThatThrownBy(() -> new UpdateTeacherCommand(
+				"생년월일 누락 교사", null, null))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("생년월일은 필수입니다.");
+
+		clock.setInstant(atSeoul(
+				LocalDate.of(2026, 8, 1),
+				LocalTime.of(8, 0)));
+		TestAuthority authority = createAuthority();
+		AccountActor actor = new AccountActor(authority.accountId());
+		TeacherRegistrationResult existing = teacherRosterService.addTeacher(
+				actor,
+				authority.departmentId(),
+				new AddTeacherCommand(
+						"정상 생년월일 교사",
+						null,
+						LocalDate.of(1990, 1, 1),
+						null));
+		assertThatThrownBy(() -> teacherRosterService.addTeacher(
+				actor,
+				authority.departmentId(),
+				new AddTeacherCommand(
+						"미래 생년월일 교사",
+						null,
+						LocalDate.of(2026, 8, 2),
+						null)))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("생년월일은 미래일 수 없습니다.");
+		assertThatThrownBy(() -> teacherRosterService.updateTeacher(
+				actor,
+				authority.departmentId(),
+				existing.memberId(),
+				new UpdateTeacherCommand(
+						"정상 생년월일 교사",
+						null,
+						LocalDate.of(2026, 8, 2))))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("생년월일은 미래일 수 없습니다.");
+		assertThat(jdbcTemplate.queryForObject(
+				"SELECT birth FROM public.member WHERE id = ?",
+				LocalDate.class,
+				existing.memberId()))
+				.isEqualTo(LocalDate.of(1990, 1, 1));
+		assertThat(queryInt("""
+				SELECT count(*)
+				FROM public.member
+				WHERE name = '미래 생년월일 교사'
+				""")).isZero();
+	}
+
 	/**
 	 * 확정된 M2 정책이 실제 DB 행과 감사 이력으로 끝까지 이어지는지 검증한다.
 	 */
@@ -118,7 +175,11 @@ class M2ApplicationIntegrationTest {
 		TeacherRegistrationResult secondTeacher = teacherRosterService.addTeacher(
 				actor,
 				authority.departmentId(),
-				new AddTeacherCommand("두 번째 교사", null, null));
+				new AddTeacherCommand(
+						"두 번째 교사",
+						null,
+						LocalDate.of(1992, 5, 10),
+						null));
 		teacherRosterService.updateTeacher(
 				actor,
 				authority.departmentId(),
@@ -132,6 +193,62 @@ class M2ApplicationIntegrationTest {
 				LocalDate.class,
 				firstTeacher.memberId()))
 				.isEqualTo(LocalDate.of(1991, 4, 16));
+		assertThat(queryInt("""
+				SELECT count(*)
+				FROM public.audit_log
+				WHERE department_id = ?
+				  AND action IN ('TEACHER_ADDED', 'TEACHER_UPDATED')
+				  AND (
+				      coalesce(before_data::text, '') LIKE '%1990-03-15%'
+				      OR coalesce(after_data::text, '') LIKE '%1990-03-15%'
+				      OR coalesce(before_data::text, '') LIKE '%1991-04-16%'
+				      OR coalesce(after_data::text, '') LIKE '%1991-04-16%'
+				      OR coalesce(before_data::text, '') LIKE '%첫 번째 교사%'
+				      OR coalesce(after_data::text, '') LIKE '%첫 번째 교사%'
+				      OR coalesce(before_data::text, '') LIKE '%010-0000-0001%'
+				      OR coalesce(after_data::text, '') LIKE '%010-0000-0001%'
+				      OR coalesce(before_data::text, '') LIKE '%010-0000-0011%'
+				      OR coalesce(after_data::text, '') LIKE '%010-0000-0011%'
+				  )
+				""", authority.departmentId())).isZero();
+		assertThat(queryInt("""
+				SELECT count(*)
+				FROM public.audit_log
+				WHERE department_id = ?
+				  AND action = 'TEACHER_UPDATED'
+				  AND after_data -> 'updatedFields'
+				      = '["name", "phone", "birth"]'::jsonb
+				""", authority.departmentId())).isEqualTo(1);
+
+		teacherRosterService.updateTeacher(
+				actor,
+				authority.departmentId(),
+				firstTeacher.memberId(),
+				new UpdateTeacherCommand(
+						"첫 번째 교사 수정",
+						"010-0000-0012",
+						LocalDate.of(1991, 4, 16)));
+		assertThat(queryInt("""
+				SELECT count(*)
+				FROM public.audit_log
+				WHERE department_id = ?
+				  AND action = 'TEACHER_UPDATED'
+				  AND after_data -> 'updatedFields' = '["phone"]'::jsonb
+				""", authority.departmentId())).isEqualTo(1);
+		teacherRosterService.updateTeacher(
+				actor,
+				authority.departmentId(),
+				firstTeacher.memberId(),
+				new UpdateTeacherCommand(
+						"첫 번째 교사 수정",
+						"010-0000-0012",
+						LocalDate.of(1991, 4, 16)));
+		assertThat(queryInt("""
+				SELECT count(*)
+				FROM public.audit_log
+				WHERE department_id = ?
+				  AND action = 'TEACHER_UPDATED'
+				""", authority.departmentId())).isEqualTo(2);
 
 		long policyId = policyService.createDraft(
 				actor,
@@ -257,7 +374,7 @@ class M2ApplicationIntegrationTest {
 				authority.departmentId(),
 				firstTeacher.memberId(),
 				new ExcludeTeacherCommand(
-						List.of(),
+						0,
 						CardDisposition.LOST,
 						"부서 사역 종료"));
 
@@ -286,6 +403,134 @@ class M2ApplicationIntegrationTest {
 	}
 
 	/**
+	 * 부서 제외는 확정된 과거·시작 후·기록 있는 날짜를 보존하고,
+	 * 시작 전이며 기록 없는 대상만 자동 제외하는지 검증한다.
+	 */
+	@Test
+	void excludesOnlyUnstartedRecordlessTargetsAndKeepsThemExcludedAfterRejoin() {
+		clock.setInstant(atSeoul(
+				LocalDate.of(2026, 8, 1),
+				LocalTime.of(8, 0)));
+		TestAuthority authority = createAuthority();
+		AccountActor actor = new AccountActor(authority.accountId());
+		TeacherRegistrationResult teacher = teacherRosterService.addTeacher(
+				actor,
+				authority.departmentId(),
+				new AddTeacherCommand(
+						"제외 정책 교사",
+						null,
+						LocalDate.of(1993, 6, 11),
+						null));
+		TeacherRegistrationResult recordedTeacher = teacherRosterService.addTeacher(
+				actor,
+				authority.departmentId(),
+				new AddTeacherCommand(
+						"기록 보존 교사",
+						null,
+						LocalDate.of(1994, 7, 12),
+						null));
+		long policyId = createPublishedPolicy(actor, authority.departmentId());
+
+		long pastDayId = dayService.createDay(
+				actor,
+				authority.departmentId(),
+				LocalDate.of(2026, 8, 2),
+				policyId);
+		long startedDayId = dayService.createDay(
+				actor,
+				authority.departmentId(),
+				LocalDate.of(2026, 8, 3),
+				policyId);
+		long recordedFutureDayId = dayService.createDay(
+				actor,
+				authority.departmentId(),
+				LocalDate.of(2026, 8, 4),
+				policyId);
+		long eligibleFutureDayId = dayService.createDay(
+				actor,
+				authority.departmentId(),
+				LocalDate.of(2026, 8, 5),
+				policyId);
+		jdbcTemplate.update("""
+				INSERT INTO public.attendance_record(
+				    attendance_day_id, policy_version_id, member_id,
+				    status, source, created_by_account_id)
+				VALUES (?, ?, ?, 'ABSENT', 'MANUAL', ?)
+				""",
+				recordedFutureDayId,
+				policyId,
+				recordedTeacher.memberId(),
+				authority.accountId());
+
+		clock.setInstant(atSeoul(
+				LocalDate.of(2026, 8, 3),
+				LocalTime.of(9, 0)));
+		assertThatThrownBy(() -> exclusionService.exclude(
+				actor,
+				authority.departmentId(),
+				teacher.memberId(),
+				new ExcludeTeacherCommand(
+						2,
+						CardDisposition.AVAILABLE,
+						"부서 이동")))
+				.isInstanceOf(BusinessRuleException.class)
+				.hasMessageContaining("현재 영향을 다시 확인");
+		assertThat(queryInt("""
+				SELECT count(*)
+				FROM public.department_membership
+				WHERE id = ?
+				  AND ended_at IS NULL
+				""", teacher.membershipId())).isEqualTo(1);
+
+		exclusionService.exclude(
+				actor,
+				authority.departmentId(),
+				teacher.memberId(),
+				new ExcludeTeacherCommand(
+						1,
+						CardDisposition.AVAILABLE,
+						"부서 이동"));
+
+		assertThat(queryBoolean("""
+				SELECT is_target
+				FROM public.attendance_target
+				WHERE attendance_day_id = ? AND member_id = ?
+				""", pastDayId, teacher.memberId())).isTrue();
+		assertThat(queryBoolean("""
+				SELECT is_target
+				FROM public.attendance_target
+				WHERE attendance_day_id = ? AND member_id = ?
+				""", startedDayId, teacher.memberId())).isTrue();
+		assertThat(queryBoolean("""
+				SELECT is_target
+				FROM public.attendance_target
+				WHERE attendance_day_id = ? AND member_id = ?
+				""", recordedFutureDayId, teacher.memberId())).isTrue();
+		assertThat(queryBoolean("""
+				SELECT is_target
+				FROM public.attendance_target
+				WHERE attendance_day_id = ? AND member_id = ?
+				""", eligibleFutureDayId, teacher.memberId())).isFalse();
+
+		jdbcTemplate.update(
+				"UPDATE public.member SET active = TRUE WHERE id = ?",
+				teacher.memberId());
+		jdbcTemplate.update("""
+				INSERT INTO public.department_membership(
+				    department_id, member_id, joined_at, created_by_account_id)
+				VALUES (?, ?, CURRENT_TIMESTAMP, ?)
+				""",
+				authority.departmentId(),
+				teacher.memberId(),
+				authority.accountId());
+		assertThat(queryBoolean("""
+				SELECT is_target
+				FROM public.attendance_target
+				WHERE attendance_day_id = ? AND member_id = ?
+				""", eligibleFutureDayId, teacher.memberId())).isFalse();
+	}
+
+	/**
 	 * 같은 날짜를 두 worker가 동시에 마감해도 결석·상태·감사가 한 번만 생기는지 검증한다.
 	 */
 	@Test
@@ -298,7 +543,11 @@ class M2ApplicationIntegrationTest {
 		TeacherRegistrationResult teacher = teacherRosterService.addTeacher(
 				actor,
 				authority.departmentId(),
-				new AddTeacherCommand("동시 마감 교사", null, null));
+				new AddTeacherCommand(
+						"동시 마감 교사",
+						null,
+						LocalDate.of(1995, 8, 13),
+						null));
 		long policyId = createPublishedPolicy(actor, authority.departmentId());
 		long dayId = dayService.createDay(
 				actor,

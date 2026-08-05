@@ -19,7 +19,7 @@ public interface OrganizationMapper {
 	 *
 	 * @param name 교사 이름
 	 * @param phone 선택 연락처
-	 * @param birth 선택 생년월일
+	 * @param birth 신규 교사의 필수 생년월일
 	 * @return 생성된 교사 식별자
 	 */
 	long insertMember(
@@ -41,7 +41,7 @@ public interface OrganizationMapper {
 	 * @param memberId 교사 식별자
 	 * @param name 변경할 이름
 	 * @param phone 변경할 선택 연락처
-	 * @param birth 변경할 선택 생년월일
+	 * @param birth 변경할 필수 생년월일
 	 * @return 수정된 행 수
 	 */
 	int updateTeacher(

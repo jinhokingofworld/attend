@@ -50,10 +50,12 @@
 		       member.name,
 		       member.phone,
 		       member.birth,
-		       COALESCE(
-		           extract(year FROM age(#{today}, member.birth))::integer,
-		           member.age
-		       ) AS display_age,
+		       CASE
+		           WHEN member.birth IS NOT NULL
+		                AND member.birth &lt;= #{today}
+		           THEN extract(year FROM age(#{today}, member.birth))::integer
+		           ELSE NULL
+		       END AS display_age,
 		       membership.joined_at,
 		       card.id AS card_id,
 		       card.status AS card_status,
@@ -81,10 +83,12 @@
 		       member.name,
 		       member.phone,
 		       member.birth,
-		       COALESCE(
-		           extract(year FROM age(#{today}, member.birth))::integer,
-		           member.age
-		       ) AS display_age,
+		       CASE
+		           WHEN member.birth IS NOT NULL
+		                AND member.birth &lt;= #{today}
+		           THEN extract(year FROM age(#{today}, member.birth))::integer
+		           ELSE NULL
+		       END AS display_age,
 		       member.created_at,
 		       membership.joined_at,
 		       card.id AS card_id,
@@ -128,6 +132,35 @@
 		  AND target.member_id = #{memberId}
 		ORDER BY day.attendance_date DESC, day.id DESC
 		LIMIT 100
+	</select>
+
+	<select id="selectFutureAttendanceTargets" resultType="map">
+		SELECT day.id,
+		       day.attendance_date,
+		       policy.name AS policy_name,
+		       policy.check_in_start_time
+		FROM public.attendance_target AS target
+		JOIN public.attendance_day AS day
+		  ON day.id = target.attendance_day_id
+		 AND day.department_id = target.department_id
+		JOIN public.attendance_policy_version AS policy
+		  ON policy.id = day.policy_version_id
+		 AND policy.department_id = day.department_id
+		WHERE target.department_id = #{departmentId}
+		  AND target.member_id = #{memberId}
+		  AND target.is_target
+		  AND day.status = 'SCHEDULED'
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM public.attendance_record AS record
+			WHERE record.attendance_day_id = target.attendance_day_id
+		  )
+		  AND (
+		      day.attendance_date &gt; #{today}
+		      OR (day.attendance_date = #{today}
+		          AND policy.check_in_start_time &gt; #{currentTime})
+		  )
+		ORDER BY day.attendance_date, policy.check_in_start_time, day.id
 	</select>
 
 	<select id="selectPolicies" resultType="map">

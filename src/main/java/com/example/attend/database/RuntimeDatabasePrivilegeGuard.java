@@ -42,7 +42,7 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
     }
 
     /**
-     * 현재 DB 사용자가 V008 runtime 최소 권한 경계를 지키는지 확인한다.
+     * 현재 DB 사용자가 V009 runtime 최소 권한 경계를 지키는지 확인한다.
      *
      * @param dataSource 검사할 운영 데이터소스
      * @throws IllegalStateException 권한이 과도하거나 필수 조회 권한이 없을 때
@@ -82,9 +82,105 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                             'public.member',
                             'DELETE'
                         )
+                        AND NOT has_table_privilege(
+                            current_user,
+                            'public.member',
+                            'SELECT'
+                        )
+                        AND NOT has_table_privilege(
+                            current_user,
+                            'public.member',
+                            'INSERT'
+                        )
+                        AND NOT has_table_privilege(
+                            current_user,
+                            'public.member',
+                            'UPDATE'
+                        )
+                        AND NOT has_table_privilege(
+                            current_user,
+                            'public.member',
+                            'TRUNCATE'
+                        )
+                        AND NOT has_table_privilege(
+                            current_user,
+                            'public.member',
+                            'REFERENCES'
+                        )
+                        AND NOT has_table_privilege(
+                            current_user,
+                            'public.member',
+                            'TRIGGER'
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM (
+                                VALUES
+                                    ('id', 'SELECT'),
+                                    ('name', 'SELECT'),
+                                    ('phone', 'SELECT'),
+                                    ('birth', 'SELECT'),
+                                    ('created_at', 'SELECT'),
+                                    ('active', 'SELECT'),
+                                    ('updated_at', 'SELECT'),
+                                    ('name', 'INSERT'),
+                                    ('phone', 'INSERT'),
+                                    ('birth', 'INSERT'),
+                                    ('active', 'INSERT'),
+                                    ('name', 'UPDATE'),
+                                    ('phone', 'UPDATE'),
+                                    ('birth', 'UPDATE'),
+                                    ('active', 'UPDATE')
+                            ) AS required(column_name, privilege_type)
+                            WHERE NOT has_column_privilege(
+                                current_user,
+                                'public.member',
+                                required.column_name,
+                                required.privilege_type
+                            )
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM (
+                                VALUES
+                                    ('id', 'INSERT'),
+                                    ('id', 'UPDATE'),
+                                    ('age', 'SELECT'),
+                                    ('age', 'INSERT'),
+                                    ('age', 'UPDATE'),
+                                    ('created_at', 'INSERT'),
+                                    ('created_at', 'UPDATE'),
+                                    ('card_uid', 'SELECT'),
+                                    ('card_uid', 'INSERT'),
+                                    ('card_uid', 'UPDATE'),
+                                    ('updated_at', 'INSERT'),
+                                    ('updated_at', 'UPDATE')
+                            ) AS forbidden(column_name, privilege_type)
+                            WHERE has_column_privilege(
+                                current_user,
+                                'public.member',
+                                forbidden.column_name,
+                                forbidden.privilege_type
+                            )
+                        )
                         AND NOT has_function_privilege(
                             current_user,
                             'public.attend_set_updated_at()',
+                            'EXECUTE'
+                        )
+                        AND NOT has_function_privilege(
+                            current_user,
+                            'public.attend_require_member_birth_on_write()',
+                            'EXECUTE'
+                        )
+                        AND NOT has_function_privilege(
+                            current_user,
+                            'public.attend_require_operational_membership_member()',
+                            'EXECUTE'
+                        )
+                        AND NOT has_function_privilege(
+                            current_user,
+                            'public.attend_require_closed_card_assignment_immutable()',
                             'EXECUTE'
                         )
                         AND NOT EXISTS (

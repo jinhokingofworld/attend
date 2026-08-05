@@ -51,12 +51,19 @@
 
 	<select id="lockActiveMembership"
 			resultType="com.example.attend.organization.infrastructure.mybatis.MembershipRow">
-		SELECT id, member_id, joined_at
-		FROM public.department_membership
-		WHERE department_id = #{departmentId}
-		  AND member_id = #{memberId}
-		  AND ended_at IS NULL
-		FOR UPDATE
+		SELECT membership.id,
+		       membership.member_id,
+		       membership.joined_at,
+		       member.name,
+		       member.phone,
+		       member.birth
+		FROM public.department_membership AS membership
+		JOIN public.member AS member
+		  ON member.id = membership.member_id
+		WHERE membership.department_id = #{departmentId}
+		  AND membership.member_id = #{memberId}
+		  AND membership.ended_at IS NULL
+		FOR UPDATE OF membership, member
 	</select>
 
 	<select id="lockActiveAssignment"

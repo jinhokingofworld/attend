@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -90,6 +91,16 @@ public class DepartmentAdminQueryService {
 			AccountActor actor, long departmentId, long memberId) {
 		teacher(actor, departmentId, memberId);
 		return mapper.selectTeacherAttendanceHistory(departmentId, memberId);
+	}
+
+	/** 부서 제외 시 자동으로 제외할 시작 전·기록 없는 대상 날짜를 조회한다. */
+	@Transactional(readOnly = true)
+	public List<Map<String, Object>> futureAttendanceTargets(
+			AccountActor actor, long departmentId, long memberId) {
+		teacher(actor, departmentId, memberId);
+		LocalDateTime now = LocalDateTime.now(clock);
+		return mapper.selectFutureAttendanceTargets(
+				departmentId, memberId, now.toLocalDate(), now.toLocalTime());
 	}
 
 	/** 부서의 정책 버전 목록을 조회한다. */

@@ -194,14 +194,6 @@ BEGIN
         );
     END IF;
 
-    -- 기존 로컬 volume에도 새 상세 화면용 합성 생년월일을 안전하게 보강한다.
-    UPDATE public.member
-    SET birth = DATE '1990-03-15'
-    WHERE id = member_a_id AND birth IS NULL;
-    UPDATE public.member
-    SET birth = DATE '1988-10-21'
-    WHERE id = member_b_id AND birth IS NULL;
-
     -- 카드 등록함 연결 시험용으로 카드가 없는 활성 교사를 한 명 유지한다.
     SELECT member.id
     INTO member_inbox_id

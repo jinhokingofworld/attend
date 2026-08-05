@@ -59,7 +59,7 @@ public class DepartmentMembershipExclusionService {
 	}
 
 	/**
-	 * 선택한 날짜를 ID 오름차순으로 잠근 뒤 대상자와 조직 상태를 함께 종료한다.
+	 * 확인한 수의 시작 전 날짜를 자동 제외하고 조직 상태를 함께 종료한다.
 	 */
 	@Transactional
 	public void exclude(
@@ -72,17 +72,19 @@ public class DepartmentMembershipExclusionService {
 		authorization.requireDepartmentAdmin(actor, departmentId);
 		departmentLock.lockActive(departmentId);
 		Instant occurredAt = clock.instant();
-		List<AttendanceDayRow> days = command.futureAttendanceDayIds().isEmpty()
-				? List.of()
-				: dayMapper.lockTargetDays(
-						departmentId,
-						memberId,
-						command.futureAttendanceDayIds());
-		if (days.size() != command.futureAttendanceDayIds().size()) {
-			throw new BusinessRuleException("one or more target days cannot be changed");
+		ZonedDateTime businessNow = ZonedDateTime.ofInstant(
+				occurredAt, attendanceZone);
+		List<AttendanceDayRow> days = dayMapper.lockFutureTargetDays(
+				departmentId,
+				memberId,
+				businessNow.toLocalDate(),
+				businessNow.toLocalTime());
+		if (days.size() != command.expectedFutureAttendanceDayCount()) {
+			throw new BusinessRuleException(
+					"미래 출석일 수가 변경되었습니다. 현재 영향을 다시 확인해 주세요.");
 		}
 		for (AttendanceDayRow day : days) {
-			requireTargetCanBeExcluded(day, memberId, occurredAt);
+			requireTargetCanBeExcluded(day, occurredAt);
 		}
 
 		MembershipClosureResult closure = membershipClosure.close(
@@ -114,17 +116,19 @@ public class DepartmentMembershipExclusionService {
 				Map.of(
 						"active", false,
 						"membershipId", closure.membershipId(),
-						"excludedFutureDayIds", command.futureAttendanceDayIds(),
+						"excludedFutureDayCount", days.size(),
+						"excludedFutureDayIds", days.stream()
+								.map(AttendanceDayRow::id)
+								.toList(),
 						"cardDisposition", command.cardDisposition().name()),
 				command.reason());
 	}
 
 	/**
-	 * 잠근 날짜가 아직 시작 전이고 해당 교사 기록이 없는지 다시 확인한다.
+	 * 잠근 날짜가 아직 시작 전이고 출석 기록이 하나도 없는지 다시 확인한다.
 	 */
 	private void requireTargetCanBeExcluded(
 			AttendanceDayRow day,
-			long memberId,
 			Instant now
 	) {
 		Instant start = ZonedDateTime.of(
@@ -133,7 +137,7 @@ public class DepartmentMembershipExclusionService {
 				attendanceZone).toInstant();
 		if (!"SCHEDULED".equals(day.status())
 				|| !now.isBefore(start)
-				|| dayMapper.countMemberRecord(day.id(), memberId) != 0) {
+				|| dayMapper.countRecords(day.id()) != 0) {
 			throw new BusinessRuleException("attendance target can no longer be changed");
 		}
 	}
