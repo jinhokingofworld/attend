@@ -47,8 +47,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
-import java.util.function.Supplier;
 
 /**
  * 기존 M2 조직·출석 서비스를 부서 범위 MVC command와 화면에 연결한다.
@@ -517,6 +517,11 @@ public final class DepartmentAdminController {
 		model.addAttribute("publishedPolicies",
 				queryService.publishedPolicies(
 						principal.toActor(), departmentId));
+		if (!model.containsAttribute("attendanceDayForm")) {
+			model.addAttribute("attendanceDayForm", attendanceDayForm(
+					null, null, null, AttendanceDayRecurrence.NONE,
+					1, null, null, 1, 1));
+		}
 		return "admin/department/attendance-days";
 	}
 
@@ -539,31 +544,50 @@ public final class DepartmentAdminController {
 			@RequestParam(required = false) Integer yearlyMonth,
 			@RequestParam(required = false) Integer yearlyDay,
 			RedirectAttributes redirect) {
-		return commandWithMessage(
-				() -> {
-					if (recurrence == AttendanceDayRecurrence.NONE) {
-						dayService.createDay(
-								principal.toActor(), departmentId, attendanceDate, policyVersionId);
-						return "출석 날짜를 생성했습니다.";
-					}
-					LocalDate effectiveEndDate = requireEndDate(endDate);
-					AttendanceDayBatchResult result = dayService.createDays(
-							principal.toActor(),
-							departmentId,
-							new AttendanceDayScheduleCommand(
-									attendanceDate,
-									effectiveEndDate,
-									policyVersionId,
-									recurrence,
-									interval,
-									toSet(weeklyDays),
-									toSet(monthlyDays),
-									yearlyMonth,
-									yearlyDay));
-					return attendanceDayBatchMessage(result);
-				},
-				daysPath(departmentId),
-				redirect);
+		Map<String, Object> submittedForm = attendanceDayForm(
+				attendanceDate,
+				endDate,
+				policyVersionId,
+				recurrence,
+				interval,
+				weeklyDays,
+				monthlyDays,
+				yearlyMonth,
+				yearlyDay);
+		try {
+			writeGate.requireEnabled();
+			String message;
+			if (recurrence == AttendanceDayRecurrence.NONE) {
+				dayService.createDay(
+						principal.toActor(), departmentId, attendanceDate, policyVersionId);
+				message = "출석 날짜를 생성했습니다.";
+			} else {
+				LocalDate effectiveEndDate = requireEndDate(endDate);
+				AttendanceDayBatchResult result = dayService.createDays(
+						principal.toActor(),
+						departmentId,
+						new AttendanceDayScheduleCommand(
+								attendanceDate,
+								effectiveEndDate,
+								policyVersionId,
+								recurrence,
+								interval,
+								toSet(
+										weeklyDays,
+										"반복 요일 값이 올바르지 않습니다."),
+								toSet(
+										monthlyDays,
+										"반복 날짜 값이 올바르지 않습니다."),
+								yearlyMonth,
+								yearlyDay));
+				message = attendanceDayBatchMessage(result);
+			}
+			redirect.addFlashAttribute("message", message);
+		} catch (IllegalArgumentException | BusinessRuleException exception) {
+			redirect.addFlashAttribute("error", exception.getMessage());
+			redirect.addFlashAttribute("attendanceDayForm", submittedForm);
+		}
+		return "redirect:" + daysPath(departmentId);
 	}
 
 	/** 한 날짜의 대상자와 출석 결과·정정 form을 표시한다. */
@@ -796,19 +820,6 @@ public final class DepartmentAdminController {
 		}
 	}
 
-	private String commandWithMessage(
-			Supplier<String> command,
-			String redirectPath,
-			RedirectAttributes redirect) {
-		try {
-			writeGate.requireEnabled();
-			redirect.addFlashAttribute("message", command.get());
-		} catch (IllegalArgumentException | BusinessRuleException exception) {
-			redirect.addFlashAttribute("error", exception.getMessage());
-		}
-		return "redirect:" + redirectPath;
-	}
-
 	private static LocalDate requireEndDate(LocalDate endDate) {
 		if (endDate == null) {
 			throw new IllegalArgumentException("반복 종료일을 입력하세요.");
@@ -816,8 +827,51 @@ public final class DepartmentAdminController {
 		return endDate;
 	}
 
-	private static <T> Set<T> toSet(List<T> values) {
-		return values == null ? Set.of() : Set.copyOf(values);
+	private static <T> Set<T> toSet(List<T> values, String invalidMessage) {
+		if (values == null || values.isEmpty()) {
+			return Set.of();
+		}
+		if (values.stream().anyMatch(Objects::isNull)) {
+			throw new IllegalArgumentException(invalidMessage);
+		}
+		return Set.copyOf(values);
+	}
+
+	private static Map<String, Object> attendanceDayForm(
+			LocalDate attendanceDate,
+			LocalDate endDate,
+			Long policyVersionId,
+			AttendanceDayRecurrence recurrence,
+			int interval,
+			List<DayOfWeek> weeklyDays,
+			List<Integer> monthlyDays,
+			Integer yearlyMonth,
+			Integer yearlyDay
+	) {
+		Map<String, Object> form = new LinkedHashMap<>();
+		form.put("attendanceDate", attendanceDate);
+		form.put("endDate", endDate);
+		form.put("policyVersionId", policyVersionId);
+		form.put("recurrence", recurrence == null
+				? AttendanceDayRecurrence.NONE.name()
+				: recurrence.name());
+		form.put("interval", interval);
+		form.put("weeklyDays", weeklyDays == null
+				? List.of()
+				: weeklyDays.stream()
+						.filter(Objects::nonNull)
+						.map(Enum::name)
+						.distinct()
+						.toList());
+		form.put("monthlyDays", monthlyDays == null
+				? List.of()
+				: monthlyDays.stream()
+						.filter(Objects::nonNull)
+						.distinct()
+						.toList());
+		form.put("yearlyMonth", yearlyMonth);
+		form.put("yearlyDay", yearlyDay);
+		return java.util.Collections.unmodifiableMap(form);
 	}
 
 	private static String attendanceDayBatchMessage(AttendanceDayBatchResult result) {

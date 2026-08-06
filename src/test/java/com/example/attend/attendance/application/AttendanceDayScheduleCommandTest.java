@@ -88,6 +88,34 @@ class AttendanceDayScheduleCommandTest {
 					1,
 					Set.of(), Set.of(), null, null))
 				.isInstanceOf(IllegalArgumentException.class)
-				.hasMessageContaining("five years");
+				.hasMessageContaining("5년");
+	}
+
+	@Test
+	void rejectsMoreThanTheMaximumOccurrencesPerRequest() {
+		AttendanceDayScheduleCommand command = new AttendanceDayScheduleCommand(
+				LocalDate.of(2026, 1, 1),
+				LocalDate.of(2027, 1, 2),
+				1L,
+				AttendanceDayRecurrence.DAILY,
+				1,
+				Set.of(), Set.of(), null, null);
+
+		assertThatThrownBy(command::occurrenceDates)
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("한 번에 생성할 수 있는 출석 날짜는 최대 366건입니다.");
+	}
+
+	@Test
+	void rejectsAnOverflowingYearlyIntervalAsUserInput() {
+		assertThatThrownBy(() -> new AttendanceDayScheduleCommand(
+				LocalDate.of(2026, 1, 1),
+				LocalDate.of(2030, 12, 31),
+				1L,
+				AttendanceDayRecurrence.YEARLY,
+				Integer.MAX_VALUE,
+				Set.of(), Set.of(), 1, 1))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("반복 간격이 허용 범위를 초과했습니다.");
 	}
 }

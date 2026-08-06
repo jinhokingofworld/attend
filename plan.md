@@ -16,7 +16,7 @@
 - 실제 펌웨어 단계에서는 빨강·초록 LED만 사용한다.
 - 운영 데이터베이스는 기존 더미데이터를 이관하지 않고 신규 빈 Neon PostgreSQL
   DB에서 시작한다. migration 승인값은 `NEW_OR_SAMPLE`이며, 읽기 전용 preflight가
-  `FRESH`가 아니면 V001~V010을 적용하지 않는다.
+  `FRESH`가 아니면 V001~V011을 적용하지 않는다.
 
 ## 2. 단계별 구현
 
@@ -30,10 +30,10 @@
 
 ### M1. DB와 실행 기반 안전화
 
-- Flyway V001~V010을 문서 순서대로 구현한다.
+- Flyway V001~V011을 문서 순서대로 구현한다.
   - V001은 빈 DB와 정확한 레거시 DB만 허용하고 `member` 행·PK를 보존한다.
   - V002에는 부서·계정·부서 권한과 회원가입 초대·비밀번호 재설정 토큰 모델을 함께 넣는다.
-  - V003~V008은 카드·장치, 정책, 출석, event·audit, 복합 FK·인덱스, updated-at trigger를 생성하고 V009는 신규 등록·기본정보 수정·활성화의 정확한 생년월일, 활성 소속–교사 상태 일관성과 종료 소속·카드 연결 이력의 불변성을 강제한다. V010은 audit 시각 강제와 분리 retention worker의 고정 2년 batch 경계를 추가한다.
+  - V003~V008은 카드·장치, 정책, 출석, event·audit, 복합 FK·인덱스, updated-at trigger를 생성하고 V009는 신규 등록·기본정보 수정·활성화의 정확한 생년월일, 활성 소속–교사 상태 일관성과 종료 소속·카드 연결 이력의 불변성을 강제한다. V010은 audit 시각 강제와 분리 retention worker의 고정 2년 batch 경계를 추가하고, V011은 tag event 수신 시각 강제와 고정 90일 batch 경계를 추가한다.
 - 아직 적용된 Flyway 이력이 없으면 회원가입 초대·비밀번호 재설정 토큰 모델을 V002에 포함한다. 외부 DB에 V002가 이미 성공 적용된 사실이 확인되면 기존 파일을 수정하지 않고 다음 versioned migration으로 추가한다.
 - 운영 migration은 동일 커밋의 migration을 포함한 고정 Flyway 컨테이너가 Neon direct URL로 실행한다. 웹 애플리케이션에서는 Flyway를 끄고 요구 schema version만 검사한다.
 - `migration_owner`, `app_runtime`, `cutover_writer`, `legacy_writer`, `retention_worker` 권한을 분리하고 웹 계정에는 DDL·Flyway history·레거시 DML·retention 삭제 권한을 주지 않는다.
