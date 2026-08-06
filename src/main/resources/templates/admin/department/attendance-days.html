@@ -12,61 +12,84 @@
     <form th:if="${writeEnabled and !#lists.isEmpty(publishedPolicies)}"
           th:action="@{/admin/departments/{id}/attendance-days(id=${department.id})}"
           method="post">
-        <label>시작 날짜 <input type="date" name="attendanceDate" required></label>
+        <label>시작 날짜
+            <input type="date" name="attendanceDate"
+                   th:value="${attendanceDayForm.attendanceDate}" required>
+        </label>
         <label>발행 정책
             <select name="policyVersionId" required>
                 <option th:each="policy : ${publishedPolicies}"
                         th:value="${policy.id}"
+                        th:selected="${policy.id == attendanceDayForm.policyVersionId}"
                         th:text="|v${policy.version_no} · ${policy.name}|">정책</option>
             </select>
         </label>
         <fieldset>
             <legend>반복</legend>
-            <label><input type="radio" name="recurrence" value="NONE" checked> 반복 없음</label>
-            <label><input type="radio" name="recurrence" value="DAILY"> 일마다</label>
-            <label><input type="radio" name="recurrence" value="WEEKLY"> 주마다</label>
-            <label><input type="radio" name="recurrence" value="MONTHLY"> 개월마다</label>
-            <label><input type="radio" name="recurrence" value="YEARLY"> 년마다</label>
+            <label><input type="radio" name="recurrence" value="NONE"
+                          th:checked="${attendanceDayForm.recurrence == 'NONE'}"> 반복 없음</label>
+            <label><input type="radio" name="recurrence" value="DAILY"
+                          th:checked="${attendanceDayForm.recurrence == 'DAILY'}"> 일마다</label>
+            <label><input type="radio" name="recurrence" value="WEEKLY"
+                          th:checked="${attendanceDayForm.recurrence == 'WEEKLY'}"> 주마다</label>
+            <label><input type="radio" name="recurrence" value="MONTHLY"
+                          th:checked="${attendanceDayForm.recurrence == 'MONTHLY'}"> 개월마다</label>
+            <label><input type="radio" name="recurrence" value="YEARLY"
+                          th:checked="${attendanceDayForm.recurrence == 'YEARLY'}"> 년마다</label>
         </fieldset>
-        <section id="recurrenceOptions" hidden>
+        <section id="recurrenceOptions">
             <label>반복 간격
-                <input type="number" name="interval" min="1" value="1" disabled required>
+                <input type="number" name="interval" min="1" max="1830"
+                       th:value="${attendanceDayForm.interval}" required>
                 <span id="intervalUnit">일</span>마다
             </label>
             <label>반복 종료일
-                <input type="date" name="endDate" disabled>
-                <small>시작 날짜부터 최대 5년까지 생성할 수 있습니다.</small>
+                <input type="date" name="endDate"
+                       th:value="${attendanceDayForm.endDate}">
+                <small>시작 날짜부터 최대 5년, 한 번에 최대 366건까지 생성할 수 있습니다.</small>
             </label>
-            <fieldset data-recurrence="WEEKLY" hidden>
+            <fieldset data-recurrence="WEEKLY">
                 <legend>반복 요일</legend>
-                <label><input type="checkbox" name="weeklyDays" value="MONDAY" disabled> 월</label>
-                <label><input type="checkbox" name="weeklyDays" value="TUESDAY" disabled> 화</label>
-                <label><input type="checkbox" name="weeklyDays" value="WEDNESDAY" disabled> 수</label>
-                <label><input type="checkbox" name="weeklyDays" value="THURSDAY" disabled> 목</label>
-                <label><input type="checkbox" name="weeklyDays" value="FRIDAY" disabled> 금</label>
-                <label><input type="checkbox" name="weeklyDays" value="SATURDAY" disabled> 토</label>
-                <label><input type="checkbox" name="weeklyDays" value="SUNDAY" disabled> 일</label>
+                <label><input type="checkbox" name="weeklyDays" value="MONDAY"
+                              th:checked="${#lists.contains(attendanceDayForm.weeklyDays, 'MONDAY')}"> 월</label>
+                <label><input type="checkbox" name="weeklyDays" value="TUESDAY"
+                              th:checked="${#lists.contains(attendanceDayForm.weeklyDays, 'TUESDAY')}"> 화</label>
+                <label><input type="checkbox" name="weeklyDays" value="WEDNESDAY"
+                              th:checked="${#lists.contains(attendanceDayForm.weeklyDays, 'WEDNESDAY')}"> 수</label>
+                <label><input type="checkbox" name="weeklyDays" value="THURSDAY"
+                              th:checked="${#lists.contains(attendanceDayForm.weeklyDays, 'THURSDAY')}"> 목</label>
+                <label><input type="checkbox" name="weeklyDays" value="FRIDAY"
+                              th:checked="${#lists.contains(attendanceDayForm.weeklyDays, 'FRIDAY')}"> 금</label>
+                <label><input type="checkbox" name="weeklyDays" value="SATURDAY"
+                              th:checked="${#lists.contains(attendanceDayForm.weeklyDays, 'SATURDAY')}"> 토</label>
+                <label><input type="checkbox" name="weeklyDays" value="SUNDAY"
+                              th:checked="${#lists.contains(attendanceDayForm.weeklyDays, 'SUNDAY')}"> 일</label>
             </fieldset>
-            <fieldset data-recurrence="MONTHLY" hidden>
+            <fieldset data-recurrence="MONTHLY">
                 <legend>반복 날짜</legend>
                 <label th:each="day : ${#numbers.sequence(1, 31)}">
-                    <input type="checkbox" name="monthlyDays" th:value="${day}" disabled>
+                    <input type="checkbox" name="monthlyDays" th:value="${day}"
+                           th:checked="${#lists.contains(attendanceDayForm.monthlyDays, day)}">
                     <span th:text="${day}">1</span>일
                 </label>
                 <p>해당 월에 없는 날짜는 건너뜁니다.</p>
             </fieldset>
-            <fieldset data-recurrence="YEARLY" hidden>
+            <fieldset data-recurrence="YEARLY">
                 <legend>반복 월·일</legend>
                 <label>월
-                    <select name="yearlyMonth" disabled>
+                    <select name="yearlyMonth">
                         <option th:each="month : ${#numbers.sequence(1, 12)}"
-                                th:value="${month}" th:text="|${month}월|">1월</option>
+                                th:value="${month}"
+                                th:selected="${month == attendanceDayForm.yearlyMonth}"
+                                th:text="|${month}월|">1월</option>
                     </select>
                 </label>
                 <label>일
-                    <select name="yearlyDay" disabled>
+                    <select name="yearlyDay">
                         <option th:each="day : ${#numbers.sequence(1, 31)}"
-                                th:value="${day}" th:text="|${day}일|">1일</option>
+                                th:value="${day}"
+                                th:selected="${day == attendanceDayForm.yearlyDay}"
+                                th:text="|${day}일|">1일</option>
                     </select>
                 </label>
             </fieldset>
@@ -103,6 +126,12 @@ const intervalUnits = {
     MONTHLY: "개월",
     YEARLY: "년"
 };
+const intervalMaximums = {
+    DAILY: 1830,
+    WEEKLY: 265,
+    MONTHLY: 60,
+    YEARLY: 5
+};
 
 function setEnabled(container, enabled) {
     container.querySelectorAll("input, select").forEach(input => input.disabled = !enabled);
@@ -117,6 +146,7 @@ function updateRecurrenceOptions() {
     endDateInput.required = repeats;
     if (repeats) {
         document.getElementById("intervalUnit").textContent = intervalUnits[recurrence];
+        intervalInput.max = String(intervalMaximums[recurrence]);
     }
     document.querySelectorAll("[data-recurrence]").forEach(section => {
         const selected = section.dataset.recurrence === recurrence;

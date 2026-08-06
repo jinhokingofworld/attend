@@ -91,7 +91,7 @@ Attend MVP는 화면이 열리고 NFC 요청 한 건이 성공하는 것만으�
 | Security/MVC | MockMvc + 실제 security 설정 + Testcontainers | 두 filter chain, CSRF, 세션, IDOR, PRG | 실제 PostgreSQL |
 | Device contract | OpenAPI validation + HTTP integration | schema, status, header, body 제한, 재시도 계약 | 기동한 Spring Boot |
 | Concurrency | 두 개 이상의 독립 DB connection/transaction | 잠금 순서와 race condition | 실제 PostgreSQL |
-| Migration | 빈 DB·레거시 fixture·복원 DB | V001~V009, baseline 0, 권한, 재현성 | 별도 PostgreSQL |
+| Migration | 빈 DB·레거시 fixture·복원 DB | V001~V011, baseline 0, 권한, 재현성 | 별도 PostgreSQL |
 | Firmware integration | 실제 Arduino·NFC reader·운영 유사 네트워크 | UID, HTTP, timeout, LED·부저 | staging 서버 |
 | E2E·파일럿 | 실제 관리자·교사·장치 | 전체 업무 흐름과 운영 절차 | 운영 유사/실환경 |
 
@@ -419,6 +419,7 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | DB-CST-030 | 비활성·결측·미래 생년월일 교사에 활성 소속 생성 또는 활성 소속을 끝내기 전 교사 비활성화 | V009 trigger가 거부하고 기존 소속은 migration에서 그대로 보존 |
 | DB-CST-031 | 종료된 소속·카드 연결의 종료 시각·처리자·사유 수정 또는 `NULL` 재개방 | V009 trigger가 거부하고 재가입·재연결은 새 행으로만 기록 |
 | DB-CST-032 | V009 이전의 2년 초과 audit 501행, 최근 audit, 근접 cutoff audit을 V010 적용 뒤 정리 | 고정 DB cutoff의 500행 batch 두 번만 만료 행을 삭제하고 최근 행은 보존; 새 audit INSERT의 `occurred_at`은 DB 시각으로 강제 |
+| DB-CST-033 | V010 이전의 90일 초과 tag event 501행, 최근 event, 근접 cutoff event를 V011 적용 뒤 정리 | 고정 DB cutoff의 500행 batch 두 번만 만료 행을 삭제하고 최근 행은 보존; 새 event INSERT의 `received_at`은 DB 시각으로 강제 |
 
 ### 10.2 Mapper
 
@@ -443,7 +444,7 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 
 | ID | 환경·작업 | 합격 기준 |
 |---|---|---|
-| MIG-FRESH-001 | 완전히 빈 DB에 V001~V009 적용 | baseline 행 없이 전체 목표 schema 생성 |
+| MIG-FRESH-001 | 완전히 빈 DB에 V001~V011 적용 | baseline 행 없이 전체 목표 schema 생성 |
 | MIG-FRESH-002 | 같은 migration 집합을 다시 실행하고 validate | 두 번째 schema·data 변경 없음 |
 | MIG-SAFE-001 | `NEW_OR_SAMPLE` DB에 baseline 시도 | baseline 금지, history·schema 변경 없음 |
 | MIG-SAFE-002 | 승인된 `LEGACY_OPERATIONAL` fixture | 사전조건 통과 후 명시적 version 0 `BASELINE` 정확히 한 행, PK·행·sequence 보존 |
@@ -458,12 +459,12 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | MIG-RUNNER-002 | 적용 파일 checksum 변경 | runner의 `flyway validate` 실패, 배포 중단 |
 | MIG-RUNNER-003 | pending·out-of-order·repeatable checksum 불일치 | runner의 `info`·`validate` gate 실패 |
 | MIG-RUNNER-004 | 운영 runner에서 `clean` 시도 | `cleanDisabled=true`로 거부 |
-| MIG-RUNTIME-001 | 성공한 versioned history가 V001~V009과 정확히 일치 | runtime 기동 허용 |
-| MIG-RUNTIME-002 | history 없음·실패 행·version 누락·V009 미만·승인 target 초과 각각 | runtime이 쓰기 받기 전에 fail fast |
+| MIG-RUNTIME-001 | 성공한 versioned history가 V001~V011과 정확히 일치 | runtime 기동 허용 |
+| MIG-RUNTIME-002 | history 없음·실패 행·version 누락·V011 미만·승인 target 초과 각각 | runtime이 쓰기 받기 전에 fail fast |
 | MIG-RUNTIME-003 | `001` 같은 표시 형식과 숫자 version 비교 | 문자열 `MAX(version)`이 아니라 Flyway `MigrationVersion`으로 판정 |
 | MIG-RUNTIME-004 | `migration_owner` credential을 웹 runtime에 설정 | 설정 검증 실패 |
 | MIG-GRANT-001 | `app_runtime` DDL·history write·member DELETE·legacy DML | table·column·sequence·function 권한으로 거부 |
-| MIG-GRANT-002 | `retention_worker`와 `app_runtime`의 audit retention 권한 | worker는 고정 batch 함수만 실행하고 직접 audit 조회·삭제·DDL과 runtime 함수 호출은 거부; runtime audit DELETE grant drift는 기동 guard가 거부 |
+| MIG-GRANT-002 | `retention_worker`와 `app_runtime`의 tag·audit retention 권한 | worker는 고정 batch 함수만 실행하고 tag·audit 직접 조회·삭제·DDL과 runtime 함수 호출은 거부; runtime DELETE grant drift는 기동 guard가 거부 |
 | MIG-RESTART-001 | 앱 두 번 재시작 | DROP·sample insert·row count 변화 없음 |
 | MIG-IMPORT-001 | importer dry-run과 실제 실행 | manifest 승인 건수 일치, 거부 행 보고 |
 | MIG-IMPORT-002 | 비정상 UID·중복 카드·공개 샘플 계정 | 이관 거부 |

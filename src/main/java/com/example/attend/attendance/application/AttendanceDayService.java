@@ -81,7 +81,7 @@ public class AttendanceDayService {
 				actor, departmentId, attendanceDate, policyVersionId);
 		if (dayId == null) {
 			throw new BusinessRuleException(
-					"department already has an attendance day for this date");
+					"이 부서에 같은 출석 날짜가 이미 있습니다.");
 		}
 		return dayId;
 	}
@@ -100,14 +100,14 @@ public class AttendanceDayService {
 	) {
 		writeAuthorization.requireEnabled();
 		authorization.requireDepartmentAdmin(actor, departmentId);
-		departmentLock.lockActive(departmentId);
-		PolicyVersionRow policy = requirePublishedPolicy(
-				departmentId, command.policyVersionId());
 		List<LocalDate> dates = command.occurrenceDates();
 		if (dates.isEmpty()) {
 			throw new BusinessRuleException(
-					"attendance recurrence does not produce a date in its range");
+					"선택한 반복 규칙으로 생성되는 출석 날짜가 없습니다.");
 		}
+		departmentLock.lockActive(departmentId);
+		PolicyVersionRow policy = requirePublishedPolicy(
+				departmentId, command.policyVersionId());
 		for (LocalDate date : dates) {
 			requireCreatableDate(date, policy);
 		}
@@ -273,7 +273,7 @@ public class AttendanceDayService {
 			PolicyVersionRow policy
 	) {
 		if (attendanceDate == null || attendanceDate.isBefore(LocalDate.now(clock))) {
-			throw new BusinessRuleException("attendance day cannot be in the past");
+			throw new BusinessRuleException("과거 출석 날짜는 생성할 수 없습니다.");
 		}
 		if (attendanceDate.equals(LocalDate.now(clock))) {
 			Instant start = ZonedDateTime.of(
@@ -282,7 +282,7 @@ public class AttendanceDayService {
 					attendanceZone).toInstant();
 			if (!clock.instant().isBefore(start)) {
 				throw new BusinessRuleException(
-						"today's attendance day cannot be created after check-in starts");
+						"오늘 출석은 태깅 시작 시각이 지난 뒤 생성할 수 없습니다.");
 			}
 		}
 	}

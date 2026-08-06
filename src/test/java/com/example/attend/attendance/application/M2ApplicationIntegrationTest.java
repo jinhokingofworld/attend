@@ -348,7 +348,7 @@ class M2ApplicationIntegrationTest {
 				attendanceDate,
 				policyId))
 				.isInstanceOf(BusinessRuleException.class)
-				.hasMessageContaining("after check-in starts");
+				.hasMessageContaining("태깅 시작 시각");
 		ManualAttendanceResult firstResult = correctionService.correct(
 				actor,
 				authority.departmentId(),
@@ -647,7 +647,11 @@ class M2ApplicationIntegrationTest {
 		TeacherRegistrationResult teacher = teacherRosterService.addTeacher(
 				actor,
 				authority.departmentId(),
-				new AddTeacherCommand("반복 생성 교사", null, null));
+				new AddTeacherCommand(
+						"반복 생성 교사",
+						null,
+						LocalDate.of(1992, 3, 4),
+						null));
 		long policyId = createPublishedPolicy(actor, authority.departmentId());
 		AttendanceDayScheduleCommand command = new AttendanceDayScheduleCommand(
 				LocalDate.of(2026, 8, 2),

@@ -48,6 +48,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * M3 인증의 계정 상태와 역할별 HTTP 경계를 실제 PostgreSQL로 검증한다.
@@ -345,6 +346,139 @@ class M3SecurityIntegrationTest {
 				.andExpect(status().isServiceUnavailable())
 				.andReturn();
 		assertThat(deviceResult.getRequest().getSession(false)).isNull();
+	}
+
+	/** 반복 생성은 JavaScript 없이 동작하고 잘못된 입력 뒤에도 form을 보존한다. */
+	@Test
+	void createsRecurringDaysWithoutJavaScriptAndPreservesInvalidInput()
+			throws Exception {
+		AccountPrincipal departmentPrincipal = (AccountPrincipal)
+				userDetailsService.loadUserByUsername(DEPARTMENT_USERNAME);
+		var actor = new com.example.attend.access.api.AccountActor(departmentAccountId);
+		long policyId = attendancePolicyService.createDraft(
+				actor,
+				departmentId,
+				new PolicyDraftCommand(
+						"반복 화면 정책",
+						LocalTime.of(8, 30),
+						List.of(
+								new PolicyBandInput(
+										1,
+										"정상",
+										AttendanceParentStatus.PRESENT,
+										LocalTime.of(9, 0)),
+								new PolicyBandInput(
+										2,
+										"지각",
+										AttendanceParentStatus.LATE,
+										LocalTime.of(9, 30)))));
+		attendancePolicyService.publish(actor, departmentId, policyId);
+
+		String path = "/admin/departments/" + departmentId + "/attendance-days";
+		mockMvc.perform(get(path).with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(content().string(containsString(
+						"<section id=\"recurrenceOptions\">")))
+				.andExpect(content().string(not(containsString(
+						"id=\"recurrenceOptions\" hidden"))))
+				.andExpect(content().string(not(containsString(
+						"name=\"endDate\" disabled"))));
+
+		LocalDate firstDate = LocalDate.now(clock).plusDays(1);
+		mockMvc.perform(post(path)
+						.with(user(departmentPrincipal))
+						.with(csrf())
+						.param("attendanceDate", firstDate.toString())
+						.param("endDate", firstDate.plusDays(2).toString())
+						.param("policyVersionId", Long.toString(policyId))
+						.param("recurrence", "DAILY")
+						.param("interval", "1")
+						.param("weeklyDays", "MONDAY")
+						.param("monthlyDays", "1")
+						.param("yearlyMonth", "1")
+						.param("yearlyDay", "1"))
+				.andExpect(status().is3xxRedirection())
+				.andExpect(redirectedUrl(path))
+				.andExpect(flash().attribute(
+						"message", "출석 날짜 3건을 생성했습니다."));
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT count(*)
+				FROM public.attendance_day
+				WHERE department_id = ?
+				  AND attendance_date BETWEEN ? AND ?
+				""", Integer.class, departmentId, firstDate, firstDate.plusDays(2)))
+				.isEqualTo(3);
+
+		LocalDate invalidStart = firstDate.plusDays(10);
+		MvcResult validationFailure = mockMvc.perform(post(path)
+						.with(user(departmentPrincipal))
+						.with(csrf())
+						.param("attendanceDate", invalidStart.toString())
+						.param("endDate", invalidStart.plusDays(20).toString())
+						.param("policyVersionId", Long.toString(policyId))
+						.param("recurrence", "WEEKLY")
+						.param("interval", "2")
+						.param("yearlyMonth", "4")
+						.param("yearlyDay", "5"))
+				.andExpect(status().is3xxRedirection())
+				.andExpect(redirectedUrl(path))
+				.andExpect(flash().attribute(
+						"error", "주간 반복 요일을 하나 이상 선택하세요."))
+				.andReturn();
+		Object submittedForm = validationFailure.getFlashMap().get("attendanceDayForm");
+		assertThat(submittedForm).isInstanceOf(Map.class);
+		Map<?, ?> formValues = (Map<?, ?>) submittedForm;
+		assertThat(formValues.get("attendanceDate")).isEqualTo(invalidStart);
+		assertThat(formValues.get("endDate")).isEqualTo(invalidStart.plusDays(20));
+		assertThat(formValues.get("policyVersionId")).isEqualTo(policyId);
+		assertThat(formValues.get("recurrence")).isEqualTo("WEEKLY");
+		assertThat(formValues.get("interval")).isEqualTo(2);
+		mockMvc.perform(get(path)
+						.with(user(departmentPrincipal))
+						.flashAttrs(validationFailure.getFlashMap()))
+				.andExpect(status().isOk())
+				.andExpect(content().string(containsString(invalidStart.toString())))
+				.andExpect(content().string(containsString(
+						invalidStart.plusDays(20).toString())))
+				.andExpect(content().string(containsString(
+						"주간 반복 요일을 하나 이상 선택하세요.")));
+
+		for (Map.Entry<String, String> malformed : Map.of(
+				"WEEKLY", "weeklyDays",
+				"MONTHLY", "monthlyDays").entrySet()) {
+			mockMvc.perform(post(path)
+							.with(user(departmentPrincipal))
+							.with(csrf())
+							.param("attendanceDate", invalidStart.toString())
+							.param("endDate", invalidStart.plusDays(20).toString())
+							.param("policyVersionId", Long.toString(policyId))
+							.param("recurrence", malformed.getKey())
+							.param("interval", "1")
+							.param(malformed.getValue(), ",")
+							.param("yearlyMonth", "1")
+							.param("yearlyDay", "1"))
+					.andExpect(status().is3xxRedirection())
+					.andExpect(redirectedUrl(path))
+					.andExpect(flash().attribute("error",
+							malformed.getKey().equals("WEEKLY")
+									? "반복 요일 값이 올바르지 않습니다."
+									: "반복 날짜 값이 올바르지 않습니다."));
+		}
+
+		mockMvc.perform(post(path)
+						.with(user(departmentPrincipal))
+						.with(csrf())
+						.param("attendanceDate", invalidStart.toString())
+						.param("endDate", invalidStart.plusDays(20).toString())
+						.param("policyVersionId", Long.toString(policyId))
+						.param("recurrence", "YEARLY")
+						.param("interval", Integer.toString(Integer.MAX_VALUE))
+						.param("yearlyMonth", "1")
+						.param("yearlyDay", "1"))
+				.andExpect(status().is3xxRedirection())
+				.andExpect(redirectedUrl(path))
+				.andExpect(flash().attribute(
+						"error", "반복 간격이 허용 범위를 초과했습니다."));
 	}
 
 	/**
