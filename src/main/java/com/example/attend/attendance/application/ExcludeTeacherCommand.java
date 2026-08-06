@@ -22,13 +22,15 @@ public record ExcludeTeacherCommand(
 	 * 확인한 날짜 집합과 카드 처리, 사유를 검증한다.
 	 */
 	public ExcludeTeacherCommand {
-		expectedFutureAttendanceDayIds = Set.copyOf(Objects.requireNonNull(
+		Objects.requireNonNull(
 				expectedFutureAttendanceDayIds,
-				"expected future attendance day ids must not be null"));
-		if (expectedFutureAttendanceDayIds.stream().anyMatch(id -> id <= 0)) {
+				"expected future attendance day ids must not be null");
+		if (expectedFutureAttendanceDayIds.stream()
+				.anyMatch(id -> id == null || id <= 0)) {
 			throw new IllegalArgumentException(
 					"expected future attendance day ids must be positive");
 		}
+		expectedFutureAttendanceDayIds = Set.copyOf(expectedFutureAttendanceDayIds);
 		Objects.requireNonNull(cardDisposition, "cardDisposition must not be null");
 		if (reason == null || reason.isBlank()) {
 			throw new IllegalArgumentException("reason must not be blank");

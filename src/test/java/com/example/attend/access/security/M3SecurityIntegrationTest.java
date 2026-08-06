@@ -616,6 +616,34 @@ class M3SecurityIntegrationTest {
 				  AND ended_at IS NULL
 				""", Integer.class, departmentId, memberId)).isEqualTo(1);
 
+		for (String malformedExpectedIds : List.of(",", "1,")) {
+			mockMvc.perform(post(exclusionPath)
+							.with(user(departmentPrincipal))
+							.with(csrf())
+							.param("expectedFutureAttendanceDayIds", malformedExpectedIds)
+							.param("cardDisposition", "AVAILABLE")
+							.param("reason", "사역 종료")
+							.param("confirmImpact", "true"))
+					.andExpect(status().is3xxRedirection())
+					.andExpect(redirectedUrl(exclusionPath))
+					.andExpect(flash().attribute(
+							"error",
+							"expected future attendance day ids must be positive"));
+		}
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT count(*)
+				FROM public.department_membership
+				WHERE department_id = ?
+				  AND member_id = ?
+				  AND ended_at IS NULL
+				""", Integer.class, departmentId, memberId)).isEqualTo(1);
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT is_target
+				FROM public.attendance_target
+				WHERE attendance_day_id = ?
+				  AND member_id = ?
+				""", Boolean.class, dayId, memberId)).isTrue();
+
 		jdbcTemplate.update("""
 				UPDATE public.attendance_target
 				SET is_target = FALSE,
