@@ -172,7 +172,7 @@ one-shot을 다시 실행한 뒤에만 app을 연결한다. worker 함수는 만
 
 ### 3.2 backup과 복원
 
-백업 단계가 별도로 승인되면 `ops/backup/backup.sh`를 하루 1회와 날짜 마감 직후 실행한다. 현재 production Compose에는 backup job이나 상태 파일 mount가 구성되어 있지 않다. 승인 후 TLS를 강제하는 direct PostgreSQL URL만 주입하고 결과의 dump,
+백업 단계가 별도로 승인되면 `ops/backup/backup.sh`를 하루 1회와 날짜 마감 직후 실행한다. 현재 production Compose에는 backup job이나 상태 파일 mount가 구성되어 있지 않다. 승인 후 option·credential이 없는 direct PostgreSQL endpoint와 별도 username/password만 주입한다. TLS와 실제 libpq 연결 필드는 스크립트가 고정하며, 결과의 dump,
 SHA-256과 UTC 완료 시각을 기록한다. 같은 host의 로컬 디스크만 저장소로 인정하지
 않는다.
 

@@ -66,13 +66,43 @@ backup_status_use_output_lock() {
   backup_status_lock_file="${output_directory}/.attend-backup.lock"
 }
 
-# Only explicit TLS modes are accepted. libpq's default `prefer` can silently
-# fall back to plaintext when the server permits it.
+# Accept only an option-free endpoint grammar. The URI is not passed to libpq;
+# its constrained host, port and database components become separate PG*
+# variables. That removes libpq option-name decoding and alias precedence from
+# the trust boundary entirely.
 backup_connection_requires_tls() {
-  local normalized_url
-  normalized_url="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
-  [[ "${normalized_url}" =~ (^|[?\&[:space:]])sslmode=(require|verify-ca|verify-full)($|[\&[:space:]]) ]] \
-    && [[ ! "${normalized_url}" =~ (^|[?\&[:space:]])sslmode=(disable|allow|prefer)($|[\&[:space:]]) ]]
+  local endpoint_pattern
+  local host
+  local port
+  local database
+  endpoint_pattern='^postgres(ql)?://([A-Za-z0-9][A-Za-z0-9.-]*)(:([0-9]+))?/([A-Za-z0-9_][A-Za-z0-9_.-]*)$'
+  [[ "$1" =~ ${endpoint_pattern} ]] || return 1
+  host="${BASH_REMATCH[2]}"
+  port="${BASH_REMATCH[4]:-5432}"
+  database="${BASH_REMATCH[5]}"
+  [[ "${port}" -ge 1 && "${port}" -le 65535 ]] || return 1
+  backup_connection_host="${host}"
+  backup_connection_port="${port}"
+  backup_connection_database="${database}"
+}
+
+# The endpoint never reaches libpq as a connection string. Every connection
+# field and both current/legacy TLS switches are overwritten immediately before
+# invoking a PostgreSQL client.
+backup_force_tls_environment() {
+  local endpoint="$1"
+  local username="$2"
+  local password="$3"
+  backup_connection_requires_tls "${endpoint}" || return 1
+  unset PGSERVICE PGSERVICEFILE
+  unset PGHOSTADDR
+  export PGHOST="${backup_connection_host}"
+  export PGPORT="${backup_connection_port}"
+  export PGDATABASE="${backup_connection_database}"
+  export PGUSER="${username}"
+  export PGPASSWORD="${password}"
+  export PGSSLMODE=require
+  export PGREQUIRESSL=1
 }
 
 # Re-executes the complete job under an OS advisory lock. flock is provided by

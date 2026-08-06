@@ -2354,6 +2354,41 @@ class FlywayMigrationTest {
 		try (Connection retentionConnection = retentionDataSource.getConnection()) {
 			RetentionDatabasePrivilegeGuard.verify(retentionConnection);
 		}
+		try (Connection admin = database.connect();
+			 Statement statement = admin.createStatement()) {
+			statement.execute("""
+					DO $grant_database_create$
+					BEGIN
+					    EXECUTE pg_catalog.format(
+					        'GRANT CREATE ON DATABASE %I TO retention_worker',
+					        pg_catalog.current_database()
+					    );
+					END
+					$grant_database_create$
+					""");
+		}
+		try (Connection retentionConnection = retentionDataSource.getConnection()) {
+			assertThatThrownBy(() ->
+					RetentionDatabasePrivilegeGuard.verify(retentionConnection))
+					.isInstanceOf(IllegalStateException.class)
+					.hasMessageContaining("incompatible");
+		}
+		try (Connection admin = database.connect();
+			 Statement statement = admin.createStatement()) {
+			statement.execute("""
+					DO $revoke_database_create$
+					BEGIN
+					    EXECUTE pg_catalog.format(
+					        'REVOKE CREATE ON DATABASE %I FROM retention_worker',
+					        pg_catalog.current_database()
+					    );
+					END
+					$revoke_database_create$
+					""");
+		}
+		try (Connection retentionConnection = retentionDataSource.getConnection()) {
+			RetentionDatabasePrivilegeGuard.verify(retentionConnection);
+		}
 
         long expiredAuditId;
         try (Connection migrationConnection =

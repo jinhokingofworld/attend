@@ -2,7 +2,12 @@ package com.example.attend.retention;
 
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.sql.Driver;
+import java.sql.DriverManager;
+import java.sql.DriverPropertyInfo;
+import java.sql.SQLException;
 import java.util.Map;
+import java.util.Properties;
 
 /** retention worker가 사용하는 자격증명 분리 JDBC 연결 설정이다. */
 record RetentionDatabaseConnection(String url, String username, String password) {
@@ -28,6 +33,7 @@ record RetentionDatabaseConnection(String url, String username, String password)
 			throw new IllegalStateException(
 					"RETENTION_DB_URL must not include a username or password");
 		}
+		requireEncryptedTransport(url);
 		return new RetentionDatabaseConnection(
 				url,
 				required(environment, "RETENTION_DB_USERNAME"),
@@ -51,6 +57,34 @@ record RetentionDatabaseConnection(String url, String username, String password)
 			}
 		}
 		return false;
+	}
+
+	/** pgjdbc 자체 parser가 실제 연결에 적용할 최종 sslmode를 검사한다. */
+	private static void requireEncryptedTransport(String url) {
+		String sslMode = null;
+		try {
+			Driver driver = DriverManager.getDriver(url);
+			for (DriverPropertyInfo property :
+					driver.getPropertyInfo(url, new Properties())) {
+				if ("sslmode".equalsIgnoreCase(property.name)) {
+					sslMode = property.value;
+					break;
+				}
+			}
+		} catch (SQLException exception) {
+			throw new IllegalStateException(
+					"RETENTION_DB_URL could not be parsed safely");
+		}
+		if (!requiresEncryption(sslMode)) {
+			throw new IllegalStateException(
+					"RETENTION_DB_URL must require encrypted transport");
+		}
+	}
+
+	private static boolean requiresEncryption(String sslMode) {
+		return "require".equalsIgnoreCase(sslMode)
+				|| "verify-ca".equalsIgnoreCase(sslMode)
+				|| "verify-full".equalsIgnoreCase(sslMode);
 	}
 
 	private static String required(Map<String, String> environment, String name) {

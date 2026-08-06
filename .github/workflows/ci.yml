@@ -141,7 +141,9 @@ jobs:
           shellcheck -x "${scripts[@]}"
 
           set +e
-          RESTORE_DATABASE_URL='postgresql://restore.example.test/attend?sslmode=require' \
+          RESTORE_DATABASE_URL='postgresql://restore.example.test/attend' \
+            RESTORE_DB_USERNAME='restore_test' \
+            RESTORE_DB_PASSWORD='ci-restore-password' \
             RESTORE_DUMP_FILE='build.gradle' \
             RESTORE_CHECKSUM_FILE='src/test/resources/ops/invalid-backup.sha256' \
             ./ops/backup/restore-verify.sh

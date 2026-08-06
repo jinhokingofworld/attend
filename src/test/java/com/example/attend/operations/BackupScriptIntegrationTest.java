@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -26,6 +27,14 @@ class BackupScriptIntegrationTest {
 		writeExecutable(fakePgDump, """
 				#!/usr/bin/env bash
 				set -eu
+				test "${PGSSLMODE}" = "require"
+				test "${PGREQUIRESSL}" = "1"
+				test "${PGHOST}" = "example.invalid"
+				test "${PGDATABASE}" = "attend"
+				test "${PGUSER}" = "runtime"
+				test "${PGPASSWORD}" = "not-used-password"
+				test -z "${PGSERVICE:-}"
+				test -z "${PGSERVICEFILE:-}"
 				output_file=''
 				for argument in "$@"; do
 				  case "${argument}" in
@@ -68,6 +77,14 @@ class BackupScriptIntegrationTest {
 		writeExecutable(fakeBin.resolve("psql"), """
 				#!/usr/bin/env bash
 				set -eu
+				test "${PGSSLMODE}" = "require"
+				test "${PGREQUIRESSL}" = "1"
+				test "${PGHOST}" = "example.invalid"
+				test "${PGDATABASE}" = "attend"
+				test "${PGUSER}" = "restore"
+				test "${PGPASSWORD}" = "not-used-password"
+				test -z "${PGSERVICE:-}"
+				test -z "${PGSERVICEFILE:-}"
 				for argument in "$@"; do
 				  if [[ "${argument}" == '--command' ]]; then
 				    printf '0\n'
@@ -79,12 +96,15 @@ class BackupScriptIntegrationTest {
 				""");
 		writeExecutable(fakeBin.resolve("pg_restore"), """
 				#!/usr/bin/env bash
+				test "${PGSSLMODE}" = "require"
+				test "${PGREQUIRESSL}" = "1"
 				exit 0
 				""");
 		environment.put(
 				"RESTORE_DATABASE_URL",
-				"postgresql://restore:not-used-password@example.invalid/attend"
-						+ "?sslmode=require");
+				"postgresql://example.invalid/attend");
+		environment.put("RESTORE_DB_USERNAME", "restore");
+		environment.put("RESTORE_DB_PASSWORD", "not-used-password");
 		environment.put("RESTORE_DUMP_FILE", dumpFile.toString());
 
 		ProcessResult restore = runRestoreVerification(environment);
@@ -151,6 +171,8 @@ class BackupScriptIntegrationTest {
 		writeExecutable(fakeBin.resolve("pg_dump"), """
 				#!/usr/bin/env bash
 				set -eu
+				test "${PGSSLMODE}" = "require"
+				test "${PGREQUIRESSL}" = "1"
 				output_file=''
 				for argument in "$@"; do
 				  case "${argument}" in
@@ -167,7 +189,9 @@ class BackupScriptIntegrationTest {
 						+ environment.getOrDefault("PATH", "/usr/bin:/bin"));
 		environment.put(
 				"BACKUP_DATABASE_URL",
-				"postgresql://backup.example.test/attend?sslmode=require");
+				"postgresql://backup.example.test/attend");
+		environment.put("BACKUP_DB_USERNAME", "backup");
+		environment.put("BACKUP_DB_PASSWORD", "concurrent-secret");
 		environment.put("BACKUP_OUTPUT_DIR", outputDirectory.toString());
 		environment.remove("BACKUP_STATUS_FILE");
 
@@ -194,9 +218,9 @@ class BackupScriptIntegrationTest {
 		}
 	}
 
-	/** 백업과 복원 URL은 평문 fallback이 가능한 sslmode를 거부한다. */
+	/** URL option은 모두 거부해 encoded alias가 고정 TLS 환경을 덮지 못하게 한다. */
 	@Test
-	void rejectsConnectionsThatDoNotForceTls() throws Exception {
+	void rejectsConnectionOptionsThatCouldOverrideForcedTls() throws Exception {
 		Path fakeBin = Files.createDirectories(
 				temporaryDirectory.resolve("tls-fake-bin"));
 		writeExecutable(fakeBin.resolve("pg_dump"), """
@@ -207,36 +231,37 @@ class BackupScriptIntegrationTest {
 		environment.put(
 				"PATH", fakeBin + System.getProperty("path.separator")
 						+ environment.getOrDefault("PATH", "/usr/bin:/bin"));
-		environment.put("BACKUP_DATABASE_URL",
-				"postgresql://backup.example.test/attend?sslmode=disable");
 		environment.put("BACKUP_OUTPUT_DIR",
 				temporaryDirectory.resolve("tls-backups").toString());
+		environment.put("BACKUP_DB_USERNAME", "backup");
+		environment.put("BACKUP_DB_PASSWORD", "tls-test-secret");
 		environment.remove("BACKUP_STATUS_FILE");
-
-		ProcessResult backup = runBackup(environment);
-		assertThat(backup.exitCode()).isEqualTo(2);
-		assertThat(backup.output())
-				.contains("TLS를 강제하는 sslmode")
-				.doesNotContain("backup.example.test");
-
-		environment.put("BACKUP_DATABASE_URL",
-				"postgresql://backup.example.test/attend"
-						+ "?sslmode=require&sslmode=disable");
-		ProcessResult conflictingModes = runBackup(environment);
-		assertThat(conflictingModes.exitCode()).isEqualTo(2);
-		assertThat(conflictingModes.output())
-				.contains("TLS를 강제하는 sslmode")
-				.doesNotContain("backup.example.test");
-
-		environment.put("RESTORE_DATABASE_URL",
-				"postgresql://restore.example.test/attend");
 		environment.put("RESTORE_DUMP_FILE",
 				temporaryDirectory.resolve("not-read.dump").toString());
-		ProcessResult restore = runRestoreVerification(environment);
-		assertThat(restore.exitCode()).isEqualTo(2);
-		assertThat(restore.output())
-				.contains("TLS를 강제하는 sslmode")
-				.doesNotContain("restore.example.test");
+		environment.put("RESTORE_DB_USERNAME", "restore");
+		environment.put("RESTORE_DB_PASSWORD", "tls-test-secret");
+
+		for (String query : List.of(
+				"sslmode=disable",
+				"sslmode=require&sslmode=disable",
+				"sslmode=require&ss%6cmode=disable",
+				"sslmode=require&requiressl=0")) {
+			environment.put("BACKUP_DATABASE_URL",
+					"postgresql://backup.example.test/attend?" + query);
+			ProcessResult backup = runBackup(environment);
+			assertThat(backup.exitCode()).isEqualTo(2);
+			assertThat(backup.output())
+					.contains("연결 옵션·credential")
+					.doesNotContain("backup.example.test");
+
+			environment.put("RESTORE_DATABASE_URL",
+					"postgresql://restore.example.test/attend?" + query);
+			ProcessResult restore = runRestoreVerification(environment);
+			assertThat(restore.exitCode()).isEqualTo(2);
+			assertThat(restore.output())
+					.contains("연결 옵션·credential")
+					.doesNotContain("restore.example.test");
+		}
 	}
 
 	private Map<String, String> environment(
@@ -247,8 +272,9 @@ class BackupScriptIntegrationTest {
 						+ environment.getOrDefault("PATH", "/usr/bin:/bin"));
 		environment.put(
 				"BACKUP_DATABASE_URL",
-				"postgresql://runtime:not-used-password@example.invalid/attend"
-						+ "?sslmode=require");
+				"postgresql://example.invalid/attend");
+		environment.put("BACKUP_DB_USERNAME", "runtime");
+		environment.put("BACKUP_DB_PASSWORD", "not-used-password");
 		environment.put("BACKUP_OUTPUT_DIR", outputDirectory.toString());
 		environment.put("BACKUP_STATUS_FILE", statusFile.toString());
 		environment.put("BACKUP_STORAGE_TYPE", "OBJECT_STORAGE");

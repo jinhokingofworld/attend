@@ -22,6 +22,9 @@ public final class RetentionDatabasePrivilegeGuard {
 						   AND NOT has_database_privilege(
 						       current_user, current_database(), 'TEMP'
 						   )
+						   AND NOT has_database_privilege(
+						       current_user, current_database(), 'CREATE'
+						   )
 						   AND EXISTS (
 						       SELECT 1
 						       FROM pg_catalog.pg_roles AS role

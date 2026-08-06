@@ -59,4 +59,36 @@ class RetentionDatabaseConnectionTest {
 		assertThat(connection.username()).isEqualTo("retention_worker");
 		assertThat(connection.password()).isEqualTo("separate-secret");
 	}
+
+	/** pgjdbc 기본 PREFER와 최종 disable option은 실제 연결 전에 거부한다. */
+	@Test
+	void rejectsJdbcUrlsWhoseCanonicalModeCanUsePlaintext() {
+		for (String url : new String[]{
+				"jdbc:postgresql://db.example.test/app",
+				"jdbc:postgresql://db.example.test/app?sslmode=prefer",
+				"jdbc:postgresql://db.example.test/app"
+						+ "?sslmode=require&sslmode=disable"}) {
+			assertThatThrownBy(() -> RetentionDatabaseConnection.from(Map.of(
+					"RETENTION_DB_URL", url,
+					"RETENTION_DB_USERNAME", "retention_worker",
+					"RETENTION_DB_PASSWORD", "separate-secret")))
+					.isInstanceOf(IllegalStateException.class)
+					.hasMessage("RETENTION_DB_URL must require encrypted transport")
+					.hasMessageNotContaining("db.example.test");
+		}
+	}
+
+	/** pgjdbc가 최종 적용하는 세 encrypted sslmode는 허용한다. */
+	@Test
+	void acceptsEveryJdbcModeThatRequiresEncryption() {
+		for (String sslMode : new String[]{"require", "verify-ca", "verify-full"}) {
+			RetentionDatabaseConnection connection =
+					RetentionDatabaseConnection.from(Map.of(
+							"RETENTION_DB_URL",
+							"jdbc:postgresql://db.example.test/app?sslmode=" + sslMode,
+							"RETENTION_DB_USERNAME", "retention_worker",
+							"RETENTION_DB_PASSWORD", "separate-secret"));
+			assertThat(connection.url()).endsWith("sslmode=" + sslMode);
+		}
+	}
 }

@@ -113,7 +113,7 @@
     </table>
     <a th:href="@{/admin/departments/{id}(id=${department.id})}">부서 홈</a>
 </main>
-<script>
+<script th:if="${writeEnabled and !#lists.isEmpty(publishedPolicies)}">
 const recurrenceInputs = document.querySelectorAll("input[name='recurrence']");
 const recurrenceOptions = document.getElementById("recurrenceOptions");
 const startDateInput = document.querySelector("input[name='attendanceDate']");

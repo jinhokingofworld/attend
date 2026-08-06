@@ -12,6 +12,8 @@ source "${script_directory}/status-contract.sh"
 backup_status_initialize || exit 2
 backup_storage_type="${BACKUP_STORAGE_TYPE:-}"
 backup_database_url="${BACKUP_DATABASE_URL:-}"
+backup_database_username="${BACKUP_DB_USERNAME:-}"
+backup_database_password="${BACKUP_DB_PASSWORD:-}"
 backup_output_dir="${BACKUP_OUTPUT_DIR:-}"
 if [[ "${backup_status_configured}" == true ]]; then
   backup_status_enter_lock "${script_directory}/backup.sh" "$@" || exit 2
@@ -59,8 +61,11 @@ record_failed_backup_status() {
 }
 trap record_failed_backup_status EXIT
 
-if [[ -z "${backup_database_url}" || -z "${backup_output_dir}" ]]; then
-  printf 'BACKUP_DATABASE_URL과 BACKUP_OUTPUT_DIR가 필요합니다.\n' >&2
+if [[ -z "${backup_database_url}" \
+    || -z "${backup_database_username}" \
+    || -z "${backup_database_password}" \
+    || -z "${backup_output_dir}" ]]; then
+  printf 'BACKUP_DATABASE_URL, BACKUP_DB_USERNAME, BACKUP_DB_PASSWORD, BACKUP_OUTPUT_DIR가 필요합니다.\n' >&2
   exit 2
 fi
 if [[ "${backup_output_dir}" != /* || "${backup_output_dir}" == "/" ]]; then
@@ -68,7 +73,7 @@ if [[ "${backup_output_dir}" != /* || "${backup_output_dir}" == "/" ]]; then
   exit 2
 fi
 if ! backup_connection_requires_tls "${backup_database_url}"; then
-  printf 'BACKUP_DATABASE_URL은 TLS를 강제하는 sslmode가 필요합니다.\n' >&2
+  printf 'BACKUP_DATABASE_URL에는 연결 옵션·credential을 넣을 수 없습니다. TLS는 작업이 직접 강제합니다.\n' >&2
   exit 2
 fi
 install -d -m 0700 "${backup_output_dir}"
@@ -96,16 +101,18 @@ fi
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 temporary_dump="$(
-  mktemp "${backup_output_dir}/.attend-${timestamp}.XXXXXX.dump.partial"
+  mktemp "${backup_output_dir}/.attend-${timestamp}.XXXXXX"
 )"
 temporary_basename="$(basename "${temporary_dump}")"
-final_dump="${backup_output_dir}/${temporary_basename#.}"
-final_dump="${final_dump%.partial}"
+final_dump="${backup_output_dir}/${temporary_basename#.}.dump"
 checksum_file="${final_dump}.sha256"
 
-# libpq accepts a connection URI through PGDATABASE. This keeps credentials out
-# of the process argument list, although the operator must still protect its env.
-export PGDATABASE="${backup_database_url}"
+# The constrained endpoint is split into PGHOST/PGPORT/PGDATABASE, so libpq
+# never parses caller-controlled connection options or credentials.
+backup_force_tls_environment \
+  "${backup_database_url}" \
+  "${backup_database_username}" \
+  "${backup_database_password}"
 pg_dump \
   --format=custom \
   --compress=9 \

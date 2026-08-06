@@ -1,13 +1,18 @@
 # 백업·복원 시험
 
 두 스크립트는 운영 웹의 pooled URL이 아니라 Neon **direct** PostgreSQL URL을
-사용한다. URL은 `postgresql://...?...sslmode=require` 형식으로 환경변수에만
-주입하고 명령행 인자로 넘기지 않는다. `sslmode=require`, `verify-ca`,
-`verify-full` 중 하나를 명시하지 않으면 평문 fallback을 막기 위해 실행을 거부한다.
-실행 로그에도 URL이나 비밀번호를 남기지 않는다.
+사용한다. endpoint는 query·fragment·credential이 없는
+`postgresql://host[:port]/database` 형식으로 환경변수에만 주입하고 명령행 인자로
+넘기지 않는다. 사용자명과 비밀번호는 별도 환경변수로 주입한다. 두 스크립트가 endpoint를
+`PGHOST`, `PGPORT`, `PGDATABASE`로 분리하고 `PGSSLMODE=require`와
+`PGREQUIRESSL=1`을 직접 설정하고 service file을 비활성화한다. URL에 연결 옵션을
+허용하지 않으므로 percent-encoded `sslmode` 이름이나 `requiressl` 호환 별칭도 이
+값을 덮어쓸 수 없다. 실행 로그에도 URL이나 비밀번호를 남기지 않는다.
 
 ```bash
-BACKUP_DATABASE_URL='postgresql://...?sslmode=require' \
+BACKUP_DATABASE_URL='postgresql://direct-db.example.test/attend' \
+BACKUP_DB_USERNAME='backup_worker' \
+BACKUP_DB_PASSWORD='secret-store-value' \
 BACKUP_OUTPUT_DIR='/approved/off-host/path' \
 BACKUP_STATUS_FILE='/var/lib/attend/backup-status/status.properties' \
 BACKUP_STORAGE_TYPE='OBJECT_STORAGE' \
@@ -27,7 +32,9 @@ BACKUP_STORAGE_TYPE='OBJECT_STORAGE' \
 중단하며 `clean`, `DROP DATABASE`, 덮어쓰기를 수행하지 않는다.
 
 ```bash
-RESTORE_DATABASE_URL='postgresql://...?sslmode=require' \
+RESTORE_DATABASE_URL='postgresql://restore-db.example.test/attend_restore' \
+RESTORE_DB_USERNAME='restore_worker' \
+RESTORE_DB_PASSWORD='secret-store-value' \
 RESTORE_DUMP_FILE='/approved/off-host/path/attend-....dump' \
 BACKUP_STATUS_FILE='/var/lib/attend/backup-status/status.properties' \
 ./ops/backup/restore-verify.sh

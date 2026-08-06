@@ -25,14 +25,19 @@ if ! command -v sha256sum >/dev/null 2>&1 \
 fi
 
 restore_database_url="${RESTORE_DATABASE_URL:-}"
+restore_database_username="${RESTORE_DB_USERNAME:-}"
+restore_database_password="${RESTORE_DB_PASSWORD:-}"
 dump_file="${RESTORE_DUMP_FILE:-}"
 checksum_file="${RESTORE_CHECKSUM_FILE:-${dump_file}.sha256}"
-if [[ -z "${restore_database_url}" || -z "${dump_file}" ]]; then
-  printf 'RESTORE_DATABASE_URL과 RESTORE_DUMP_FILE이 필요합니다.\n' >&2
+if [[ -z "${restore_database_url}" \
+    || -z "${restore_database_username}" \
+    || -z "${restore_database_password}" \
+    || -z "${dump_file}" ]]; then
+  printf 'RESTORE_DATABASE_URL, RESTORE_DB_USERNAME, RESTORE_DB_PASSWORD, RESTORE_DUMP_FILE이 필요합니다.\n' >&2
   exit 2
 fi
 if ! backup_connection_requires_tls "${restore_database_url}"; then
-  printf 'RESTORE_DATABASE_URL은 TLS를 강제하는 sslmode가 필요합니다.\n' >&2
+  printf 'RESTORE_DATABASE_URL에는 연결 옵션·credential을 넣을 수 없습니다. TLS는 작업이 직접 강제합니다.\n' >&2
   exit 2
 fi
 if [[ ! -f "${dump_file}" ]]; then
@@ -71,7 +76,10 @@ for command_name in pg_restore psql; do
   fi
 done
 
-export PGDATABASE="${restore_database_url}"
+backup_force_tls_environment \
+  "${restore_database_url}" \
+  "${restore_database_username}" \
+  "${restore_database_password}"
 relation_count="$(psql --no-psqlrc --tuples-only --quiet --set ON_ERROR_STOP=1 \
   --command "SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND c.relkind IN ('r','p','v','m','S');")"
 relation_count="${relation_count//[[:space:]]/}"

@@ -257,6 +257,12 @@ class M3SecurityIntegrationTest {
 			mockMvc.perform(get(path).with(user(departmentPrincipal)))
 					.andExpect(status().isOk());
 		}
+		mockMvc.perform(get("/admin/departments/" + departmentId
+						+ "/attendance-days")
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(content().string(not(containsString(
+						"const recurrenceInputs"))));
 		mockMvc.perform(get("/admin/departments/" + departmentId + "/history")
 						.with(user(departmentPrincipal)))
 				.andExpect(content().string(not(containsString("태깅 이력"))));
@@ -377,6 +383,8 @@ class M3SecurityIntegrationTest {
 		String path = "/admin/departments/" + departmentId + "/attendance-days";
 		mockMvc.perform(get(path).with(user(departmentPrincipal)))
 				.andExpect(status().isOk())
+				.andExpect(content().string(containsString(
+						"const recurrenceInputs")))
 				.andExpect(content().string(containsString(
 						"<section id=\"recurrenceOptions\">")))
 				.andExpect(content().string(not(containsString(
