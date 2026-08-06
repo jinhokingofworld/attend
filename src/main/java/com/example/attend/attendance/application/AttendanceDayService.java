@@ -100,6 +100,7 @@ public class AttendanceDayService {
 	) {
 		writeAuthorization.requireEnabled();
 		authorization.requireDepartmentAdmin(actor, departmentId);
+		requireDateNotPast(command.startDate());
 		List<LocalDate> dates = command.occurrenceDates();
 		if (dates.isEmpty()) {
 			throw new BusinessRuleException(
@@ -108,6 +109,7 @@ public class AttendanceDayService {
 		departmentLock.lockActive(departmentId);
 		PolicyVersionRow policy = requirePublishedPolicy(
 				departmentId, command.policyVersionId());
+		requireCreatableDate(command.startDate(), policy);
 		for (LocalDate date : dates) {
 			requireCreatableDate(date, policy);
 		}
@@ -272,9 +274,7 @@ public class AttendanceDayService {
 			LocalDate attendanceDate,
 			PolicyVersionRow policy
 	) {
-		if (attendanceDate == null || attendanceDate.isBefore(LocalDate.now(clock))) {
-			throw new BusinessRuleException("과거 출석 날짜는 생성할 수 없습니다.");
-		}
+		requireDateNotPast(attendanceDate);
 		if (attendanceDate.equals(LocalDate.now(clock))) {
 			Instant start = ZonedDateTime.of(
 					attendanceDate,
@@ -284,6 +284,13 @@ public class AttendanceDayService {
 				throw new BusinessRuleException(
 						"오늘 출석은 태깅 시작 시각이 지난 뒤 생성할 수 없습니다.");
 			}
+		}
+	}
+
+	/** occurrence 포함 여부와 무관하게 입력 날짜가 과거인지 검증한다. */
+	private void requireDateNotPast(LocalDate date) {
+		if (date == null || date.isBefore(LocalDate.now(clock))) {
+			throw new BusinessRuleException("과거 출석 날짜는 생성할 수 없습니다.");
 		}
 	}
 

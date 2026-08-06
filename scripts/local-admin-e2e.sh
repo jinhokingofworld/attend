@@ -84,7 +84,7 @@ login \
 
 curl --fail --silent --show-error --location \
   --cookie "${system_cookie}" --output "${system_home}" "${base_url}/admin"
-assert_contains "${system_home}" "시스템 관리"
+assert_contains "${system_home}" "플랫폼 운영"
 assert_contains "${system_home}" "공통 관리자 메뉴"
 
 curl --fail --silent --show-error \

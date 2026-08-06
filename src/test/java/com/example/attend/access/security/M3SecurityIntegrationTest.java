@@ -382,7 +382,10 @@ class M3SecurityIntegrationTest {
 				.andExpect(content().string(not(containsString(
 						"id=\"recurrenceOptions\" hidden"))))
 				.andExpect(content().string(not(containsString(
-						"name=\"endDate\" disabled"))));
+						"name=\"endDate\" disabled"))))
+				.andExpect(content().string(containsString(
+						"선택한 반복 방식에 따라 일·주·개월·년 단위로 적용됩니다.")))
+				.andExpect(content().string(not(containsString(">일</span>마다"))));
 
 		LocalDate firstDate = LocalDate.now(clock).plusDays(1);
 		mockMvc.perform(post(path)

@@ -138,7 +138,7 @@ jobs:
             scripts/pilot-http-simulator.sh
           )
           bash -n "${scripts[@]}"
-          shellcheck "${scripts[@]}"
+          shellcheck -x "${scripts[@]}"
 
           set +e
           RESTORE_DATABASE_URL='postgresql://restore.example.test/attend' \
