@@ -31,6 +31,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Clock;
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -689,6 +690,36 @@ class M2ApplicationIntegrationTest {
 				WHERE department_id = ?
 				  AND action = 'ATTENDANCE_DAY_CREATED'
 				""", authority.departmentId())).isEqualTo(3);
+	}
+
+	@Test
+	void rejectsAPastScheduleStartEvenWhenEveryOccurrenceIsInTheFuture() {
+		clock.setInstant(atSeoul(
+				LocalDate.of(2026, 8, 6),
+				LocalTime.of(8, 0)));
+		TestAuthority authority = createAuthority();
+		AccountActor actor = new AccountActor(authority.accountId());
+		long policyId = createPublishedPolicy(actor, authority.departmentId());
+		AttendanceDayScheduleCommand command = new AttendanceDayScheduleCommand(
+				LocalDate.of(2026, 8, 5),
+				LocalDate.of(2026, 8, 7),
+				policyId,
+				AttendanceDayRecurrence.WEEKLY,
+				1,
+				Set.of(DayOfWeek.FRIDAY),
+				Set.of(), null, null);
+
+		assertThat(command.occurrenceDates())
+				.containsExactly(LocalDate.of(2026, 8, 7));
+		assertThatThrownBy(() -> dayService.createDays(
+				actor, authority.departmentId(), command))
+				.isInstanceOf(BusinessRuleException.class)
+				.hasMessage("과거 출석 날짜는 생성할 수 없습니다.");
+		assertThat(queryInt("""
+				SELECT count(*)
+				FROM public.attendance_day
+				WHERE department_id = ?
+				""", authority.departmentId())).isZero();
 	}
 
 	/**

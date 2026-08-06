@@ -40,8 +40,9 @@
         <section id="recurrenceOptions">
             <label>반복 간격
                 <input type="number" name="interval" min="1" max="1830"
-                       th:value="${attendanceDayForm.interval}" required>
-                <span id="intervalUnit">일</span>마다
+                       th:value="${attendanceDayForm.interval}"
+                       aria-describedby="intervalUnit" required>
+                <small id="intervalUnit">선택한 반복 방식에 따라 일·주·개월·년 단위로 적용됩니다.</small>
             </label>
             <label>반복 종료일
                 <input type="date" name="endDate"
@@ -145,7 +146,7 @@ function updateRecurrenceOptions() {
     endDateInput.disabled = !repeats;
     endDateInput.required = repeats;
     if (repeats) {
-        document.getElementById("intervalUnit").textContent = intervalUnits[recurrence];
+        document.getElementById("intervalUnit").textContent = `${intervalUnits[recurrence]} 단위로 적용됩니다.`;
         intervalInput.max = String(intervalMaximums[recurrence]);
     }
     document.querySelectorAll("[data-recurrence]").forEach(section => {
