@@ -32,6 +32,23 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  retention:
+    build:
+      context: .
+      target: retention
+    image: attend-retention:${ATTEND_IMAGE_TAG:-local}
+    restart: unless-stopped
+    environment:
+      RETENTION_DB_URL: ${RETENTION_DB_URL:?RETENTION_DB_URL is required}
+      RETENTION_DB_USERNAME: ${RETENTION_DB_USERNAME:?RETENTION_DB_USERNAME is required}
+      RETENTION_DB_PASSWORD: ${RETENTION_DB_PASSWORD:?RETENTION_DB_PASSWORD is required}
+      RETENTION_RUN_INTERVAL_SECONDS: ${RETENTION_RUN_INTERVAL_SECONDS:-86400}
+      RETENTION_CATCHUP_INTERVAL_SECONDS: ${RETENTION_CATCHUP_INTERVAL_SECONDS:-1}
+    networks:
+      - private
+    security_opt:
+      - no-new-privileges:true
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -47,7 +64,7 @@ services:
       - "443:443"
       - "443:443/udp"
     volumes:
-      - ./ops/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./ops/caddy/Caddyfile:/etc/caddy/Caddyfile:ro,Z
       - caddy_data:/data
       - caddy_config:/config
     networks:

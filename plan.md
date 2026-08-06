@@ -16,7 +16,7 @@
 - 실제 펌웨어 단계에서는 빨강·초록 LED만 사용한다.
 - 운영 데이터베이스는 기존 더미데이터를 이관하지 않고 신규 빈 Neon PostgreSQL
   DB에서 시작한다. migration 승인값은 `NEW_OR_SAMPLE`이며, 읽기 전용 preflight가
-  `FRESH`가 아니면 V001~V009를 적용하지 않는다.
+  `FRESH`가 아니면 V001~V011을 적용하지 않는다.
 
 ## 2. 단계별 구현
 
@@ -30,14 +30,13 @@
 
 ### M1. DB와 실행 기반 안전화
 
-- Flyway V001~V009를 문서 순서대로 구현한다.
+- Flyway V001~V011을 문서 순서대로 구현한다.
   - V001은 빈 DB와 정확한 레거시 DB만 허용하고 `member` 행·PK를 보존한다.
   - V002에는 부서·계정·부서 권한과 회원가입 초대·비밀번호 재설정 토큰 모델을 함께 넣는다.
-  - V003~V008은 카드·장치, 정책, 출석, event·audit, 복합 FK·인덱스, trigger를 생성한다.
-  - V009는 신규·수정·활성 교사의 정확한 생년월일과 활성 소속·종료 이력 불변 규칙을 강제한다.
-- 아직 적용된 Flyway 이력이 없으면 회원가입 초대·비밀번호 재설정 토큰 모델을 V002에 포함한다. 외부 DB에 V002가 이미 성공 적용된 사실이 확인되면 기존 파일을 수정하지 않고 V009로 추가한다.
+  - V003~V008은 카드·장치, 정책, 출석, event·audit, 복합 FK·인덱스, updated-at trigger를 생성하고 V009는 신규 등록·기본정보 수정·활성화의 정확한 생년월일, 활성 소속–교사 상태 일관성과 종료 소속·카드 연결 이력의 불변성을 강제한다. V010은 audit 시각 강제와 분리 retention worker의 고정 2년 batch 경계를 추가하고, V011은 tag event 수신 시각 강제와 고정 90일 batch 경계를 추가한다.
+- 아직 적용된 Flyway 이력이 없으면 회원가입 초대·비밀번호 재설정 토큰 모델을 V002에 포함한다. 외부 DB에 V002가 이미 성공 적용된 사실이 확인되면 기존 파일을 수정하지 않고 다음 versioned migration으로 추가한다.
 - 운영 migration은 동일 커밋의 migration을 포함한 고정 Flyway 컨테이너가 Neon direct URL로 실행한다. 웹 애플리케이션에서는 Flyway를 끄고 요구 schema version만 검사한다.
-- `migration_owner`, `app_runtime`, `cutover_writer`, `legacy_writer` 권한을 분리하고 웹 계정에는 DDL·Flyway history·레거시 DML 권한을 주지 않는다.
+- `migration_owner`, `app_runtime`, `cutover_writer`, `legacy_writer`, `retention_worker` 권한을 분리하고 웹 계정에는 DDL·Flyway history·레거시 DML·retention 삭제 권한을 주지 않는다.
 - 역할·권한 SQL과 로컬 PostgreSQL 검증은 M1에서 구현하되, 운영 credential 발급·적용과 migration 배포 job은 최종 배포 단계에서 수행한다.
 - 운영 책임자가 DB를 `NEW_OR_SAMPLE`, `LEGACY_OPERATIONAL`, `UNKNOWN`으로 승인하고, read-only preflight가 빈 DB·정확한 레거시 DB·기존 Flyway 관리 DB 여부를 독립 검증한다. 승인과 기술 상태가 다르거나 `UNKNOWN`이면 아무것도 변경하지 않는다.
 - 완료 조건은 빈 DB·레거시 fixture migration, 잘못된 schema 전체 rollback, 재시작 데이터 불변, 복합 FK·부분 unique·`RESTRICT` 부정 테스트 통과다.
@@ -97,7 +96,7 @@
 - Caddy에서 공개 HTTPS를 종단하고 애플리케이션은 Neon pooled URL, migration·backup은 direct URL을 사용한다.
 - 운영 profile은 DB URL, token/device pepper, 공개 base URL이 없으면 기동 실패시킨다.
 - actuator는 내부 health만 노출하고 구조화 로그에서 비밀번호, token, 장치 키, 전체 UID와 연락처를 마스킹한다.
-- 백업은 Neon direct URL의 `pg_dump`와 별도 저장소 복원 시험으로 검증한다. 보유기간·저장 위치·개인정보 삭제 규칙이 교회에서 승인되기 전에는 실제 데이터를 넣지 않는다.
+- 백업은 Neon direct URL의 `pg_dump`와 별도 저장소 복원 시험으로 검증한다. 업무 DB 보유기간은 확정됐고, 만료 데이터는 자동 삭제하되 제한된 수명의 운영 백업에만 일시적으로 남을 수 있다. backup의 보유기간·저장 위치·암호화·삭제 담당자가 승인되기 전에는 실제 데이터 backup을 시작하지 않는다.
 - 컷오버는 `admin-write → 단일 장치 시험·활성화 → 첫 check-in → 나머지 장치 → scheduler` 순서로 진행한다.
 - Arduino 확보 전에는 HTTP simulator로 2개 부서 E2E까지 수행한다. 실제 장치 확보 후 빨강·초록 LED 패턴, 네트워크 timeout, 50회 성능 시험과 4회 현장 파일럿을 추가해야 최종 MVP가 완료된다.
 
@@ -109,12 +108,12 @@
 - 보안 테스트는 두 filter chain, CSRF, session fixation, idle 30분·absolute 8시간, 다른 부서 IDOR, token 재사용·만료, 장치 상태·version 경합을 검증한다.
 - 계약 테스트는 OpenAPI의 모든 response example과 HTTP status/code 조합을 검증한다.
 - migration 테스트는 빈 DB, 정확한 레거시 DB, 알 수 없는 DB, 권한, importer dry-run과 백업 복원을 포함한다.
-- 각 단계는 [TEST_PLAN.md](./docs/TEST_PLAN.md)의 해당 안정 ID가 통과해야 다음 feature flag를 열 수 있으며, 최종적으로 AC-01~34를 모두 통과해야 한다.
+- 각 단계는 [TEST_PLAN.md](./docs/TEST_PLAN.md)의 해당 안정 ID가 통과해야 다음 feature flag를 열 수 있으며, 최종적으로 AC-01~37을 모두 통과해야 한다.
 
 ## 4. 명시적 범위와 가정
 
 - 현재 DB에 실제 데이터가 있는지는 구현 시 preflight가 판정하며, 임의로 삭제하거나 샘플 DB로 추정하지 않는다.
-- 기존 `member`의 나이·생일·`card_uid`는 보존하지만 신규 화면에서는 직접 수정하지 않는다.
+- 기존 `member.age`와 `member.card_uid`는 원본 호환용으로만 보존하고 신규 화면에서는 읽거나 수정하지 않는다. `birth`는 생일 관리와 만 나이 계산의 기준이므로 신규 등록·기본정보 수정·활성화에서 미래가 아닌 정확한 날짜를 필수로 입력하되, 레거시 결측값을 기존 나이에서 추정하지 않는다.
 - `SYSTEM_ADMIN`은 명시적으로 부서 관리자 권한을 추가로 받지 않는 한 출석 업무 데이터를 관리할 수 없다.
 - 다중 인스턴스, Redis, 메시지 브로커, 네이티브 앱, CSV·Excel 내보내기와 자동 출석 날짜 생성은 제외한다.
 - Arduino가 없는 현재 단계의 완료 지점은 서버·웹·HTTP 장치 계약과 운영 배포 준비까지다. 실제 현장 완료는 하드웨어 확보 후 M6에서 판정한다.

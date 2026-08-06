@@ -39,7 +39,7 @@ jobs:
           validate-wrappers: true
 
       - name: Run checks and build executable JAR
-        run: ./gradlew check bootJar migrationBootJar --no-daemon --stacktrace
+        run: ./gradlew check bootJar migrationBootJar retentionBootJar --no-daemon --stacktrace
 
       - name: Verify packaged database resources
         shell: bash
@@ -48,24 +48,28 @@ jobs:
 
           artifact_path="build/libs/attend-app.jar"
           migration_artifact_path="build/libs/attend-migration.jar"
+          retention_artifact_path="build/libs/attend-retention.jar"
           test -f "${artifact_path}"
           test -f "${migration_artifact_path}"
+          test -f "${retention_artifact_path}"
 
           unzip -p "${artifact_path}" META-INF/MANIFEST.MF \
             | grep -F 'Start-Class: com.example.attend.AttendApplication'
           unzip -p "${migration_artifact_path}" META-INF/MANIFEST.MF \
             | grep -F 'Start-Class: com.example.attend.database.DatabaseMigrationCli'
+          unzip -p "${retention_artifact_path}" META-INF/MANIFEST.MF \
+            | grep -F 'Start-Class: com.example.attend.retention.AuditLogRetentionCli'
 
           jar tf "${artifact_path}" > build/jar-contents.txt
 
-          for version in 001 002 003 004 005 006 007 008 009; do
+          for version in 001 002 003 004 005 006 007 008 009 010 011; do
             grep -Eq "BOOT-INF/classes/db/migration/V${version}__.+[.]sql$" build/jar-contents.txt
           done
 
           migration_count="$(
             grep -Ec 'BOOT-INF/classes/db/migration/V[0-9]+__.+[.]sql$' build/jar-contents.txt
           )"
-          test "${migration_count}" -eq 9
+          test "${migration_count}" -eq 11
 
           if grep -Eq 'BOOT-INF/classes/(schema|data)[.]sql$' build/jar-contents.txt; then
             echo "Destructive legacy SQL initialization resource found in the application JAR."
@@ -77,6 +81,9 @@ jobs:
           DB_URL: jdbc:postgresql://db.example.test/attend
           DB_USERNAME: app_runtime
           DB_PASSWORD: ci-runtime-password
+          RETENTION_DB_URL: jdbc:postgresql://direct-db.example.test/attend
+          RETENTION_DB_USERNAME: retention_worker
+          RETENTION_DB_PASSWORD: ci-retention-password
           PUBLIC_BASE_URL: https://attendance.example.test
           PUBLIC_HOST: attendance.example.test
           ACME_CONTACT_EMAIL: operator@example.test
@@ -104,6 +111,7 @@ jobs:
         run: |
           docker build --target runtime --tag attend:ci .
           docker build --target migration --tag attend-migration:ci .
+          docker build --target retention --tag attend-retention:ci .
 
       - name: Validate Caddy configuration
         run: |
@@ -122,6 +130,7 @@ jobs:
           scripts=(
             ops/backup/backup.sh
             ops/backup/restore-verify.sh
+            ops/retention/run-loop.sh
             scripts/device-smoke.sh
             scripts/local-admin-e2e.sh
             scripts/local-demo-start.sh
@@ -129,10 +138,12 @@ jobs:
             scripts/pilot-http-simulator.sh
           )
           bash -n "${scripts[@]}"
-          shellcheck "${scripts[@]}"
+          shellcheck -x "${scripts[@]}"
 
           set +e
           RESTORE_DATABASE_URL='postgresql://restore.example.test/attend' \
+            RESTORE_DB_USERNAME='restore_test' \
+            RESTORE_DB_PASSWORD='ci-restore-password' \
             RESTORE_DUMP_FILE='build.gradle' \
             RESTORE_CHECKSUM_FILE='src/test/resources/ops/invalid-backup.sha256' \
             ./ops/backup/restore-verify.sh

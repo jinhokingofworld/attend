@@ -9,7 +9,7 @@
     <p th:if="${message}" class="message message--success" th:text="${message}"></p>
     <p th:if="${error}" class="message message--error" th:text="${error}" role="alert"></p>
     <p th:unless="${writeEnabled}">읽기 전용 모드</p>
-    <p>부서 장치가 수신한 미등록·비활성 카드 태깅을 표시합니다.</p>
+	<p>부서 장치가 최근 7일 동안 수신한 미등록·비활성 카드 태깅을 최근 100개까지 표시합니다.</p>
     <p>원본 UID를 화면에 노출하지 않고, 태깅 이벤트를 선택한 교사에게 바로 연결합니다.</p>
     <table>
         <thead><tr><th>시각</th><th>장치</th><th>카드</th><th>결과</th><th>교사 연결</th></tr></thead>

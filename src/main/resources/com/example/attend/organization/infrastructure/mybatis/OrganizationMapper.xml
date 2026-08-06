@@ -102,6 +102,7 @@
 		  ON card.uid = event.uid
 		WHERE event.department_id = #{departmentId}
 		  AND event.id = #{eventId}
+		  AND event.received_at &gt;= #{receivedSince}
 		  AND event.result_code IN ('UNKNOWN_UID', 'INACTIVE_CARD')
 		  AND (card.id IS NULL OR card.status = 'AVAILABLE')
 	</select>

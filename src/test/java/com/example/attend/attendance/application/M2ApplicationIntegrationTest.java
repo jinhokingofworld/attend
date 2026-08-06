@@ -31,6 +31,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Clock;
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -268,6 +269,36 @@ class M2ApplicationIntegrationTest {
 										"1차 지각",
 										AttendanceParentStatus.LATE,
 										LocalTime.of(9, 15)))));
+		policyService.replaceDraft(
+				actor,
+				authority.departmentId(),
+				policyId,
+				new PolicyDraftCommand(
+						"주일 기본 정책 수정",
+						LocalTime.of(8, 30),
+						List.of(
+								new PolicyBandInput(
+										1,
+										"정상 출석",
+										AttendanceParentStatus.PRESENT,
+										LocalTime.of(9, 0)),
+								new PolicyBandInput(
+										2,
+										"지각 수정",
+										AttendanceParentStatus.LATE,
+										LocalTime.of(9, 20)))));
+		assertThat(queryInt("""
+				SELECT count(*)
+				FROM public.audit_log
+				WHERE department_id = ?
+				  AND action = 'POLICY_DRAFT_REPLACED'
+				  AND before_data ->> 'name' = '주일 기본 정책'
+				  AND after_data ->> 'name' = '주일 기본 정책 수정'
+				  AND before_data #>> '{bands,1,label}' = '1차 지각'
+				  AND after_data #>> '{bands,1,label}' = '지각 수정'
+				  AND before_data #>> '{bands,1,upperTime}' = '09:15'
+				  AND after_data #>> '{bands,1,upperTime}' = '09:20'
+				""", authority.departmentId())).isEqualTo(1);
 		policyService.publish(actor, authority.departmentId(), policyId);
 
 		assertThatThrownBy(() -> policyService.replaceDraft(
@@ -318,7 +349,7 @@ class M2ApplicationIntegrationTest {
 				attendanceDate,
 				policyId))
 				.isInstanceOf(BusinessRuleException.class)
-				.hasMessageContaining("after check-in starts");
+				.hasMessageContaining("태깅 시작 시각");
 		ManualAttendanceResult firstResult = correctionService.correct(
 				actor,
 				authority.departmentId(),
@@ -605,6 +636,90 @@ class M2ApplicationIntegrationTest {
 				LocalDate.of(2026, 7, 31),
 				1L))
 				.isInstanceOf(DepartmentAccessDeniedException.class);
+	}
+
+	@Test
+	void createsRecurringDaysSnapshotsTargetsAndSkipsExistingDates() {
+		clock.setInstant(atSeoul(
+				LocalDate.of(2026, 8, 1),
+				LocalTime.of(8, 0)));
+		TestAuthority authority = createAuthority();
+		AccountActor actor = new AccountActor(authority.accountId());
+		TeacherRegistrationResult teacher = teacherRosterService.addTeacher(
+				actor,
+				authority.departmentId(),
+				new AddTeacherCommand(
+						"반복 생성 교사",
+						null,
+						LocalDate.of(1992, 3, 4),
+						null));
+		long policyId = createPublishedPolicy(actor, authority.departmentId());
+		AttendanceDayScheduleCommand command = new AttendanceDayScheduleCommand(
+				LocalDate.of(2026, 8, 2),
+				LocalDate.of(2026, 8, 6),
+				policyId,
+				AttendanceDayRecurrence.DAILY,
+				2,
+				Set.of(), Set.of(), null, null);
+
+		AttendanceDayBatchResult first = dayService.createDays(
+				actor, authority.departmentId(), command);
+		AttendanceDayBatchResult second = dayService.createDays(
+				actor, authority.departmentId(), command);
+
+		assertThat(first).isEqualTo(new AttendanceDayBatchResult(3, 0));
+		assertThat(second).isEqualTo(new AttendanceDayBatchResult(0, 3));
+		assertThat(queryInt("""
+				SELECT count(*)
+				FROM public.attendance_day
+				WHERE department_id = ?
+				  AND attendance_date BETWEEN ? AND ?
+				""", authority.departmentId(),
+				LocalDate.of(2026, 8, 2), LocalDate.of(2026, 8, 6))).isEqualTo(3);
+		assertThat(queryInt("""
+				SELECT count(*)
+				FROM public.attendance_target AS target
+				JOIN public.attendance_day AS day
+				  ON day.id = target.attendance_day_id
+				WHERE day.department_id = ?
+				  AND target.member_id = ?
+				""", authority.departmentId(), teacher.memberId())).isEqualTo(3);
+		assertThat(queryInt("""
+				SELECT count(*)
+				FROM public.audit_log
+				WHERE department_id = ?
+				  AND action = 'ATTENDANCE_DAY_CREATED'
+				""", authority.departmentId())).isEqualTo(3);
+	}
+
+	@Test
+	void rejectsAPastScheduleStartEvenWhenEveryOccurrenceIsInTheFuture() {
+		clock.setInstant(atSeoul(
+				LocalDate.of(2026, 8, 6),
+				LocalTime.of(8, 0)));
+		TestAuthority authority = createAuthority();
+		AccountActor actor = new AccountActor(authority.accountId());
+		long policyId = createPublishedPolicy(actor, authority.departmentId());
+		AttendanceDayScheduleCommand command = new AttendanceDayScheduleCommand(
+				LocalDate.of(2026, 8, 5),
+				LocalDate.of(2026, 8, 7),
+				policyId,
+				AttendanceDayRecurrence.WEEKLY,
+				1,
+				Set.of(DayOfWeek.FRIDAY),
+				Set.of(), null, null);
+
+		assertThat(command.occurrenceDates())
+				.containsExactly(LocalDate.of(2026, 8, 7));
+		assertThatThrownBy(() -> dayService.createDays(
+				actor, authority.departmentId(), command))
+				.isInstanceOf(BusinessRuleException.class)
+				.hasMessage("과거 출석 날짜는 생성할 수 없습니다.");
+		assertThat(queryInt("""
+				SELECT count(*)
+				FROM public.attendance_day
+				WHERE department_id = ?
+				""", authority.departmentId())).isZero();
 	}
 
 	/**

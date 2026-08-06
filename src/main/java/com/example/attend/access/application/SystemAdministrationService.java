@@ -253,7 +253,7 @@ public class SystemAdministrationService {
 	 * @param actor 인증 시스템 관리자
 	 * @return 운영 상태 집계
 	 */
-	@Transactional(readOnly = true)
+	@Transactional(readOnly = true, timeout = 3)
 	public Map<String, Object> operations(AccountActor actor) {
 		authorization.requireSystemAdmin(actor);
 		return mapper.selectSystemOperations();

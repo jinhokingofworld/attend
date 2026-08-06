@@ -293,22 +293,32 @@
 	</select>
 
 	<select id="selectCardInbox" resultType="map">
-		SELECT DISTINCT ON (event.uid)
-		       event.id AS event_id,
-		       '****' || right(event.uid, 4) AS masked_uid,
-		       event.result_code,
-		       device.name AS device_name,
-		       event.received_at
-		FROM public.tag_event_log AS event
-		JOIN public.device AS device
-		  ON device.id = event.device_id
-		 AND device.department_id = event.department_id
-		LEFT JOIN public.nfc_card AS card
-		  ON card.uid = event.uid
-		WHERE event.department_id = #{departmentId}
-		  AND event.result_code IN ('UNKNOWN_UID', 'INACTIVE_CARD')
-		  AND (card.id IS NULL OR card.status = 'AVAILABLE')
-		ORDER BY event.uid, event.received_at DESC
+		SELECT recent.event_id,
+		       recent.masked_uid,
+		       recent.result_code,
+		       recent.device_name,
+		       recent.received_at
+		FROM (
+			SELECT DISTINCT ON (event.uid)
+			       event.id AS event_id,
+			       '****' || right(event.uid, 4) AS masked_uid,
+			       event.result_code,
+			       device.name AS device_name,
+			       event.received_at
+			FROM public.tag_event_log AS event
+			JOIN public.device AS device
+			  ON device.id = event.device_id
+			 AND device.department_id = event.department_id
+			LEFT JOIN public.nfc_card AS card
+			  ON card.uid = event.uid
+			WHERE event.department_id = #{departmentId}
+			  AND event.received_at &gt;= #{receivedSince}
+			  AND event.result_code IN ('UNKNOWN_UID', 'INACTIVE_CARD')
+			  AND (card.id IS NULL OR card.status = 'AVAILABLE')
+			ORDER BY event.uid, event.received_at DESC, event.id DESC
+		) AS recent
+		ORDER BY recent.received_at DESC, recent.event_id DESC
+		LIMIT #{limit}
 	</select>
 
 </mapper>

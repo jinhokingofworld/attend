@@ -91,7 +91,7 @@ Attend MVP는 화면이 열리고 NFC 요청 한 건이 성공하는 것만으�
 | Security/MVC | MockMvc + 실제 security 설정 + Testcontainers | 두 filter chain, CSRF, 세션, IDOR, PRG | 실제 PostgreSQL |
 | Device contract | OpenAPI validation + HTTP integration | schema, status, header, body 제한, 재시도 계약 | 기동한 Spring Boot |
 | Concurrency | 두 개 이상의 독립 DB connection/transaction | 잠금 순서와 race condition | 실제 PostgreSQL |
-| Migration | 빈 DB·레거시 fixture·복원 DB | V001~V009, baseline 0, 권한, 재현성 | 별도 PostgreSQL |
+| Migration | 빈 DB·레거시 fixture·복원 DB | V001~V011, baseline 0, 권한, 재현성 | 별도 PostgreSQL |
 | Firmware integration | 실제 Arduino·NFC reader·운영 유사 네트워크 | UID, HTTP, timeout, LED·부저 | staging 서버 |
 | E2E·파일럿 | 실제 관리자·교사·장치 | 전체 업무 흐름과 운영 절차 | 운영 유사/실환경 |
 
@@ -197,7 +197,7 @@ H2는 PostgreSQL 부분 인덱스, constraint, `ON CONFLICT`, lock과 transactio
 | DOM-DAY-006 | 태깅 시작 후 일반 대상·정책 변경 | 거부 |
 | DOM-DAY-007 | 기록 없는 날짜 취소 | `CANCELED`, 마감·통계 제외 |
 | DOM-DAY-008 | 기록 있는 날짜 취소 | 거부 |
-| DOM-DAY-009 | 이후 교사 추가·부서 제외 | 기존 snapshot 자동 변경 없음 |
+| DOM-DAY-009 | 이후 교사 추가·부서 제외 | 추가는 기존 snapshot을 복원하지 않고, 제외는 시작 전·날짜 기록 0건인 미래 대상만 자동 비활성화 |
 | DOM-DAY-010 | 오늘 날짜 | DB 상태는 `SCHEDULED`, 화면 운영 상태만 `OPEN` |
 
 ### 6.3 수동 등록·정정
@@ -282,10 +282,12 @@ H2는 PostgreSQL 부분 인덱스, constraint, `ON CONFLICT`, lock과 transactio
 | ID | 상황 | 기대 결과 |
 |---|---|---|
 | ROSTER-001 | 활성 교사 제외 | membership·assignment 종료, 카드 disposition, 사유·actor 저장 |
-| ROSTER-002 | 미래 날짜 일괄 제외 선택 | 태깅 시작 전 대상만 `is_target=false` |
-| ROSTER-003 | 과거·시작된 날짜 | 대상자·기록 변경 없음 |
-| ROSTER-004 | 다른 활성 소속 없음 | `member.active=false` |
-| ROSTER-005 | 물리 삭제 요청 | UI·service 미제공, DB 권한 거부 |
+| ROSTER-002 | 제외 영향 확인 후 제출 | 시작 전·날짜 전체 출석 기록 0건인 모든 미래 대상만 `is_target=false` |
+| ROSTER-003 | 과거·시작된 날짜 또는 다른 교사의 기록이라도 존재하는 날짜 | 대상자·기록 변경 없음 |
+| ROSTER-004 | 확인 뒤 자동 제외 후보 건수 변경 | membership·card·target 전체 rollback, 최신 영향 재확인 요구 |
+| ROSTER-005 | 교사 재가입 | 기존 미래 날짜의 `is_target=false` 자동 복원 없음 |
+| ROSTER-006 | 다른 활성 소속 없음 | `member.active=false` |
+| ROSTER-007 | 물리 삭제 요청 | UI·service 미제공, DB 권한 거부 |
 
 ---
 
@@ -413,6 +415,11 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | DB-CST-026 | 없는 대상·발급 계정 참조, 중복 `token_hash` 또는 같은 계정·목적의 미사용·미무효 token 2건 입력 | FK, token hash unique 또는 활성 token 부분 unique 위반 |
 | DB-CST-027 | `NFC + ABSENT` 또는 `AUTO_ABSENCE + PRESENT/LATE` 조합 입력 | 판정 원천·상태 일관성 CHECK 위반 |
 | DB-CST-028 | tag event의 `nfc_card_id`와 원문 `uid`가 서로 다른 카드 식별 | 카드 ID–UID 복합 FK 위반 |
+| DB-CST-029 | 신규 교사의 결측·미래 `birth`, 레거시 결측 교사의 기본정보 수정·활성화 또는 확인된 생년월일을 결측·미래로 변경 | V009 trigger가 거부하고 기존 결측 행은 migration에서 그대로 보존 |
+| DB-CST-030 | 비활성·결측·미래 생년월일 교사에 활성 소속 생성 또는 활성 소속을 끝내기 전 교사 비활성화 | V009 trigger가 거부하고 기존 소속은 migration에서 그대로 보존 |
+| DB-CST-031 | 종료된 소속·카드 연결의 종료 시각·처리자·사유 수정 또는 `NULL` 재개방 | V009 trigger가 거부하고 재가입·재연결은 새 행으로만 기록 |
+| DB-CST-032 | V009 이전의 2년 초과 audit 501행, 최근 audit, 근접 cutoff audit을 V010 적용 뒤 정리 | 고정 DB cutoff의 500행 batch 두 번만 만료 행을 삭제하고 최근 행은 보존; 새 audit INSERT의 `occurred_at`은 DB 시각으로 강제 |
+| DB-CST-033 | V010 이전의 90일 초과 tag event 501행, 최근 event, 근접 cutoff event를 V011 적용 뒤 정리 | 고정 DB cutoff의 500행 batch 두 번만 만료 행을 삭제하고 최근 행은 보존; 새 event INSERT의 `received_at`은 DB 시각으로 강제 |
 
 ### 10.2 Mapper
 
@@ -425,7 +432,7 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | DB-MAP-005 | 통계가 신규 `FINALIZED` 날짜만 사용함 |
 | DB-MAP-006 | 미등록 카드함이 해당 부서 `UNKNOWN_UID` event만 조회함 |
 | DB-MAP-007 | 레거시 세 테이블 DML Mapper가 신규 경로에 없음 |
-| DB-MAP-008 | `member.card_uid`, age, birth를 신규 업무 query가 읽거나 수정하지 않음 |
+| DB-MAP-008 | 신규 업무 query는 원본 호환 `member.age`, `member.card_uid`를 읽거나 수정하지 않고, `birth`는 허용된 부서 화면의 SELECT·INSERT·UPDATE만 수행함 |
 
 ---
 
@@ -437,13 +444,13 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 
 | ID | 환경·작업 | 합격 기준 |
 |---|---|---|
-| MIG-FRESH-001 | 완전히 빈 DB에 V001~V009 적용 | baseline 행 없이 전체 목표 schema 생성 |
+| MIG-FRESH-001 | 완전히 빈 DB에 V001~V011 적용 | baseline 행 없이 전체 목표 schema 생성 |
 | MIG-FRESH-002 | 같은 migration 집합을 다시 실행하고 validate | 두 번째 schema·data 변경 없음 |
 | MIG-SAFE-001 | `NEW_OR_SAMPLE` DB에 baseline 시도 | baseline 금지, history·schema 변경 없음 |
 | MIG-SAFE-002 | 승인된 `LEGACY_OPERATIONAL` fixture | 사전조건 통과 후 명시적 version 0 `BASELINE` 정확히 한 행, PK·행·sequence 보존 |
 | MIG-SAFE-003 | `UNKNOWN` 분류 DB | 삭제·baseline·migration·이관 없이 중단 |
 | MIG-SAFE-004 | 기존 Flyway history가 있는 DB에서 새 baseline 시도 | 자동 추정하지 않고 중단, 기존 history 불변 |
-| MIG-SAFE-005 | 신규 15개 테이블·V008/V009 trigger 함수·이름 충돌 객체 중 하나 선존재 | baseline·migration 전 무변경 실패 |
+| MIG-SAFE-005 | 신규 15개 테이블·V008 또는 미적용 V009~V011 함수·이름 충돌 객체 중 하나 선존재 | baseline·migration 전 무변경 실패 |
 | MIG-SAFE-006 | 레거시 네 테이블 누락, 제3의 `member` 구조 또는 활성 writer 존재 | 사전점검 실패, DDL·data 변경 없음 |
 | MIG-SAFE-007 | `baselineOnMigrate=true` 또는 version 0이 아닌 자동 baseline 설정 | 배포 설정 검사 실패 |
 | MIG-SAFE-008 | 제거된 기존 seed의 알려진 password-hash fingerprint가 사용자명·권한과 무관하게 존재 | 원문·hash 노출 없이 read-only preflight 거부, history·계정 행 불변; V001 직접 호출도 거부 |
@@ -452,15 +459,17 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | MIG-RUNNER-002 | 적용 파일 checksum 변경 | runner의 `flyway validate` 실패, 배포 중단 |
 | MIG-RUNNER-003 | pending·out-of-order·repeatable checksum 불일치 | runner의 `info`·`validate` gate 실패 |
 | MIG-RUNNER-004 | 운영 runner에서 `clean` 시도 | `cleanDisabled=true`로 거부 |
-| MIG-RUNTIME-001 | 성공한 versioned history가 V001~V009과 정확히 일치 | runtime 기동 허용 |
-| MIG-RUNTIME-002 | history 없음·실패 행·version 누락·V009 미만·승인 target 초과 각각 | runtime이 쓰기 받기 전에 fail fast |
+| MIG-RUNTIME-001 | 성공한 versioned history가 V001~V011과 정확히 일치 | runtime 기동 허용 |
+| MIG-RUNTIME-002 | history 없음·실패 행·version 누락·V011 미만·승인 target 초과 각각 | runtime이 쓰기 받기 전에 fail fast |
 | MIG-RUNTIME-003 | `001` 같은 표시 형식과 숫자 version 비교 | 문자열 `MAX(version)`이 아니라 Flyway `MigrationVersion`으로 판정 |
 | MIG-RUNTIME-004 | `migration_owner` credential을 웹 runtime에 설정 | 설정 검증 실패 |
 | MIG-GRANT-001 | `app_runtime` DDL·history write·member DELETE·legacy DML | table·column·sequence·function 권한으로 거부 |
+| MIG-GRANT-002 | `retention_worker`와 `app_runtime`의 tag·audit retention 권한 | worker는 고정 batch 함수 2개만 실행하고 tag·audit 직접 조회·삭제·schema·database CREATE와 runtime 함수 호출은 거부; 모든 비시스템 schema의 table·column·sequence·function·type ACL, 객체 소유권, Large Object 권한을 포함한 worker의 직접·상속 과권한과 runtime의 필수 SELECT/INSERT 누락 또는 DELETE grant drift는 기동 guard가 거부 |
 | MIG-RESTART-001 | 앱 두 번 재시작 | DROP·sample insert·row count 변화 없음 |
 | MIG-IMPORT-001 | importer dry-run과 실제 실행 | manifest 승인 건수 일치, 거부 행 보고 |
 | MIG-IMPORT-002 | 비정상 UID·중복 카드·공개 샘플 계정 | 이관 거부 |
 | MIG-RESTORE-001 | 컷오버 백업을 별도 DB에 복원 | row·PK·sequence·role·table/column/sequence/function grant와 로그인 smoke 모두 일치 |
+| MIG-RESTORE-002 | 복원 DB를 운영에 재투입하기 전 retention worker one-shot | 2년 초과 `audit_log` batch가 모두 삭제된 뒤에만 서비스 재개 |
 | MIG-CUTOVER-001 | point of no return 전 복귀 리허설 | 안전 릴리스와 제한된 `legacy_writer` 복구 |
 | MIG-CUTOVER-002 | 첫 권위 check-in 이후 장애 | 단순 구버전 복귀 금지, forward fix 또는 승인된 전체 복원 절차 |
 
@@ -599,7 +608,7 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | `SEC-IDOR-SERVICE-01` | Controller를 우회해 D1 principal로 D2 command 직접 호출 |
 | `SEC-IDOR-MAPPER-01` | service를 우회해 D1 scope와 D2 ID로 Mapper 직접 호출 |
 | `SEC-IDOR-DB-01` | 교차 부서 복합 FK 직접 위반 |
-| `SEC-DB-01~12` | DDL·history·member DELETE·레거시 DML·고정 device 부서·append-only log·운영 역할 회수 |
+| `SEC-DB-01~15` | DDL·history·member DELETE·레거시 DML·고정 device 부서·append-only log·운영 역할 회수·교사 권한 drift·생년월일/소속 DB 우회·종료 이력 불변성 |
 | `DB-MAP-001~008` | 명시적 컬럼, 부서 scope, 영향 행 수와 legacy·개인정보 컬럼 격리 |
 
 ### 13.3 민감정보
@@ -632,7 +641,7 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | UI-005 | 교사 추가·카드 연결 | 미등록 카드 선택, 전체 rollback 오류 |
 | UI-006 | 카드 등록함 | 자기 부서 `UNKNOWN_UID`, 다른 부서 정보 비노출 |
 | UI-007 | 카드 교체·해제·분실·폐기 | 사유, 상태 전이, 확인 문구 |
-| UI-008 | 부서 제외 | 카드 disposition, 미래 대상 선택, 과거 보존 경고 |
+| UI-008 | 부서 제외 | 카드 disposition, `미래 출석일 N건에서도 제외됩니다` 확인, 불변 날짜·재가입 비복원 안내 |
 | UI-009 | 정책 편집·발행 | 동적 구간 추가·삭제·순서·경계 미리보기 |
 | UI-010 | 출석 날짜 | 발행 정책, snapshot, 시작 후 변경 차단 |
 | UI-011 | 수동 등록·정정 | 실제 시각, 서버 계산 preview, 사유, 누락자 원자 추가 |
@@ -694,6 +703,10 @@ LED·부저 패턴이 확정되기 전에는 code별 기대 신호를 `TBD`로 �
 | OPS-004 | 파일럿 전/운영 분기 복원 | 증적과 담당자 기록 |
 | OPS-005 | 장애 복구 시간 | RTO 4시간 이내 |
 | OPS-006 | 복구 시점 | 24시간 초과 데이터 손실 없음, 사이 기록 수기 대사 |
+| OPS-007 | backup·restore DB 연결 | URL query·fragment를 모두 거부하고 스크립트가 libpq `PGSSLMODE=require`, `PGREQUIRESSL=1`을 강제; encoded `sslmode`·`requiressl` 우회도 연결 전에 거부 |
+| OPS-008 | 상태 파일 없는 동시 backup | output lock으로 직렬화되고 서로 다른 dump·checksum을 생성 |
+| OPS-009 | retention backlog가 1회 상한 초과 | `catchup_pending=true` 동안 짧은 간격으로 반복하고 backlog가 0일 때만 정상 주기로 전환 |
+| OPS-010 | retention JDBC URL의 기본·중복 TLS option | pgjdbc canonical `sslmode`가 `require`, `verify-ca`, `verify-full`일 때만 worker 시작 허용 |
 
 ### 16.3 feature flag와 관측성
 
@@ -815,6 +828,9 @@ check-in 중 DB 실패
 | AC-32 | `CARD-001~008`, `CARD-015~016`, `CARD-ATOM-001~006`, `CON-015` |
 | AC-33 | `CHK-010`, `IDEM-001`, `IDEM-005`, `SEC-LOG-05` |
 | AC-34 | `E2E-01`, `UI-002`, `UI-012`, `SEC-DEV-21`, `SEC-DB-05` |
+| AC-35 | `UI-TEACHER-FORM-04~05`, `DB-CST-029`, `SEC-DB-13~14`, `SEC-LOG-11` |
+| AC-36 | `DB-CST-030~031`, `SEC-DB-13`, `SEC-DB-15`, `ROSTER-001`, `CARD-003` |
+| AC-37 | `DB-CST-032`, `MIG-GRANT-002`, `MIG-RESTORE-002`, `SEC-DB-09`, `SEC-DB-16` |
 
 모든 AC는 최소 하나의 자동 테스트 또는 명시적인 현장 인수 시험에 연결되어야 한다. 구현 중 AC가 추가되면 같은 변경에서 이 표와 테스트 ID를 함께 추가한다.
 
@@ -886,7 +902,7 @@ check-in 중 DB 실패
 ### 20.3 MVP 출시 완료 조건
 
 - P0·P1 open defect 0건
-- AC-01~AC-34 합격
+- AC-01~AC-37 합격
 - 필수 자동 테스트 100% 통과
 - 다른 부서 IDOR 부정 시험 전부 통과
 - 동시성·rollback·마이그레이션·복원 시험 통과
@@ -894,4 +910,4 @@ check-in 중 DB 실패
 - 5~20명 규모 최소 4회 파일럿에서 복구 불가능한 데이터 유실과 잘못된 교사 연결 0건
 - 남은 P2·P3는 영향·우회·담당자·기한이 기록됨
 
-현재 환경의 JDK 21과 PostgreSQL 15 Testcontainers에서 M1 context·migration 테스트 9건은 통과했다. 이는 위 MVP 출시 조건 전체의 통과를 의미하지 않는다.
+현재 환경의 JDK 21과 PostgreSQL 15 Testcontainers에서 M1 context·migration 테스트 10건은 통과했다. 이는 위 MVP 출시 조건 전체의 통과를 의미하지 않는다.

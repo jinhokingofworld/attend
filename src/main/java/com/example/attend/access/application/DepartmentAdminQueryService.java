@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -18,6 +19,8 @@ import java.util.Map;
  */
 @Service
 public class DepartmentAdminQueryService {
+	private static final Duration CARD_INBOX_RETENTION_WINDOW = Duration.ofDays(7);
+	private static final int CARD_INBOX_MAX_ROWS = 100;
 
 	private final DepartmentAuthorization authorization;
 	private final DepartmentAdminQueryMapper mapper;
@@ -189,7 +192,10 @@ public class DepartmentAdminQueryService {
 	@Transactional(readOnly = true)
 	public List<Map<String, Object>> cardInbox(AccountActor actor, long departmentId) {
 		authorize(actor, departmentId);
-		return mapper.selectCardInbox(departmentId);
+		return mapper.selectCardInbox(
+				departmentId,
+				clock.instant().minus(CARD_INBOX_RETENTION_WINDOW),
+				CARD_INBOX_MAX_ROWS);
 	}
 
 	private void authorize(AccountActor actor, long departmentId) {

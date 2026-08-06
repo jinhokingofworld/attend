@@ -28,6 +28,8 @@
 10. MVP에서는 PostgreSQL RLS를 사용하지 않는다. 그러므로 “DB 권한이 부서 격리를 보장한다”라고 주장해서는 안 된다. RLS 없이도 모든 scope 부정 테스트를 통과해야 한다.
 11. 비밀번호, 장치 비밀키, DB 자격증명과 Wi-Fi 비밀번호 원문은 저장소·일반 로그·감사 로그·오류 응답에 남기지 않는다.
 12. 거부된 요청은 업무 변경이 아니므로 `audit_log`에 성공한 것처럼 남기지 않는다. 대신 최소화된 보안 운영 로그와 실패 지표를 남긴다.
+13. `SYSTEM_ADMIN`은 고객 측 관리자가 아니라 SaaS를 운영하는 개발자·플랫폼 운영자 역할이다. 고객 측 운영자는 자신에게 배정된 부서의 `DEPARTMENT_ADMIN`만 사용하며 `/admin/system/**`, DB, backup, scheduler와 배포 상태를 보거나 조작하지 않는다.
+14. 현재 스키마의 `department_id` scope는 고객 tenant 경계가 아니다. `organization/tenant_id`와 전 계층 격리가 구현·검증되기 전에는 한 배포를 서로 독립된 여러 고객에게 제공하는 다중 tenant SaaS라고 주장하지 않는다.
 
 ---
 
@@ -38,7 +40,7 @@
 | 주체 | 인증 수단 | 권한 원천 | 허용 범위 | 명시적 금지 |
 |---|---|---|---|---|
 | 미인증 사용자 `ANONYMOUS` | 없음 | 없음 | 로그인 화면, 정적 자원, 일반 오류 화면 | 관리자 데이터, 장치 API, 운영 상태 |
-| 시스템 관리자 `SYSTEM_ADMIN` | 활성 `account`의 웹 세션 | `account.system_role = 'SYSTEM_ADMIN'` | 부서 생성·조회, 계정 관리, 부서 관리자 지정·해제, 장치 lifecycle, 개인정보 없는 전체 운영 상태 | 부서 업무 자동 접근, DB 직접 접속, 장치 키 재조회 |
+| 플랫폼 운영자 `SYSTEM_ADMIN` | 활성 `account`의 웹 세션 | `account.system_role = 'SYSTEM_ADMIN'` | 부서 생성·조회, 계정 관리, 부서 관리자 지정·해제, 장치 lifecycle, 개인정보 없는 전체 운영 상태 | 부서 업무 자동 접근, DB 직접 접속, 장치 키 재조회 |
 | 부서 관리자 `DEPARTMENT_ADMIN(D)` | 활성 `account`의 웹 세션 | 대상 부서 D의 `account_department_role` 활성 행 | D의 교사·소속·카드·정책·출석 날짜·수동 정정·통계·업무 이력 | 다른 부서 데이터, 시스템 계정·장치 credential 관리 |
 | 이중 역할 계정 | 같은 웹 세션 | 위 두 권한의 합집합이 아닌 **행위별 별도 판정** | 시스템 기능과 명시적으로 배정된 부서 기능 | 배정되지 않은 부서 기능 |
 | 출석 대상 교사 | 웹 인증 없음 | 활성 소속·카드 연결 | 실제 카드 태깅 | 관리자 웹 로그인, UID만으로 신원·권한 인증 |
@@ -58,6 +60,7 @@
 | `migration_owner` | 배포 전 고정 Flyway runner | 승인 migration, schema·history 관리, `info`·`validate` | 웹 runtime 사용, 평상시 애플리케이션 접속 |
 | `cutover_writer` | 승인된 컷오버 시간 | bootstrap·importer의 최소 DML | DDL, 레거시 출석·로그 DML, 컷오버 후 로그인 |
 | `legacy_writer` | 안전 릴리스와 승인된 rollback 시간 | 기존 앱에 필요한 제한 DML | `member.card_uid` 변경, `member` 삭제, 컷오버 후 상시 로그인 |
+| `retention_worker` | 웹과 분리된 retention container | 고정 cutoff의 audit·tag event purge 함수 2개 실행 | 모든 사용자 schema의 ACL·객체 소유권, Large Object 접근, 업무 table 직접 조회·삽입·수정·삭제, DDL, 다른 함수 실행, 웹 runtime credential 공유 |
 | PostgreSQL `PUBLIC` | 모든 DB 사용자 | 기본 연결에 필요한 최소 범위만 | schema 생성, 업무 테이블·sequence·함수의 암묵적 권한 |
 | 운영 인프라 담당자 | 승인된 운영 절차 | process 설정, 비밀 저장소, 제한된 application log와 backup | 애플리케이션 역할을 가장한 업무 변경 |
 
@@ -310,8 +313,8 @@ MVP는 영구 계정 잠금을 만들지 않고 token bucket 두 개를 함께 �
 | command | 추가 검증 | 감사 |
 |---|---|---|
 | 교사·활성 소속 추가 | 구성원 활성 상태와 MVP 단일 활성 소속, 대상 부서 | actor와 생성 내용 |
-| 교사 기본정보 수정 | 대상 부서 소속을 통한 접근, 허용 컬럼만 | 변경 전후 허용 필드 |
-| 부서 제외 | 사유, 카드 `AVAILABLE`·`LOST`·`RETIRED` 처리, 미래 대상 선택 | 소속·카드·대상 변경을 한 transaction에 기록 |
+| 교사 기본정보 수정 | 활성 소속으로 대상 부서 범위 확인, 정확한 `birth` 필수, 미래 생년월일 거부, 허용 컬럼만 | actor·action과 실제 변경 필드명만; 이름·연락처·생년월일 원문 before/after 금지 |
+| 부서 제외 | 사유, 카드 `AVAILABLE`·`LOST`·`RETIRED` 처리, 시작 전·날짜 기록 0건인 미래 대상 전체와 확인 건수 재검증 | 소속·카드·대상 변경을 한 transaction에 기록 |
 | 미등록 UID 카드 등록·연결 | D의 인증 장치 event, 활성 소속, 카드·assignment 잠금 | event ID·내부 card ID·처리 사유; 키·연락처 제외 |
 | 카드 교체·해제 | 활성 assignment, 카드 상태 전이, 필수 사유 | before/after와 actor |
 | 정책 초안·구간 편집 | DRAFT만, 부모 정책 잠금 | 발행 전 편집 감사 범위는 구현 정책에 따름 |
@@ -407,7 +410,7 @@ IDOR 방지를 위해 자식 ID만으로 조회하지 않는다. 예를 들어 r
 | `account` | 필요한 컬럼 `SELECT`, `INSERT`, 상태·hash 관련 column `UPDATE` | `DELETE`, hash 조회 화면 노출 |
 | `account_credential_token` | 발급·검증에 필요한 최소 `SELECT`, `INSERT`, 사용·무효 시각 `UPDATE` | `DELETE`, 원문 token 저장, 일반 목록·화면의 hash 노출 |
 | `account_department_role` | `SELECT`, `INSERT`, `revoked_at` 등 종료 column `UPDATE` | `DELETE` |
-| `member` | `id,name,phone,active,updated_at` SELECT; `name,phone,active` INSERT·UPDATE | `age,birth,card_uid,created_at` runtime 접근, 모든 `DELETE` |
+| `member` | `id,name,phone,birth,created_at,active,updated_at` SELECT; `name,phone,birth,active` INSERT·UPDATE | 원본 호환 `age`, `card_uid` runtime 접근과 모든 `DELETE` |
 | `department_membership` | `SELECT`, `INSERT`, 종료 metadata column `UPDATE` | 부서·구성원 FK 변경, `DELETE` |
 | `nfc_card` | `SELECT`, `INSERT`, `status` column `UPDATE` | UID 변경, `DELETE` |
 | `nfc_card_assignment` | `SELECT`, `INSERT`, 종료 metadata column `UPDATE` | card·membership·department 변경, `DELETE` |
@@ -418,7 +421,7 @@ IDOR 방지를 위해 자식 ID만으로 조회하지 않는다. 예를 들어 r
 | `attendance_target` | `SELECT`, `INSERT`, 활성·변경 metadata `UPDATE` | scope FK 변경, `DELETE` |
 | `attendance_record` | `SELECT`, `INSERT`, 정정 허용 column `UPDATE` | scope FK 변경, `DELETE` |
 | `tag_event_log` | `SELECT`, `INSERT`, 선점 행의 결과 확정 `UPDATE` | request identity·scope 변경, `DELETE` |
-| `audit_log` | `SELECT`, `INSERT` | `UPDATE`, `DELETE` |
+| `audit_log` | `app_runtime`의 `SELECT`, `INSERT`; `retention_worker`의 고정 batch 함수 실행 | runtime·worker의 직접 `UPDATE`, `DELETE` |
 | `flyway_schema_history` | `SELECT` | `INSERT`, `UPDATE`, `DELETE` |
 | 레거시 `authentications`, `attendance`, `attendance_log` | 신규 runtime DML 없음 | 모든 DML |
 
@@ -571,7 +574,7 @@ DB grant와 FK만으로 막지 못하는 항목:
 |---|---|---|---|---|
 | 비밀 | 비밀번호, 장치 key, DB·Wi-Fi 비밀번호 | hash 또는 승인 비밀 저장소; 원문 금지 | 발급 순간 외 재표시 금지 | 전면 금지 |
 | 인증 파생값 | password hash, credential hash, session ID, CSRF token | 필요한 저장소 | 일반 관리자에게 금지 | 전면 금지 |
-| 개인정보 | 교사 이름·연락처 | 업무 최소 필드 | 해당 부서 관리자만 | 이름 최소화, 연락처 금지 |
+| 개인정보 | 교사 이름·연락처·정확한 생년월일과 파생 만 나이 | 생일 관리·나이 확인에 필요한 필드 | 해당 부서 관리자만 | 이름 최소화, 연락처·생년월일 금지 |
 | 카드·출석 민감정보 | UID, 카드 연결, 출석·지각·결석·사유 | 업무·event table | 해당 부서 관리자만 | 전체 UID 금지, 내부 ID·마스킹 값 |
 | 운영 metadata | device code·상태·version·`last_seen_at`, request ID | 운영 table | 권한별 최소 범위 | 허용하되 key와 결합 금지 |
 | 시스템 상태 | health, DB·scheduler·backup 상태 | 운영 지표 | 시스템 관리자 또는 운영망 | 민감 설정값 제외 |
@@ -602,7 +605,7 @@ NFC UID는 비밀키는 아니지만 복제 가능한 식별자이며 개인과 
 | 출석 | 수동 등록·정정·메모 변경 | `ACCOUNT` |
 | 자동 마감 | 결석 생성과 날짜 마감 | `SYSTEM` |
 
-감사 actor account ID는 세션에서, department ID는 승인된 service scope에서 정한다. form의 hidden field를 사용하지 않는다. before/after JSON은 action별 allowlist로 직렬화하고 domain 객체 전체나 request DTO를 그대로 넣지 않는다. 연락처와 UID 변경은 전체 원문 대신 변경 필드명과 마스킹 값만 남기고, password·credential hash는 필드명조차 불필요하게 복제하지 않는다.
+감사 actor account ID는 세션에서, department ID는 승인된 service scope에서 정한다. form의 hidden field를 사용하지 않는다. before/after JSON은 action별 allowlist로 직렬화하고 domain 객체 전체나 request DTO를 그대로 넣지 않는다. 교사 기본정보 수정은 예외적으로 이름·연락처·생년월일의 원문 before/after를 저장하지 않고, 변경 작업과 실제로 바뀐 필드명만 남긴다. 카드 UID 변경은 전체 원문 대신 변경 필드명과 마스킹 값만 남기고, password·credential hash는 필드명조차 불필요하게 복제하지 않는다.
 
 ### 12.4 상관 ID
 
@@ -614,13 +617,42 @@ correlation ID는 비밀이 아니지만 다른 principal의 데이터 조회 �
 
 ### 12.5 보유·backup
 
-개인정보, 출석, `tag_event_log`, `audit_log`와 backup의 보유기간은 아직 운영 정책으로 확정되지 않았다. 이 상태로 무기한 보존을 기본값으로 삼아서는 안 되며 파일럿 배포 전 결정해야 한다.
+2026-08-05 승인된 업무 DB 보유기간은 다음과 같다. 업무일은 `Asia/Seoul`을 사용하지만, `TIMESTAMPTZ` 로그 삭제 cutoff는 웹 서버 시계가 아닌 PostgreSQL의 `CURRENT_TIMESTAMP`로 계산한다.
+
+| 데이터 묶음 | 기준 | 보유기간 | 삭제 원칙 |
+|---|---|---:|---|
+| `tag_event_log` | `received_at` | 90일 | 출석·감사 원본보다 먼저 독립 batch 삭제 |
+| `audit_log` | `occurred_at` | 2년 | 행 단위 batch 삭제; 업무 원본 삭제와 혼동하지 않음 |
+| 출석 이력 | `attendance_day.attendance_date` | 5년 | `attendance_record` → `attendance_target` → `attendance_day` 순으로 같은 출석일 묶음 삭제 |
+| 종료된 교사 소속·카드 연결 이력 | `ended_at`, `unassigned_at` | 5년 | 참조 중인 출석 묶음이 모두 만료된 뒤 종료 행만 삭제 |
+| 교사 개인정보 master | 마지막 소속 종료와 남은 참조 | 최대 5년 | 활성 교사는 나이만으로 삭제하지 않으며, 마지막 소속 종료 5년 후 모든 보유 의무와 FK 참조가 끝난 비활성 교사만 삭제 |
+
+여기서 “교사 이력 5년”은 `department_membership`과 `nfc_card_assignment`, 그리고 그 기간에 필요한 교사 master를 뜻한다. 이름·연락처·생년월일 같은 교사 기본정보 수정은 원문 before/after나 별도 장기 이력 테이블을 만들지 않는다. 변경 작업과 실제로 바뀐 필드명만 `audit_log`에 남기고 2년 보유기간을 적용한다.
+
+“과거 출석일은 절대 변경하지 않는다”는 보유 중 관리자·일반 업무 command가 날짜·대상·기록을 수정하거나 다시 열 수 없다는 의미다. 5년 경과 후 retention lifecycle이 출석 묶음을 삭제하는 것은 유일한 예외이며, 삭제 직전 장기 통계를 남기려면 개인을 재식별할 수 없는 집계 데이터의 별도 목적·보유기간을 먼저 승인해야 한다.
+
+원칙은 **“백업하고 삭제”가 아니라 “삭제하되, 제한된 수명의 운영 백업에는 일시적으로 남을 수 있음”**이다. 만료 로그를 별도 장기 archive·export로 만들거나 무기한 보관하지 않는다. 백업이 실제로 도입되면 유한 보유기간·암호화·접근 담당자·삭제 절차를 별도로 확정해야 하며, 그것은 업무 DB의 2년 보유기간을 연장하는 근거가 아니다.
+
+`audit_log`는 V010부터 다음의 전용 경로로 실제 자동 삭제한다.
+
+- PostgreSQL이 INSERT마다 `occurred_at`을 자체 시각으로 덮어써 runtime이 과거·미래 시각을 주입하지 못하게 한다.
+- `retention_worker`만 `SECURITY DEFINER`인 인자 없는 `attend_purge_expired_audit_log_batch()`를 실행한다. `app_runtime`, 관리자 화면, `PUBLIC`은 직접 `DELETE`와 이 함수 실행 권한이 모두 없다.
+- 함수는 DB 안에서 `occurred_at < CURRENT_TIMESTAMP - INTERVAL '2 years'`만 고르고, 시간순 최대 500행을 `FOR UPDATE SKIP LOCKED`로 삭제한다. 동시에 여러 worker가 실행돼도 같은 행을 두 번 처리하지 않으며 한 batch 실패는 그 batch만 rollback한다.
+- production Compose의 별도 worker는 시작 직후와 이후 24시간마다 최대 25 batch를 실행한다. 실패하면 non-zero로 종료되어 container restart 정책이 재시도하며, 출력에는 삭제 건수와 batch 수만 남기고 행 내용·ID·개인정보는 남기지 않는다.
+
+현재 구현 범위는 `audit_log` 2년과 `tag_event_log` 90일이다. 출석·소속·카드 연결 5년과 legacy `attendance`·`attendance_log` 정리는 아직 별도 retention 설계·검증이 없으므로 완료로 표시하지 않는다.
+
+교사의 생일 관리와 만 나이 확인은 정확한 생년월일을 저장할 승인된 업무 목적이다. 신규 등록, 활성 교사의 기본정보 수정과 교사 활성화에는 정확한 `birth`가 필수이며 미래 날짜를 거부한다. 해당 부서 관리자만 조회·정정하고, 나이는 저장된 `birth`에서 조회일 기준으로 계산하며 export·플랫폼 전역 화면에서는 `birth`를 기본 제외한다. 레거시 `birth IS NULL`은 확인된 날짜로 정정하기 전까지 생년월일과 파생 나이를 미상으로 유지하고 기존 정수 `age`로 날짜를 추정하거나 임의 보정하지 않는다.
+
+backup의 위치·암호화·보유기간·복원 담당자는 이번 결정에서 연기되었다. 따라서 backup을 아직 운영하지 않는 환경은 그 상태를 `NOT_CONFIGURED`로 표시해야 하며, backup이 필요한 운영 파일럿 완료를 주장해서는 안 된다.
+
+격리 복원 시험은 만료 로그가 남아 있어도 조사용으로만 허용한다. 복원본을 서비스에 재투입하기 전에는 `retention_worker` one-shot을 먼저 성공시켜 만료된 `audit_log` batch를 모두 정리하고, 이 절차를 backup 도입 시의 복구 runbook에 포함한다.
 
 - backup은 운영 서버와 다른 접근 제한 위치에 둔다.
 - 개인정보가 포함된 backup은 암호화한다.
 - 복원 담당자와 접근 기록을 둔다.
 - application log rotation과 삭제 정책도 업무 DB 보유정책과 별도로 확정한다.
-- 탈퇴 교사의 UID·태깅·감사 이력 처리 방식은 역사 무결성과 개인정보 최소화 요구를 함께 검토한다.
+- 탈퇴 교사의 UID·태깅·감사 이력은 위 기간과 FK 순서에 따라 정리하고 무기한 보존하지 않는다.
 
 ---
 
@@ -773,6 +805,10 @@ PRG(Post/Redirect/Get)를 사용하더라도 성공하지 않은 변경을 성�
 | `SEC-DB-10` | runtime으로 `tag_event_log DELETE` | permission denied |
 | `SEC-DB-11` | `migration_owner` credential로 웹 앱 기동 | 배포 설정 검사에서 실패 |
 | `SEC-DB-12` | 컷오버 뒤 `cutover_writer` 로그인 | 회수되어 실패 |
+| `SEC-DB-13` | 직접 SQL로 결측·미래 생년월일 교사를 등록·수정·활성화하거나 비운영 교사에 활성 소속 생성 | V009 trigger의 고정 제약 오류로 거부 |
+| `SEC-DB-14` | runtime에 `member` table-level 권한 또는 `age`·`card_uid` 권한을 추가한 뒤 앱 기동 | 실제 권한 drift 검사에서 기동 실패 |
+| `SEC-DB-15` | 종료된 소속·카드 연결 행의 종료 metadata 수정 또는 `NULL` 재개방 | V009 trigger의 고정 제약 오류로 거부; 재가입·재연결은 새 행 생성 |
+| `SEC-DB-16` | `retention_worker`에 임의 사용자 schema·table·column·sequence·function·type·Large Object 권한이나 객체 소유권을 부여하고 worker guard 실행; `app_runtime`으로 retention 함수 실행 | worker guard가 기동을 거부하고 runtime 함수 실행은 permission denied; worker는 고정 2년 audit·90일 tag event batch 함수 2개만 실행 |
 
 `SEC-DB-05`·`SEC-DB-06` 같은 column-level grant가 실제 권한 script에 구현되지 않았다면 “service가 거부하므로 안전하다”로 테스트를 대체하지 않는다. grant 목표와 구현이 다르면 차이를 배포 blocker로 기록한다.
 
@@ -790,7 +826,7 @@ PRG(Post/Redirect/Get)를 사용하더라도 성공하지 않은 변경을 성�
 | `SEC-LOG-08` | D1 관리자의 D2 audit ID 조회 | 404 |
 | `SEC-LOG-09` | 시스템 감사 화면 | system action allowlist만, 부서 출석 개인정보 없음 |
 | `SEC-LOG-10` | backup artifact 접근·복원 | 승인 계정만 접근, 암호화와 접근 기록 확인 |
-| `SEC-LOG-11` | 교사 연락처·카드 변경 감사 before/after | 변경 필드와 마스킹 값만, 전체 연락처·UID 없음 |
+| `SEC-LOG-11` | 교사 기본정보·카드 변경 감사 | 교사 기본정보는 action·실제 변경 필드명만 있고 이름·연락처·생년월일 원문 없음; 카드는 변경 필드와 마스킹 값만 있고 전체 UID 없음 |
 
 ---
 
@@ -829,7 +865,10 @@ PRG(Post/Redirect/Get)를 사용하더라도 성공하지 않은 변경을 성�
 - [ ] 세션 idle 30분·absolute 8시간과 cookie 속성이 적용됨
 - [ ] 로그인·장치 rate limit이 여러 인스턴스를 쓰는 경우에도 일관되게 동작함
 - [ ] application log와 backup 접근자가 별도로 제한됨
-- [ ] 개인정보·event·audit·backup 보유기간이 배포 전에 확정됨
+- [x] `tag_event_log` 90일, 기본정보 변경을 포함한 `audit_log` 2년, 출석·종료 소속·카드 연결 이력 5년의 업무 DB 보유기간이 승인됨
+- [x] `audit_log` 2년·`tag_event_log` 90일 자동 삭제 worker·고정 DB cutoff·권한 분리와 PostgreSQL 경계 테스트가 구현됨
+- [ ] backup 위치·암호화·보유기간·복원 담당자가 운영 배포 전에 확정됨
+- [ ] 출석·종료 소속·카드 연결과 legacy table의 retention 실행 주체·정리 정책이 구현·검증됨
 - [ ] V002 계정·token migration과 PostgreSQL 제약 부정 테스트를 통과함
 - [x] 회원가입 초대·password reset 원문 token은 관리자가 1회 표시 링크를 복사해 승인된 1:1 메신저로 직접 전달
 - [ ] 운영 공개 base URL과 HTTPS URL 정책이 승인됨
@@ -846,7 +885,7 @@ PRG(Post/Redirect/Get)를 사용하더라도 성공하지 않은 변경을 성�
 4. 운영 GRANT script와 실제 DB 권한이 동일함을 확인한다.
 5. `device-api.yaml`과 실제 filter·exception handler의 HTTP/code가 contract test에서 일치한다.
 6. feature flag를 모두 끈 초기 기동과 단계별 controlled restart를 리허설한다.
-7. 민감정보 보유기간, network/TLS, bootstrap 절차와 운영 공개 URL이 승인되지 않으면 파일럿 운영을 시작하지 않는다.
+7. `audit_log` 자동 삭제는 구현됐지만, 남은 업무 DB 보유기간 집행, backup, network/TLS, bootstrap 절차와 운영 공개 URL이 준비되지 않으면 운영 파일럿 완료를 선언하지 않는다.
 
 남는 MVP 위험은 다음과 같다.
 
@@ -855,6 +894,9 @@ PRG(Post/Redirect/Get)를 사용하더라도 성공하지 않은 변경을 성�
 - 비활성화·비밀번호 재설정 직후 기존 세션의 강제 만료가 없다.
 - NFC UID는 복제 가능하므로 카드 소지와 실제 사람의 강한 동일성을 보장하지 않는다.
 - 단일 인스턴스 in-memory rate limiter라면 재기동 시 bucket이 초기화된다. MVP 단일 인스턴스에서는 수용할 수 있지만 다중 인스턴스로 전환할 때 공유 저장소 또는 edge 제한을 재설계해야 한다.
-- 보유기간이 확정되지 않으면 개인정보 최소화와 삭제 요구를 검증할 수 없다.
+- `audit_log` 2년 삭제는 구현됐지만, tag event·출석·소속·카드 연결·legacy table의 만료 정리는 아직 없어 전체 보유기간 준수를 주장할 수 없다.
+- backup 정책과 복원 운영은 연기되었으므로 장애 복구 준비가 끝났다고 볼 수 없다.
+- 레거시 `birth IS NULL` 교사는 정확한 날짜를 확인·정정하기 전까지 생일 관리와 계산 나이를 제공할 수 없다.
+- 현재 구조는 단일 조직 배포이며 tenant 경계가 없어 다중 고객 SaaS로 확장할 수 없다.
 
 이 위험을 문서에서 숨기거나 `SYSTEM_ADMIN`, CSRF, DB FK 하나로 해결되었다고 표현해서는 안 된다.

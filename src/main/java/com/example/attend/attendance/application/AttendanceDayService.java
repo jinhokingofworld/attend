@@ -11,7 +11,6 @@ import com.example.attend.audit.application.AuditLogWriter;
 import com.example.attend.common.error.BusinessRuleException;
 import com.example.attend.common.error.ResourceNotFoundException;
 import com.example.attend.organization.api.DepartmentLock;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +19,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -74,31 +74,74 @@ public class AttendanceDayService {
 	) {
 		writeAuthorization.requireEnabled();
 		authorization.requireDepartmentAdmin(actor, departmentId);
-		if (attendanceDate == null || attendanceDate.isBefore(LocalDate.now(clock))) {
-			throw new BusinessRuleException("attendance day cannot be in the past");
-		}
 		departmentLock.lockActive(departmentId);
 		PolicyVersionRow policy = requirePublishedPolicy(departmentId, policyVersionId);
-		if (attendanceDate.equals(LocalDate.now(clock))) {
-			Instant start = ZonedDateTime.of(
-					attendanceDate,
-					policy.checkInStartTime(),
-					attendanceZone).toInstant();
-			if (!clock.instant().isBefore(start)) {
-				throw new BusinessRuleException(
-						"today's attendance day cannot be created after check-in starts");
+		requireCreatableDate(attendanceDate, policy);
+		Long dayId = createDayIfAbsent(
+				actor, departmentId, attendanceDate, policyVersionId);
+		if (dayId == null) {
+			throw new BusinessRuleException(
+					"이 부서에 같은 출석 날짜가 이미 있습니다.");
+		}
+		return dayId;
+	}
+
+	/**
+	 * 달력 반복 규칙에 맞는 출석 날짜를 한 번에 만든다.
+	 *
+	 * <p>같은 부서·날짜가 이미 있으면 기존 날짜와 대상자 snapshot을 건드리지 않고
+	 * 건너뛴다.</p>
+	 */
+	@Transactional
+	public AttendanceDayBatchResult createDays(
+			AccountActor actor,
+			long departmentId,
+			AttendanceDayScheduleCommand command
+	) {
+		writeAuthorization.requireEnabled();
+		authorization.requireDepartmentAdmin(actor, departmentId);
+		requireDateNotPast(command.startDate());
+		List<LocalDate> dates = command.occurrenceDates();
+		if (dates.isEmpty()) {
+			throw new BusinessRuleException(
+					"선택한 반복 규칙으로 생성되는 출석 날짜가 없습니다.");
+		}
+		departmentLock.lockActive(departmentId);
+		PolicyVersionRow policy = requirePublishedPolicy(
+				departmentId, command.policyVersionId());
+		requireCreatableDate(command.startDate(), policy);
+		for (LocalDate date : dates) {
+			requireCreatableDate(date, policy);
+		}
+
+		int createdCount = 0;
+		int skippedExistingCount = 0;
+		for (LocalDate date : dates) {
+			Long dayId = createDayIfAbsent(
+					actor, departmentId, date, command.policyVersionId());
+			if (dayId == null) {
+				skippedExistingCount++;
+			} else {
+				createdCount++;
 			}
 		}
-		long dayId;
-		try {
-			dayId = dayMapper.insertDay(
-					departmentId,
-					attendanceDate,
-					policyVersionId,
-					actor.accountId());
-		} catch (DuplicateKeyException exception) {
-			throw new BusinessRuleException(
-					"department already has an attendance day for this date");
+		return new AttendanceDayBatchResult(createdCount, skippedExistingCount);
+	}
+
+	/** 날짜와 활성 교사 대상자 snapshot을 생성하고, 생성 사실을 감사한다. */
+	private Long createDayIfAbsent(
+			AccountActor actor,
+			long departmentId,
+			LocalDate attendanceDate,
+			long policyVersionId
+	) {
+		Long dayId = dayMapper.insertDayIfAbsent(
+				departmentId,
+				attendanceDate,
+				policyVersionId,
+				actor.accountId());
+		if (dayId == null) {
+			return null;
 		}
 		int targetCount = dayMapper.snapshotActiveMembers(dayId, departmentId);
 		auditLogWriter.writeAccount(
@@ -224,6 +267,31 @@ public class AttendanceDayService {
 			throw new ResourceNotFoundException("attendance day");
 		}
 		return day;
+	}
+
+	/** 과거 날짜와 이미 시작된 오늘 날짜 생성을 막는다. */
+	private void requireCreatableDate(
+			LocalDate attendanceDate,
+			PolicyVersionRow policy
+	) {
+		requireDateNotPast(attendanceDate);
+		if (attendanceDate.equals(LocalDate.now(clock))) {
+			Instant start = ZonedDateTime.of(
+					attendanceDate,
+					policy.checkInStartTime(),
+					attendanceZone).toInstant();
+			if (!clock.instant().isBefore(start)) {
+				throw new BusinessRuleException(
+						"오늘 출석은 태깅 시작 시각이 지난 뒤 생성할 수 없습니다.");
+			}
+		}
+	}
+
+	/** occurrence 포함 여부와 무관하게 입력 날짜가 과거인지 검증한다. */
+	private void requireDateNotPast(LocalDate date) {
+		if (date == null || date.isBefore(LocalDate.now(clock))) {
+			throw new BusinessRuleException("과거 출석 날짜는 생성할 수 없습니다.");
+		}
 	}
 
 	/**

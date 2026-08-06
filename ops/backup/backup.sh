@@ -5,6 +5,86 @@
 set -euo pipefail
 umask 077
 
+script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=ops/backup/status-contract.sh
+source "${script_directory}/status-contract.sh"
+
+backup_status_initialize || exit 2
+backup_storage_type="${BACKUP_STORAGE_TYPE:-}"
+backup_database_url="${BACKUP_DATABASE_URL:-}"
+backup_database_username="${BACKUP_DB_USERNAME:-}"
+backup_database_password="${BACKUP_DB_PASSWORD:-}"
+backup_output_dir="${BACKUP_OUTPUT_DIR:-}"
+if [[ "${backup_status_configured}" == true ]]; then
+  backup_status_enter_lock "${script_directory}/backup.sh" "$@" || exit 2
+else
+  if [[ -z "${backup_output_dir}" \
+      || "${backup_output_dir}" != /* \
+      || "${backup_output_dir}" == "/" ]]; then
+    printf 'BACKUP_OUTPUT_DIR는 루트가 아닌 절대 경로여야 합니다.\n' >&2
+    exit 2
+  fi
+  install -d -m 0700 "${backup_output_dir}"
+  backup_status_use_output_lock "${backup_output_dir}" || exit 2
+  backup_status_enter_lock "${script_directory}/backup.sh" "$@" || exit 2
+fi
+
+previous_last_success_at=""
+previous_storage_type=""
+previous_last_restore_test_at=""
+if backup_status_read_existing; then
+  previous_last_success_at="${backup_status_existing_last_success_at}"
+  previous_storage_type="${backup_status_existing_storage_type}"
+  previous_last_restore_test_at="${backup_status_existing_last_restore_test_at}"
+fi
+
+record_failed_backup_status() {
+  local exit_code=$?
+  local observed_at
+  trap - EXIT
+  if [[ -n "${temporary_dump:-}" && -f "${temporary_dump}" ]]; then
+    rm -f -- "${temporary_dump}"
+  fi
+  if [[ "${exit_code}" -ne 0 \
+      && "${backup_status_configured}" == true ]]; then
+    observed_at="$(backup_status_now)"
+    if ! backup_status_write \
+        FAILURE \
+        "${observed_at}" \
+        "${previous_last_success_at}" \
+        "${previous_storage_type}" \
+        "${previous_last_restore_test_at}"; then
+      printf '백업 실패 상태 파일을 기록하지 못했습니다.\n' >&2
+    fi
+  fi
+  exit "${exit_code}"
+}
+trap record_failed_backup_status EXIT
+
+if [[ -z "${backup_database_url}" \
+    || -z "${backup_database_username}" \
+    || -z "${backup_database_password}" \
+    || -z "${backup_output_dir}" ]]; then
+  printf 'BACKUP_DATABASE_URL, BACKUP_DB_USERNAME, BACKUP_DB_PASSWORD, BACKUP_OUTPUT_DIR가 필요합니다.\n' >&2
+  exit 2
+fi
+if [[ "${backup_output_dir}" != /* || "${backup_output_dir}" == "/" ]]; then
+  printf 'BACKUP_OUTPUT_DIR는 루트가 아닌 절대 경로여야 합니다.\n' >&2
+  exit 2
+fi
+if ! backup_connection_requires_tls "${backup_database_url}"; then
+  printf 'BACKUP_DATABASE_URL에는 연결 옵션·credential을 넣을 수 없습니다. TLS는 작업이 직접 강제합니다.\n' >&2
+  exit 2
+fi
+install -d -m 0700 "${backup_output_dir}"
+
+if [[ "${backup_status_configured}" == true ]] \
+    && ! backup_status_storage_type_is_allowed "${backup_storage_type}"; then
+  printf '%s\n' \
+    'BACKUP_STORAGE_TYPE은 승인된 저장소 유형이어야 합니다.' >&2
+  exit 2
+fi
+
 required_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
     printf '필수 명령을 찾을 수 없습니다: %s\n' "$1" >&2
@@ -19,26 +99,20 @@ if ! command -v sha256sum >/dev/null 2>&1 \
   exit 2
 fi
 
-backup_database_url="${BACKUP_DATABASE_URL:-}"
-backup_output_dir="${BACKUP_OUTPUT_DIR:-}"
-if [[ -z "${backup_database_url}" || -z "${backup_output_dir}" ]]; then
-  printf 'BACKUP_DATABASE_URL과 BACKUP_OUTPUT_DIR가 필요합니다.\n' >&2
-  exit 2
-fi
-if [[ "${backup_output_dir}" != /* || "${backup_output_dir}" == "/" ]]; then
-  printf 'BACKUP_OUTPUT_DIR는 루트가 아닌 절대 경로여야 합니다.\n' >&2
-  exit 2
-fi
-
-install -d -m 0700 "${backup_output_dir}"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-final_dump="${backup_output_dir}/attend-${timestamp}.dump"
-temporary_dump="${backup_output_dir}/.attend-${timestamp}.dump.partial"
+temporary_dump="$(
+  mktemp "${backup_output_dir}/.attend-${timestamp}.XXXXXX"
+)"
+temporary_basename="$(basename "${temporary_dump}")"
+final_dump="${backup_output_dir}/${temporary_basename#.}.dump"
 checksum_file="${final_dump}.sha256"
 
-# libpq accepts a connection URI through PGDATABASE. This keeps credentials out
-# of the process argument list, although the operator must still protect its env.
-export PGDATABASE="${backup_database_url}"
+# The constrained endpoint is split into PGHOST/PGPORT/PGDATABASE, so libpq
+# never parses caller-controlled connection options or credentials.
+backup_force_tls_environment \
+  "${backup_database_url}" \
+  "${backup_database_username}" \
+  "${backup_database_password}"
 pg_dump \
   --format=custom \
   --compress=9 \
@@ -46,6 +120,7 @@ pg_dump \
   --no-acl \
   --file="${temporary_dump}"
 mv "${temporary_dump}" "${final_dump}"
+temporary_dump=""
 
 if command -v sha256sum >/dev/null 2>&1; then
   (
@@ -58,6 +133,15 @@ else
     shasum -a 256 "$(basename "${final_dump}")"
   ) >"${checksum_file}"
 fi
+
+completed_at_iso="$(backup_status_now)"
+backup_status_write \
+  SUCCESS \
+  "${completed_at_iso}" \
+  "${completed_at_iso}" \
+  "${backup_storage_type}" \
+  "${previous_last_restore_test_at}"
+trap - EXIT
 
 printf 'backup_file=%s\nchecksum_file=%s\ncompleted_at=%s\n' \
   "${final_dump}" "${checksum_file}" "${timestamp}"

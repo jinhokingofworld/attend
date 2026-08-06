@@ -10,7 +10,7 @@
     <p th:if="${error}" th:text="${error}" role="alert"></p>
     <dl>
         <dt>상태</dt><dd th:text="${account.status}">상태</dd>
-        <dt>시스템 역할</dt><dd th:text="${account.systemRole ?: '-'}">역할</dd>
+        <dt>플랫폼 역할</dt><dd th:text="${account.systemRole ?: '-'}">역할</dd>
         <dt>비밀번호 변경 시각</dt><dd th:text="${account.passwordChangedAt ?: '-'}">시각</dd>
     </dl>
 

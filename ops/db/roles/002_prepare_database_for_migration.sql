@@ -16,7 +16,7 @@ BEGIN
         pg_catalog.current_database()
     );
     EXECUTE pg_catalog.format(
-        'GRANT CONNECT ON DATABASE %I TO migration_owner, app_runtime, cutover_writer, legacy_writer',
+        'GRANT CONNECT ON DATABASE %I TO migration_owner, app_runtime, cutover_writer, legacy_writer, retention_worker',
         pg_catalog.current_database()
     );
 END
@@ -24,9 +24,9 @@ $database_privileges$;
 
 GRANT USAGE, CREATE ON SCHEMA public TO migration_owner;
 GRANT USAGE ON SCHEMA public
-    TO app_runtime, cutover_writer, legacy_writer;
+    TO app_runtime, cutover_writer, legacy_writer, retention_worker;
 REVOKE CREATE ON SCHEMA public
-    FROM app_runtime, cutover_writer, legacy_writer;
+    FROM app_runtime, cutover_writer, legacy_writer, retention_worker;
 
 -- Objects created while connected as migration_owner start without PUBLIC
 -- table/sequence privileges and without the usual PUBLIC function EXECUTE.

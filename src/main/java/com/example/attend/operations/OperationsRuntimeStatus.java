@@ -11,7 +11,7 @@ import java.time.Instant;
  * @param deviceApiEnabled 장치 API flag
  * @param schedulerEnabled 자동 마감 scheduler flag
  * @param databaseStatus DB·schema의 제한된 상태 설명
- * @param backupStatus 외부 백업 상태 source 연동 결과
+ * @param backupStatus 외부 백업 상태 source의 검증된 제한 메타데이터
  */
 public record OperationsRuntimeStatus(
 		String applicationVersion,
@@ -20,5 +20,5 @@ public record OperationsRuntimeStatus(
 		boolean deviceApiEnabled,
 		boolean schedulerEnabled,
 		String databaseStatus,
-		String backupStatus) {
+		BackupRuntimeStatus backupStatus) {
 }

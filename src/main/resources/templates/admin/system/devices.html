@@ -10,7 +10,7 @@
 <header th:replace="~{fragments/admin-shell :: header}"></header>
 <main>
     <h1>장치 관리</h1>
-    <p><a th:href="@{/admin/system}">시스템 홈</a></p>
+    <p><a th:href="@{/admin/system}">플랫폼 운영 홈</a></p>
     <p th:if="${message}" th:text="${message}">성공</p>
     <p th:if="${error}" th:text="${error}">오류</p>
     <p th:if="${writeEnabled}"><a th:href="@{/admin/system/devices/new}">장치 등록</a></p>

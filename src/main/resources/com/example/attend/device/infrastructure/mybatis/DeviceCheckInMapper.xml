@@ -10,16 +10,14 @@
 			department_id,
 			request_id,
 			uid,
-			result_code,
-			received_at
+			result_code
 		)
 		VALUES (
 			#{deviceId},
 			#{departmentId},
 			#{requestId},
 			#{uid},
-			'PROCESSING',
-			#{receivedAt}
+			'PROCESSING'
 		)
 		ON CONFLICT (device_id, request_id) DO NOTHING
 	</insert>

@@ -4,6 +4,9 @@ import com.example.attend.access.application.AdminWriteGate;
 import com.example.attend.access.application.DepartmentAdminQueryService;
 import com.example.attend.access.security.AccountPrincipal;
 import com.example.attend.attendance.application.AttendanceCorrectionService;
+import com.example.attend.attendance.application.AttendanceDayBatchResult;
+import com.example.attend.attendance.application.AttendanceDayRecurrence;
+import com.example.attend.attendance.application.AttendanceDayScheduleCommand;
 import com.example.attend.attendance.application.AttendanceDayService;
 import com.example.attend.attendance.application.AttendancePolicyService;
 import com.example.attend.attendance.application.AttendanceStatistics;
@@ -35,6 +38,7 @@ import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.time.Clock;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -43,6 +47,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -517,27 +522,77 @@ public final class DepartmentAdminController {
 		model.addAttribute("publishedPolicies",
 				queryService.publishedPolicies(
 						principal.toActor(), departmentId));
+		if (!model.containsAttribute("attendanceDayForm")) {
+			model.addAttribute("attendanceDayForm", attendanceDayForm(
+					null, null, null, AttendanceDayRecurrence.NONE,
+					1, null, null, 1, 1));
+		}
 		return "admin/department/attendance-days";
 	}
 
-	/** 날짜를 만들고 현재 활성 교사를 대상으로 snapshot한다. */
+	/** 날짜 또는 반복 규칙으로 출석 날짜를 만들고 현재 활성 교사를 대상으로 snapshot한다. */
 	@PostMapping("/admin/departments/{departmentId}/attendance-days")
 	public String createAttendanceDay(
 			@AuthenticationPrincipal AccountPrincipal principal,
 			@PathVariable long departmentId,
 			@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
 					LocalDate attendanceDate,
+			@RequestParam(required = false)
+			@DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+					LocalDate endDate,
 			@RequestParam long policyVersionId,
+			@RequestParam(defaultValue = "NONE")
+					AttendanceDayRecurrence recurrence,
+			@RequestParam(defaultValue = "1") int interval,
+			@RequestParam(required = false) List<DayOfWeek> weeklyDays,
+			@RequestParam(required = false) List<Integer> monthlyDays,
+			@RequestParam(required = false) Integer yearlyMonth,
+			@RequestParam(required = false) Integer yearlyDay,
 			RedirectAttributes redirect) {
-		return command(
-				() -> dayService.createDay(
+		Map<String, Object> submittedForm = attendanceDayForm(
+				attendanceDate,
+				endDate,
+				policyVersionId,
+				recurrence,
+				interval,
+				weeklyDays,
+				monthlyDays,
+				yearlyMonth,
+				yearlyDay);
+		try {
+			writeGate.requireEnabled();
+			String message;
+			if (recurrence == AttendanceDayRecurrence.NONE) {
+				dayService.createDay(
+						principal.toActor(), departmentId, attendanceDate, policyVersionId);
+				message = "출석 날짜를 생성했습니다.";
+			} else {
+				LocalDate effectiveEndDate = requireEndDate(endDate);
+				AttendanceDayBatchResult result = dayService.createDays(
 						principal.toActor(),
 						departmentId,
-						attendanceDate,
-						policyVersionId),
-				"출석 날짜를 생성했습니다.",
-				daysPath(departmentId),
-				redirect);
+						new AttendanceDayScheduleCommand(
+								attendanceDate,
+								effectiveEndDate,
+								policyVersionId,
+								recurrence,
+								interval,
+								toSet(
+										weeklyDays,
+										"반복 요일 값이 올바르지 않습니다."),
+								toSet(
+										monthlyDays,
+										"반복 날짜 값이 올바르지 않습니다."),
+								yearlyMonth,
+								yearlyDay));
+				message = attendanceDayBatchMessage(result);
+			}
+			redirect.addFlashAttribute("message", message);
+		} catch (IllegalArgumentException | BusinessRuleException exception) {
+			redirect.addFlashAttribute("error", exception.getMessage());
+			redirect.addFlashAttribute("attendanceDayForm", submittedForm);
+		}
+		return "redirect:" + daysPath(departmentId);
 	}
 
 	/** 한 날짜의 대상자와 출석 결과·정정 form을 표시한다. */
@@ -768,6 +823,68 @@ public final class DepartmentAdminController {
 			redirect.addFlashAttribute("error", exception.getMessage());
 			return "redirect:" + failureRedirectPath;
 		}
+	}
+
+	private static LocalDate requireEndDate(LocalDate endDate) {
+		if (endDate == null) {
+			throw new IllegalArgumentException("반복 종료일을 입력하세요.");
+		}
+		return endDate;
+	}
+
+	private static <T> Set<T> toSet(List<T> values, String invalidMessage) {
+		if (values == null || values.isEmpty()) {
+			return Set.of();
+		}
+		if (values.stream().anyMatch(Objects::isNull)) {
+			throw new IllegalArgumentException(invalidMessage);
+		}
+		return Set.copyOf(values);
+	}
+
+	private static Map<String, Object> attendanceDayForm(
+			LocalDate attendanceDate,
+			LocalDate endDate,
+			Long policyVersionId,
+			AttendanceDayRecurrence recurrence,
+			int interval,
+			List<DayOfWeek> weeklyDays,
+			List<Integer> monthlyDays,
+			Integer yearlyMonth,
+			Integer yearlyDay
+	) {
+		Map<String, Object> form = new LinkedHashMap<>();
+		form.put("attendanceDate", attendanceDate);
+		form.put("endDate", endDate);
+		form.put("policyVersionId", policyVersionId);
+		form.put("recurrence", recurrence == null
+				? AttendanceDayRecurrence.NONE.name()
+				: recurrence.name());
+		form.put("interval", interval);
+		form.put("weeklyDays", weeklyDays == null
+				? List.of()
+				: weeklyDays.stream()
+						.filter(Objects::nonNull)
+						.map(Enum::name)
+						.distinct()
+						.toList());
+		form.put("monthlyDays", monthlyDays == null
+				? List.of()
+				: monthlyDays.stream()
+						.filter(Objects::nonNull)
+						.distinct()
+						.toList());
+		form.put("yearlyMonth", yearlyMonth);
+		form.put("yearlyDay", yearlyDay);
+		return java.util.Collections.unmodifiableMap(form);
+	}
+
+	private static String attendanceDayBatchMessage(AttendanceDayBatchResult result) {
+		if (result.skippedExistingCount() == 0) {
+			return "출석 날짜 " + result.createdCount() + "건을 생성했습니다.";
+		}
+		return "출석 날짜 " + result.createdCount() + "건을 생성했고, 이미 존재하는 "
+				+ result.skippedExistingCount() + "건은 건너뛰었습니다.";
 	}
 
 	private static List<PolicyBandInput> toBands(
