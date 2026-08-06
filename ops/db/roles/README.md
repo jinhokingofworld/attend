@@ -15,6 +15,11 @@
    별도로 발급한다. 웹 애플리케이션에는 `app_runtime`만, 분리된 retention container에는
    `retention_worker`만 주입한다.
 
+`retention_worker`는 `public`의 고정 audit·tag event purge 함수 2개에 대한
+`EXECUTE`와 `public` schema `USAGE`만 가진다. 다른 모든 비시스템 schema의 ACL,
+객체 소유권, Large Object 권한과 database·schema DDL 권한은 금지하며 worker는
+실행 전에 이 경계를 전체 database catalog에서 fail-closed로 검사한다.
+
 레거시 DB에서는 `migration_owner`가 승인된 네 테이블, 세 sequence와 두 enum의
 소유자이거나 그 소유 역할의 구성원이어야 한다. guarded runner가 이 조건을
 baseline 전에 검사하므로, 소유권이 불명확한 DB에는 version 0 history도 만들지

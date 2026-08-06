@@ -60,7 +60,7 @@
 | `migration_owner` | 배포 전 고정 Flyway runner | 승인 migration, schema·history 관리, `info`·`validate` | 웹 runtime 사용, 평상시 애플리케이션 접속 |
 | `cutover_writer` | 승인된 컷오버 시간 | bootstrap·importer의 최소 DML | DDL, 레거시 출석·로그 DML, 컷오버 후 로그인 |
 | `legacy_writer` | 안전 릴리스와 승인된 rollback 시간 | 기존 앱에 필요한 제한 DML | `member.card_uid` 변경, `member` 삭제, 컷오버 후 상시 로그인 |
-| `retention_worker` | 웹과 분리된 audit retention container | 고정 cutoff의 `attend_purge_expired_audit_log_batch()` 실행 | 업무 table 직접 조회·삽입·수정·삭제, DDL, 다른 함수 실행, 웹 runtime credential 공유 |
+| `retention_worker` | 웹과 분리된 retention container | 고정 cutoff의 audit·tag event purge 함수 2개 실행 | 모든 사용자 schema의 ACL·객체 소유권, Large Object 접근, 업무 table 직접 조회·삽입·수정·삭제, DDL, 다른 함수 실행, 웹 runtime credential 공유 |
 | PostgreSQL `PUBLIC` | 모든 DB 사용자 | 기본 연결에 필요한 최소 범위만 | schema 생성, 업무 테이블·sequence·함수의 암묵적 권한 |
 | 운영 인프라 담당자 | 승인된 운영 절차 | process 설정, 비밀 저장소, 제한된 application log와 backup | 애플리케이션 역할을 가장한 업무 변경 |
 
@@ -808,7 +808,7 @@ PRG(Post/Redirect/Get)를 사용하더라도 성공하지 않은 변경을 성�
 | `SEC-DB-13` | 직접 SQL로 결측·미래 생년월일 교사를 등록·수정·활성화하거나 비운영 교사에 활성 소속 생성 | V009 trigger의 고정 제약 오류로 거부 |
 | `SEC-DB-14` | runtime에 `member` table-level 권한 또는 `age`·`card_uid` 권한을 추가한 뒤 앱 기동 | 실제 권한 drift 검사에서 기동 실패 |
 | `SEC-DB-15` | 종료된 소속·카드 연결 행의 종료 metadata 수정 또는 `NULL` 재개방 | V009 trigger의 고정 제약 오류로 거부; 재가입·재연결은 새 행 생성 |
-| `SEC-DB-16` | `retention_worker`로 audit 직접 조회·삭제·DDL 또는 다른 함수 실행, `app_runtime`으로 retention 함수 실행 | permission denied; worker는 고정 2년 audit batch 함수만 실행 |
+| `SEC-DB-16` | `retention_worker`에 임의 사용자 schema·table·column·sequence·function·type·Large Object 권한이나 객체 소유권을 부여하고 worker guard 실행; `app_runtime`으로 retention 함수 실행 | worker guard가 기동을 거부하고 runtime 함수 실행은 permission denied; worker는 고정 2년 audit·90일 tag event batch 함수 2개만 실행 |
 
 `SEC-DB-05`·`SEC-DB-06` 같은 column-level grant가 실제 권한 script에 구현되지 않았다면 “service가 거부하므로 안전하다”로 테스트를 대체하지 않는다. grant 목표와 구현이 다르면 차이를 배포 blocker로 기록한다.
 

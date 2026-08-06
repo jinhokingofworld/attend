@@ -464,7 +464,7 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | MIG-RUNTIME-003 | `001` 같은 표시 형식과 숫자 version 비교 | 문자열 `MAX(version)`이 아니라 Flyway `MigrationVersion`으로 판정 |
 | MIG-RUNTIME-004 | `migration_owner` credential을 웹 runtime에 설정 | 설정 검증 실패 |
 | MIG-GRANT-001 | `app_runtime` DDL·history write·member DELETE·legacy DML | table·column·sequence·function 권한으로 거부 |
-| MIG-GRANT-002 | `retention_worker`와 `app_runtime`의 tag·audit retention 권한 | worker는 고정 batch 함수만 실행하고 tag·audit 직접 조회·삭제·schema·database CREATE와 runtime 함수 호출은 거부; worker의 직접·상속 과권한과 runtime의 필수 SELECT/INSERT 누락 또는 DELETE grant drift는 기동 guard가 거부 |
+| MIG-GRANT-002 | `retention_worker`와 `app_runtime`의 tag·audit retention 권한 | worker는 고정 batch 함수 2개만 실행하고 tag·audit 직접 조회·삭제·schema·database CREATE와 runtime 함수 호출은 거부; 모든 비시스템 schema의 table·column·sequence·function·type ACL, 객체 소유권, Large Object 권한을 포함한 worker의 직접·상속 과권한과 runtime의 필수 SELECT/INSERT 누락 또는 DELETE grant drift는 기동 guard가 거부 |
 | MIG-RESTART-001 | 앱 두 번 재시작 | DROP·sample insert·row count 변화 없음 |
 | MIG-IMPORT-001 | importer dry-run과 실제 실행 | manifest 승인 건수 일치, 거부 행 보고 |
 | MIG-IMPORT-002 | 비정상 UID·중복 카드·공개 샘플 계정 | 이관 거부 |

@@ -2390,6 +2390,130 @@ class FlywayMigrationTest {
 			RetentionDatabasePrivilegeGuard.verify(retentionConnection);
 		}
 
+		long largeObjectId;
+		try (Connection admin = database.connect();
+			 Statement statement = admin.createStatement()) {
+			statement.execute("CREATE SCHEMA retention_drift");
+			statement.execute("""
+					CREATE TABLE retention_drift.sensitive_data (
+					    id BIGINT PRIMARY KEY,
+					    secret TEXT NOT NULL
+					)
+					""");
+			statement.execute("""
+					INSERT INTO retention_drift.sensitive_data (id, secret)
+					VALUES (1, 'must-not-be-readable')
+					""");
+			statement.execute("CREATE SEQUENCE retention_drift.drift_sequence");
+			statement.execute("""
+					CREATE FUNCTION retention_drift.drift_function()
+					RETURNS INTEGER
+					LANGUAGE sql
+					AS 'SELECT 1'
+					""");
+			statement.execute("CREATE TYPE retention_drift.drift_type AS ENUM ('DRIFT')");
+			largeObjectId = queryLong(statement, "SELECT lo_create(0)");
+		}
+		assertRetentionPrivilegeGuardAccepts(retentionDataSource);
+
+		try (Connection admin = database.connect();
+			 Statement statement = admin.createStatement()) {
+			statement.execute("""
+					GRANT USAGE, CREATE ON SCHEMA retention_drift
+					TO retention_worker
+					""");
+		}
+		assertRetentionPrivilegeGuardRejects(retentionDataSource);
+		try (Connection admin = database.connect();
+			 Statement statement = admin.createStatement()) {
+			statement.execute("""
+					REVOKE USAGE, CREATE ON SCHEMA retention_drift
+					FROM retention_worker
+					""");
+			statement.execute("""
+					GRANT SELECT, DELETE
+					ON TABLE retention_drift.sensitive_data
+					TO retention_worker
+					""");
+		}
+		assertRetentionPrivilegeGuardRejects(retentionDataSource);
+		try (Connection admin = database.connect();
+			 Statement statement = admin.createStatement()) {
+			statement.execute("""
+					REVOKE SELECT, DELETE
+					ON TABLE retention_drift.sensitive_data
+					FROM retention_worker
+					""");
+			statement.execute("""
+					GRANT USAGE, SELECT, UPDATE
+					ON SEQUENCE retention_drift.drift_sequence
+					TO retention_worker
+					""");
+		}
+		assertRetentionPrivilegeGuardRejects(retentionDataSource);
+		try (Connection admin = database.connect();
+			 Statement statement = admin.createStatement()) {
+			statement.execute("""
+					REVOKE USAGE, SELECT, UPDATE
+					ON SEQUENCE retention_drift.drift_sequence
+					FROM retention_worker
+					""");
+			statement.execute("""
+					GRANT EXECUTE
+					ON FUNCTION retention_drift.drift_function()
+					TO retention_worker
+					""");
+		}
+		assertRetentionPrivilegeGuardRejects(retentionDataSource);
+		try (Connection admin = database.connect();
+			 Statement statement = admin.createStatement()) {
+			statement.execute("""
+					REVOKE EXECUTE
+					ON FUNCTION retention_drift.drift_function()
+					FROM retention_worker
+					""");
+			statement.execute("""
+					GRANT USAGE
+					ON TYPE retention_drift.drift_type
+					TO retention_worker
+					""");
+		}
+		assertRetentionPrivilegeGuardRejects(retentionDataSource);
+		try (Connection admin = database.connect();
+			 Statement statement = admin.createStatement()) {
+			statement.execute("""
+					REVOKE USAGE
+					ON TYPE retention_drift.drift_type
+					FROM retention_worker
+					""");
+			statement.execute("""
+					GRANT SELECT, UPDATE ON LARGE OBJECT %d
+					TO retention_worker
+					""".formatted(largeObjectId));
+		}
+		assertRetentionPrivilegeGuardRejects(retentionDataSource);
+		try (Connection admin = database.connect();
+			 Statement statement = admin.createStatement()) {
+			statement.execute("""
+					REVOKE SELECT, UPDATE ON LARGE OBJECT %d
+					FROM retention_worker
+					""".formatted(largeObjectId));
+			statement.execute("""
+					ALTER TABLE retention_drift.sensitive_data
+					OWNER TO retention_worker
+					""");
+		}
+		assertRetentionPrivilegeGuardRejects(retentionDataSource);
+		try (Connection admin = database.connect();
+			 Statement statement = admin.createStatement()) {
+			statement.execute("""
+					ALTER TABLE retention_drift.sensitive_data
+					OWNER TO CURRENT_USER
+					""");
+			statement.execute("SELECT lo_unlink(%d)".formatted(largeObjectId));
+		}
+		assertRetentionPrivilegeGuardAccepts(retentionDataSource);
+
         long expiredAuditId;
         try (Connection migrationConnection =
                      migrationDataSource.getConnection();
@@ -2774,6 +2898,31 @@ class FlywayMigrationTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("incompatible");
     }
+
+	/** retention 계정에 허용 범위 밖 권한이 있으면 guard가 실패해야 한다. */
+	private static void assertRetentionPrivilegeGuardRejects(
+			DataSource dataSource
+	) {
+		try (Connection connection = dataSource.getConnection()) {
+			assertThatThrownBy(() ->
+					RetentionDatabasePrivilegeGuard.verify(connection))
+					.isInstanceOf(IllegalStateException.class)
+					.hasMessageContaining("incompatible");
+		} catch (SQLException exception) {
+			throw new IllegalStateException(exception);
+		}
+	}
+
+	/** retention 계정이 두 purge 함수만 실행할 수 있으면 guard가 통과해야 한다. */
+	private static void assertRetentionPrivilegeGuardAccepts(
+			DataSource dataSource
+	) {
+		try (Connection connection = dataSource.getConnection()) {
+			RetentionDatabasePrivilegeGuard.verify(connection);
+		} catch (SQLException exception) {
+			throw new IllegalStateException(exception);
+		}
+	}
 
     /**
      * 제약조건 자체만 시험할 때 사용할 표준 Flyway 설정을 만든다.
