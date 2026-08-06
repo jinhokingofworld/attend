@@ -168,6 +168,16 @@ a {
     white-space: nowrap;
 }
 
+.button-link--danger {
+    border-color: var(--danger);
+    background: var(--danger);
+    color: #fff;
+}
+
+.button-link.button-link--danger:hover {
+    background: #8f1d14;
+}
+
 .button-link:hover {
     background: var(--primary-dark);
 }

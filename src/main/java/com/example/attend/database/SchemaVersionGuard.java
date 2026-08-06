@@ -26,9 +26,10 @@ import java.util.List;
 @Profile("prod")
 public final class SchemaVersionGuard implements InitializingBean {
 
+    private static final int QUERY_TIMEOUT_SECONDS = 3;
     private static final List<MigrationVersion> REQUIRED_VERSIONS =
             List.of(
-                    "1", "2", "3", "4", "5", "6", "7", "8"
+                    "1", "2", "3", "4", "5", "6", "7", "8", "9"
             ).stream()
                     .map(MigrationVersion::fromVersion)
                     .toList();
@@ -56,7 +57,7 @@ public final class SchemaVersionGuard implements InitializingBean {
     }
 
     /**
-     * 성공한 versioned migration이 V001~V008과 정확히 일치하는지 확인한다.
+     * 성공한 versioned migration이 V001~V009과 정확히 일치하는지 확인한다.
      *
      * <p>문자열의 최댓값만 비교하면 {@code 9}와 {@code 10} 같은 버전을
      * 잘못 정렬할 수 있으므로 Flyway의 {@link MigrationVersion}으로 해석한
@@ -68,28 +69,30 @@ public final class SchemaVersionGuard implements InitializingBean {
      */
     public static void verify(DataSource dataSource) {
         try (Connection connection = dataSource.getConnection();
-             Statement statement = connection.createStatement();
-             ResultSet resultSet = statement.executeQuery("""
+             Statement statement = connection.createStatement()) {
+            statement.setQueryTimeout(QUERY_TIMEOUT_SECONDS);
+            try (ResultSet resultSet = statement.executeQuery("""
                      SELECT version, type, success
                      FROM public.flyway_schema_history
                      ORDER BY installed_rank
                      """)) {
-            List<MigrationVersion> appliedVersions = new ArrayList<>();
-            while (resultSet.next()) {
-                if (!resultSet.getBoolean("success")) {
+                List<MigrationVersion> appliedVersions = new ArrayList<>();
+                while (resultSet.next()) {
+                    if (!resultSet.getBoolean("success")) {
+                        throw incompatible();
+                    }
+                    String version = resultSet.getString("version");
+                    String type = resultSet.getString("type");
+                    if (version != null && !"BASELINE".equals(type)) {
+                        appliedVersions.add(
+                                MigrationVersion.fromVersion(version)
+                        );
+                    }
+                }
+
+                if (!REQUIRED_VERSIONS.equals(appliedVersions)) {
                     throw incompatible();
                 }
-                String version = resultSet.getString("version");
-                String type = resultSet.getString("type");
-                if (version != null && !"BASELINE".equals(type)) {
-                    appliedVersions.add(
-                            MigrationVersion.fromVersion(version)
-                    );
-                }
-            }
-
-            if (!REQUIRED_VERSIONS.equals(appliedVersions)) {
-                throw incompatible();
             }
         } catch (SQLException exception) {
             throw new IllegalStateException(

@@ -128,6 +128,15 @@ public final class DatabasePreflightInspector {
                     );
                 }
 
+                // baseline 전에는 이후 versioned migration이 만들 함수와 같은
+                // 정확한 signature가 없는지도 확인한다. 그렇지 않으면 baseline은
+                // commit된 뒤 V009에서만 실패해 부분 관리 상태가 남는다.
+                if (containsReservedV009Function(connection)) {
+                    return PreflightResult.rejected(
+                            "unmanaged V009 function conflicts with migration"
+                    );
+                }
+
                 /*
                  * V001 검증이 성공하면 fresh 경로에서는 CREATE TABLE, legacy
                  * 경로에서는 ALTER TABLE에 도달한다. 읽기 전용 오류가 아닌 다른
@@ -198,6 +207,33 @@ public final class DatabasePreflightInspector {
             }
             return false;
         }
+    }
+
+    /**
+     * V009가 소유할 zero-argument trigger 함수가 unmanaged schema에 이미 있는지
+     * 정확한 PostgreSQL 함수 signature로 확인한다.
+     *
+     * <p>동일 이름의 다른 overload는 V009와 충돌하지 않으므로 {@code to_regproc}
+     * 가 아니라 {@code to_regprocedure}를 사용한다.</p>
+     *
+     * @param connection 읽기 전용 사전검사 연결
+     * @return V009와 충돌하는 함수가 하나라도 있으면 {@code true}
+     * @throws SQLException catalog 조회를 수행할 수 없을 때
+     */
+    private static boolean containsReservedV009Function(
+            Connection connection
+    ) throws SQLException {
+        return queryBoolean(connection, """
+                SELECT to_regprocedure(
+                           'public.attend_require_member_birth_on_write()'
+                       ) IS NOT NULL
+                    OR to_regprocedure(
+                           'public.attend_require_operational_membership_member()'
+                       ) IS NOT NULL
+                    OR to_regprocedure(
+                           'public.attend_require_closed_card_assignment_immutable()'
+                       ) IS NOT NULL
+                """);
     }
 
     /**

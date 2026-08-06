@@ -96,8 +96,8 @@ class DeviceApiIntegrationTest {
 				RETURNING id
 				""", OffsetDateTime.ofInstant(RECEIVED_AT, ZoneId.of("Asia/Seoul")));
 		long memberId = insertId("""
-				INSERT INTO public.member(name, active)
-				VALUES ('장치 시험 교사', TRUE)
+				INSERT INTO public.member(name, birth, active)
+				VALUES ('장치 시험 교사', DATE '1990-01-02', TRUE)
 				RETURNING id
 				""");
 		long membershipId = insertId("""
@@ -257,8 +257,8 @@ class DeviceApiIntegrationTest {
 				"INSERT INTO public.department(name) VALUES (?) RETURNING id",
 				"중고등부");
 		long otherMemberId = insertId("""
-				INSERT INTO public.member(name, active)
-				VALUES ('다른 부서 교사', TRUE)
+				INSERT INTO public.member(name, birth, active)
+				VALUES ('다른 부서 교사', DATE '1991-02-03', TRUE)
 				RETURNING id
 				""");
 		long otherMembershipId = insertId("""

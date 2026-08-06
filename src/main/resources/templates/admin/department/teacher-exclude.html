@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>교사 부서 제외</title>
+    <link rel="stylesheet" th:href="@{/css/admin.css}">
+</head>
+<body>
+<header th:replace="~{fragments/admin-shell :: header}"></header>
+<main>
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow" th:text="${department.name}">부서</p>
+            <h1 th:text="|${teacher.name} 교사 부서 제외|">교사 부서 제외</h1>
+            <p>이 작업은 소속과 활성 카드 연결을 종료하지만 과거 출석·카드·감사 이력은 삭제하지 않습니다.</p>
+        </div>
+        <a class="button-link button-link--secondary"
+           th:href="@{/admin/departments/{departmentId}/teachers/{memberId}(departmentId=${department.id},memberId=${teacher.id})}">교사 상세</a>
+    </div>
+
+    <p th:if="${error}" class="message message--error" th:text="${error}" role="alert"></p>
+    <p th:unless="${writeEnabled}" class="message message--info">읽기 전용 모드입니다.</p>
+
+    <section>
+        <h2>처리 영향</h2>
+        <ul>
+            <li>현재 부서 소속과 활성 카드 연결을 종료합니다.</li>
+            <li>이후 새로 만드는 출석 날짜의 기본 대상에서 빠집니다.</li>
+            <li>과거 및 이미 시작한 출석 날짜의 대상자와 기록은 변경하지 않습니다.</li>
+            <li>아직 시작하지 않았고 출석 기록도 하나도 없는 날짜는 모두 대상에서 자동 제외합니다.</li>
+            <li>나중에 다시 소속에 추가해도 기존 날짜의 대상으로 자동 복원하지 않습니다.</li>
+        </ul>
+    </section>
+
+    <form th:if="${writeEnabled}" method="post"
+          th:action="@{/admin/departments/{departmentId}/teachers/{memberId}/exclude(departmentId=${department.id},memberId=${teacher.id})}">
+        <fieldset>
+            <legend>이미 등록된 미래 출석 날짜</legend>
+            <p th:text="|미래 출석일 ${futureAttendanceDayCount}건에서도 제외됩니다.|">미래 출석일 0건에서도 제외됩니다.</p>
+            <p th:if="${#lists.isEmpty(futureAttendanceDays)}">자동 제외할 수 있는 시작 전 날짜가 없습니다.</p>
+            <ul th:unless="${#lists.isEmpty(futureAttendanceDays)}">
+                <li th:each="day : ${futureAttendanceDays}"
+                    th:text="|${day.attendance_date} · ${day.check_in_start_time} · ${day.policy_name}|">날짜와 정책</li>
+            </ul>
+        </fieldset>
+
+        <input type="hidden"
+               th:each="day : ${futureAttendanceDays}"
+               name="expectedFutureAttendanceDayIds"
+               th:value="${day.id}">
+
+        <label>활성 카드 처리
+            <select name="cardDisposition" required>
+                <option value="AVAILABLE">회수·재사용 가능</option>
+                <option value="LOST">분실</option>
+                <option value="RETIRED">영구 폐기</option>
+            </select>
+        </label>
+        <label>제외 사유
+            <input name="reason" maxlength="500" required>
+        </label>
+        <label>
+            <input type="checkbox" name="confirmImpact" value="true" required>
+            <span th:text="|미래 출석일 ${futureAttendanceDayCount}건에서도 제외되는 영향을 확인했습니다.|">위 영향을 확인했습니다.</span>
+        </label>
+        <button type="submit">부서에서 제외</button>
+    </form>
+</main>
+</body>
+</html>

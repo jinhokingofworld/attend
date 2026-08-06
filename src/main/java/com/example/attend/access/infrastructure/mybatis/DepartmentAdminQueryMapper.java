@@ -4,6 +4,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
 
@@ -56,6 +57,13 @@ public interface DepartmentAdminQueryMapper {
 	List<Map<String, Object>> selectTeacherAttendanceHistory(
 			@Param("departmentId") long departmentId,
 			@Param("memberId") long memberId);
+
+	/** 부서 제외 확인 화면에 표시할 시작 전·기록 없는 대상 날짜를 조회한다. */
+	List<Map<String, Object>> selectFutureAttendanceTargets(
+			@Param("departmentId") long departmentId,
+			@Param("memberId") long memberId,
+			@Param("today") LocalDate today,
+			@Param("currentTime") LocalTime currentTime);
 
 	/** 정책 버전 목록을 조회한다. */
 	List<Map<String, Object>> selectPolicies(

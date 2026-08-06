@@ -43,6 +43,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 기존 M2 조직·출석 서비스를 부서 범위 MVC command와 화면에 연결한다.
@@ -246,27 +247,60 @@ public final class DepartmentAdminController {
 				redirect);
 	}
 
-	/** 교사 소속과 카드를 이력 보존 방식으로 종료한다. */
+	/** 부서 제외가 미치는 현재 소속·카드·미래 대상 날짜를 확인한다. */
+	@GetMapping("/admin/departments/{departmentId}/teachers/{memberId}/exclude")
+	public String excludeTeacherConfirmation(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long memberId,
+			Model model) {
+		addDepartmentModel(principal, departmentId, model);
+		model.addAttribute("teacher", queryService.teacher(
+				principal.toActor(), departmentId, memberId));
+		List<Map<String, Object>> futureAttendanceDays =
+				queryService.futureAttendanceTargets(
+						principal.toActor(), departmentId, memberId);
+		model.addAttribute("futureAttendanceDays", futureAttendanceDays);
+		model.addAttribute(
+				"futureAttendanceDayCount", futureAttendanceDays.size());
+		return "admin/department/teacher-exclude";
+	}
+
+	/** 교사 소속·카드와 확인한 미래 대상자 전체를 원자적으로 종료한다. */
 	@PostMapping("/admin/departments/{departmentId}/teachers/{memberId}/exclude")
 	public String excludeTeacher(
 			@AuthenticationPrincipal AccountPrincipal principal,
 			@PathVariable long departmentId,
 			@PathVariable long memberId,
+			@RequestParam(
+					name = "expectedFutureAttendanceDayIds",
+					required = false
+			) Set<Long> expectedFutureAttendanceDayIds,
 			@RequestParam CardDisposition cardDisposition,
 			@RequestParam String reason,
+			@RequestParam(defaultValue = "false") boolean confirmImpact,
 			RedirectAttributes redirect) {
 		return command(
-				() -> exclusionService.exclude(
-						principal.toActor(),
-						departmentId,
-						memberId,
-						new ExcludeTeacherCommand(
-								List.of(),
-								cardDisposition,
-								reason)),
-				"교사를 부서에서 제외했습니다.",
-				teachersPath(departmentId),
-				redirect);
+					() -> {
+						if (!confirmImpact) {
+							throw new IllegalArgumentException(
+									"부서 제외 영향을 확인해야 합니다.");
+						}
+						exclusionService.exclude(
+								principal.toActor(),
+								departmentId,
+								memberId,
+								new ExcludeTeacherCommand(
+										expectedFutureAttendanceDayIds == null
+												? Set.of()
+												: expectedFutureAttendanceDayIds,
+										cardDisposition,
+										reason));
+					},
+					"교사를 부서에서 제외했습니다.",
+					teachersPath(departmentId),
+					teacherExcludePath(departmentId, memberId),
+					redirect);
 	}
 
 	/** 활성 소속 교사에게 사용 가능한 NFC 카드를 연결한다. */
@@ -702,6 +736,7 @@ public final class DepartmentAdminController {
 		model.addAttribute("principal", principal);
 		model.addAttribute("department", queryService.department(
 				principal.toActor(), departmentId));
+		model.addAttribute("today", LocalDate.now(clock));
 		model.addAttribute("writeEnabled", writeGate.isEnabled());
 	}
 
@@ -710,14 +745,29 @@ public final class DepartmentAdminController {
 			String successMessage,
 			String redirectPath,
 			RedirectAttributes redirect) {
+		return command(
+				command,
+				successMessage,
+				redirectPath,
+				redirectPath,
+				redirect);
+	}
+
+	private String command(
+			Runnable command,
+			String successMessage,
+			String successRedirectPath,
+			String failureRedirectPath,
+			RedirectAttributes redirect) {
 		try {
 			writeGate.requireEnabled();
 			command.run();
 			redirect.addFlashAttribute("message", successMessage);
+			return "redirect:" + successRedirectPath;
 		} catch (IllegalArgumentException | BusinessRuleException exception) {
 			redirect.addFlashAttribute("error", exception.getMessage());
+			return "redirect:" + failureRedirectPath;
 		}
-		return "redirect:" + redirectPath;
 	}
 
 	private static List<PolicyBandInput> toBands(
@@ -752,6 +802,10 @@ public final class DepartmentAdminController {
 
 	private static String teacherPath(long departmentId, long memberId) {
 		return teachersPath(departmentId) + "/" + memberId;
+	}
+
+	private static String teacherExcludePath(long departmentId, long memberId) {
+		return teacherPath(departmentId, memberId) + "/exclude";
 	}
 
 	private static String policiesPath(long departmentId) {

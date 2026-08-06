@@ -1,4 +1,4 @@
--- Post-migration grants for the V008 schema. Run as migration_owner or an
+-- Post-migration grants for the V009 schema. Run as migration_owner or an
 -- equivalent owner after guarded dbMigrate succeeds.
 --
 -- This script is intentionally explicit. A future migration that adds a table,
@@ -38,7 +38,7 @@ BEGIN
 
     IF missing_tables IS NOT NULL THEN
         RAISE EXCEPTION
-            'Runtime grants require the complete V008 schema; missing: %',
+            'Runtime grants require the complete V009 schema; missing: %',
             missing_tables;
     END IF;
 END
@@ -67,6 +67,32 @@ REVOKE ALL PRIVILEGES (
     active,
     updated_at
 ) ON TABLE public.member
+FROM app_runtime, cutover_writer, legacy_writer;
+
+REVOKE ALL PRIVILEGES (
+    id,
+    department_id,
+    member_id,
+    joined_at,
+    ended_at,
+    created_by_account_id,
+    ended_by_account_id,
+    end_reason
+) ON TABLE public.department_membership
+FROM app_runtime, cutover_writer, legacy_writer;
+
+REVOKE ALL PRIVILEGES (
+    id,
+    nfc_card_id,
+    department_id,
+    membership_id,
+    member_id,
+    assigned_by_account_id,
+    unassigned_by_account_id,
+    assigned_at,
+    unassigned_at,
+    end_reason
+) ON TABLE public.nfc_card_assignment
 FROM app_runtime, cutover_writer, legacy_writer;
 
 GRANT USAGE ON SCHEMA public
@@ -205,15 +231,19 @@ GRANT SELECT (
     id,
     name,
     phone,
+    birth,
+    created_at,
     active,
     updated_at
 ), INSERT (
     name,
     phone,
+    birth,
     active
 ), UPDATE (
     name,
     phone,
+    birth,
     active
 ) ON TABLE public.member
 TO app_runtime, cutover_writer;

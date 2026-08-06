@@ -9,7 +9,7 @@ import java.time.LocalDate;
  *
  * @param name 교사 이름
  * @param phone 선택 연락처
- * @param birth 선택 생년월일. 화면의 나이는 이 값으로 계산한다
+ * @param birth 필수 생년월일. 생일 관리와 화면의 만 나이 계산에 사용한다
  * @param cardUid 함께 연결할 카드 UID, 카드 없이 등록하면 {@code null}
  */
 public record AddTeacherCommand(
@@ -18,17 +18,6 @@ public record AddTeacherCommand(
 		LocalDate birth,
 		NfcUid cardUid
 ) {
-
-	/**
-	 * 생년월일을 받지 않던 기존 호출부를 위한 호환 생성자다.
-	 *
-	 * @param name 교사 이름
-	 * @param phone 선택 연락처
-	 * @param cardUid 선택 NFC 카드 UID
-	 */
-	public AddTeacherCommand(String name, String phone, NfcUid cardUid) {
-		this(name, phone, null, cardUid);
-	}
 
 	/**
 	 * 화면 입력의 공백과 길이를 정규화한다.
@@ -40,6 +29,9 @@ public record AddTeacherCommand(
 		name = name.trim();
 		if (name.length() > 255) {
 			throw new IllegalArgumentException("teacher name must not exceed 255 characters");
+		}
+		if (birth == null) {
+			throw new IllegalArgumentException("생년월일은 필수입니다.");
 		}
 		if (phone != null) {
 			phone = phone.trim();
