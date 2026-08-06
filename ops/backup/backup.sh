@@ -10,8 +10,22 @@ script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "${script_directory}/status-contract.sh"
 
 backup_status_initialize || exit 2
-backup_status_enter_lock "${script_directory}/backup.sh" "$@" || exit 2
 backup_storage_type="${BACKUP_STORAGE_TYPE:-}"
+backup_database_url="${BACKUP_DATABASE_URL:-}"
+backup_output_dir="${BACKUP_OUTPUT_DIR:-}"
+if [[ "${backup_status_configured}" == true ]]; then
+  backup_status_enter_lock "${script_directory}/backup.sh" "$@" || exit 2
+else
+  if [[ -z "${backup_output_dir}" \
+      || "${backup_output_dir}" != /* \
+      || "${backup_output_dir}" == "/" ]]; then
+    printf 'BACKUP_OUTPUT_DIR는 루트가 아닌 절대 경로여야 합니다.\n' >&2
+    exit 2
+  fi
+  install -d -m 0700 "${backup_output_dir}"
+  backup_status_use_output_lock "${backup_output_dir}" || exit 2
+  backup_status_enter_lock "${script_directory}/backup.sh" "$@" || exit 2
+fi
 
 previous_last_success_at=""
 previous_storage_type=""
@@ -26,6 +40,9 @@ record_failed_backup_status() {
   local exit_code=$?
   local observed_at
   trap - EXIT
+  if [[ -n "${temporary_dump:-}" && -f "${temporary_dump}" ]]; then
+    rm -f -- "${temporary_dump}"
+  fi
   if [[ "${exit_code}" -ne 0 \
       && "${backup_status_configured}" == true ]]; then
     observed_at="$(backup_status_now)"
@@ -41,6 +58,20 @@ record_failed_backup_status() {
   exit "${exit_code}"
 }
 trap record_failed_backup_status EXIT
+
+if [[ -z "${backup_database_url}" || -z "${backup_output_dir}" ]]; then
+  printf 'BACKUP_DATABASE_URL과 BACKUP_OUTPUT_DIR가 필요합니다.\n' >&2
+  exit 2
+fi
+if [[ "${backup_output_dir}" != /* || "${backup_output_dir}" == "/" ]]; then
+  printf 'BACKUP_OUTPUT_DIR는 루트가 아닌 절대 경로여야 합니다.\n' >&2
+  exit 2
+fi
+if ! backup_connection_requires_tls "${backup_database_url}"; then
+  printf 'BACKUP_DATABASE_URL은 TLS를 강제하는 sslmode가 필요합니다.\n' >&2
+  exit 2
+fi
+install -d -m 0700 "${backup_output_dir}"
 
 if [[ "${backup_status_configured}" == true ]] \
     && ! backup_status_storage_type_is_allowed "${backup_storage_type}"; then
@@ -63,21 +94,13 @@ if ! command -v sha256sum >/dev/null 2>&1 \
   exit 2
 fi
 
-backup_database_url="${BACKUP_DATABASE_URL:-}"
-backup_output_dir="${BACKUP_OUTPUT_DIR:-}"
-if [[ -z "${backup_database_url}" || -z "${backup_output_dir}" ]]; then
-  printf 'BACKUP_DATABASE_URL과 BACKUP_OUTPUT_DIR가 필요합니다.\n' >&2
-  exit 2
-fi
-if [[ "${backup_output_dir}" != /* || "${backup_output_dir}" == "/" ]]; then
-  printf 'BACKUP_OUTPUT_DIR는 루트가 아닌 절대 경로여야 합니다.\n' >&2
-  exit 2
-fi
-
-install -d -m 0700 "${backup_output_dir}"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-final_dump="${backup_output_dir}/attend-${timestamp}.dump"
-temporary_dump="${backup_output_dir}/.attend-${timestamp}.dump.partial"
+temporary_dump="$(
+  mktemp "${backup_output_dir}/.attend-${timestamp}.XXXXXX.dump.partial"
+)"
+temporary_basename="$(basename "${temporary_dump}")"
+final_dump="${backup_output_dir}/${temporary_basename#.}"
+final_dump="${final_dump%.partial}"
 checksum_file="${final_dump}.sha256"
 
 # libpq accepts a connection URI through PGDATABASE. This keeps credentials out
@@ -90,6 +113,7 @@ pg_dump \
   --no-acl \
   --file="${temporary_dump}"
 mv "${temporary_dump}" "${final_dump}"
+temporary_dump=""
 
 if command -v sha256sum >/dev/null 2>&1; then
   (

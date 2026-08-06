@@ -450,7 +450,7 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | MIG-SAFE-002 | 승인된 `LEGACY_OPERATIONAL` fixture | 사전조건 통과 후 명시적 version 0 `BASELINE` 정확히 한 행, PK·행·sequence 보존 |
 | MIG-SAFE-003 | `UNKNOWN` 분류 DB | 삭제·baseline·migration·이관 없이 중단 |
 | MIG-SAFE-004 | 기존 Flyway history가 있는 DB에서 새 baseline 시도 | 자동 추정하지 않고 중단, 기존 history 불변 |
-| MIG-SAFE-005 | 신규 15개 테이블·V008/V009 trigger 함수·이름 충돌 객체 중 하나 선존재 | baseline·migration 전 무변경 실패 |
+| MIG-SAFE-005 | 신규 15개 테이블·V008 또는 미적용 V009~V011 함수·이름 충돌 객체 중 하나 선존재 | baseline·migration 전 무변경 실패 |
 | MIG-SAFE-006 | 레거시 네 테이블 누락, 제3의 `member` 구조 또는 활성 writer 존재 | 사전점검 실패, DDL·data 변경 없음 |
 | MIG-SAFE-007 | `baselineOnMigrate=true` 또는 version 0이 아닌 자동 baseline 설정 | 배포 설정 검사 실패 |
 | MIG-SAFE-008 | 제거된 기존 seed의 알려진 password-hash fingerprint가 사용자명·권한과 무관하게 존재 | 원문·hash 노출 없이 read-only preflight 거부, history·계정 행 불변; V001 직접 호출도 거부 |
@@ -464,7 +464,7 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | MIG-RUNTIME-003 | `001` 같은 표시 형식과 숫자 version 비교 | 문자열 `MAX(version)`이 아니라 Flyway `MigrationVersion`으로 판정 |
 | MIG-RUNTIME-004 | `migration_owner` credential을 웹 runtime에 설정 | 설정 검증 실패 |
 | MIG-GRANT-001 | `app_runtime` DDL·history write·member DELETE·legacy DML | table·column·sequence·function 권한으로 거부 |
-| MIG-GRANT-002 | `retention_worker`와 `app_runtime`의 tag·audit retention 권한 | worker는 고정 batch 함수만 실행하고 tag·audit 직접 조회·삭제·DDL과 runtime 함수 호출은 거부; runtime DELETE grant drift는 기동 guard가 거부 |
+| MIG-GRANT-002 | `retention_worker`와 `app_runtime`의 tag·audit retention 권한 | worker는 고정 batch 함수만 실행하고 tag·audit 직접 조회·삭제·DDL과 runtime 함수 호출은 거부; worker의 직접·상속 과권한과 runtime의 필수 SELECT/INSERT 누락 또는 DELETE grant drift는 기동 guard가 거부 |
 | MIG-RESTART-001 | 앱 두 번 재시작 | DROP·sample insert·row count 변화 없음 |
 | MIG-IMPORT-001 | importer dry-run과 실제 실행 | manifest 승인 건수 일치, 거부 행 보고 |
 | MIG-IMPORT-002 | 비정상 UID·중복 카드·공개 샘플 계정 | 이관 거부 |
@@ -703,6 +703,9 @@ LED·부저 패턴이 확정되기 전에는 code별 기대 신호를 `TBD`로 �
 | OPS-004 | 파일럿 전/운영 분기 복원 | 증적과 담당자 기록 |
 | OPS-005 | 장애 복구 시간 | RTO 4시간 이내 |
 | OPS-006 | 복구 시점 | 24시간 초과 데이터 손실 없음, 사이 기록 수기 대사 |
+| OPS-007 | backup·restore DB 연결 | `sslmode=require`, `verify-ca`, `verify-full` 외 URL은 연결 전에 거부 |
+| OPS-008 | 상태 파일 없는 동시 backup | output lock으로 직렬화되고 서로 다른 dump·checksum을 생성 |
+| OPS-009 | retention backlog가 1회 상한 초과 | `catchup_pending=true` 동안 짧은 간격으로 반복하고 backlog가 0일 때만 정상 주기로 전환 |
 
 ### 16.3 feature flag와 관측성
 

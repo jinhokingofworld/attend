@@ -116,7 +116,12 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                         AND has_table_privilege(
                             current_user,
                             'public.audit_log',
-                            'SELECT,INSERT'
+                            'SELECT'
+                        )
+                        AND has_table_privilege(
+                            current_user,
+                            'public.audit_log',
+                            'INSERT'
                         )
                         AND NOT has_table_privilege(
                             current_user,
@@ -126,7 +131,12 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                         AND has_table_privilege(
                             current_user,
                             'public.tag_event_log',
-                            'SELECT,INSERT'
+                            'SELECT'
+                        )
+                        AND has_table_privilege(
+                            current_user,
+                            'public.tag_event_log',
+                            'INSERT'
                         )
                         AND NOT has_table_privilege(
                             current_user,

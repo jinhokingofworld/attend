@@ -1,11 +1,13 @@
 # 백업·복원 시험
 
 두 스크립트는 운영 웹의 pooled URL이 아니라 Neon **direct** PostgreSQL URL을
-사용한다. URL은 `postgresql://...` 형식으로 환경변수에만 주입하고 명령행 인자로
-넘기지 않는다. 실행 로그에도 URL이나 비밀번호를 남기지 않는다.
+사용한다. URL은 `postgresql://...?...sslmode=require` 형식으로 환경변수에만
+주입하고 명령행 인자로 넘기지 않는다. `sslmode=require`, `verify-ca`,
+`verify-full` 중 하나를 명시하지 않으면 평문 fallback을 막기 위해 실행을 거부한다.
+실행 로그에도 URL이나 비밀번호를 남기지 않는다.
 
 ```bash
-BACKUP_DATABASE_URL='postgresql://...' \
+BACKUP_DATABASE_URL='postgresql://...?sslmode=require' \
 BACKUP_OUTPUT_DIR='/approved/off-host/path' \
 BACKUP_STATUS_FILE='/var/lib/attend/backup-status/status.properties' \
 BACKUP_STORAGE_TYPE='OBJECT_STORAGE' \
@@ -25,7 +27,7 @@ BACKUP_STORAGE_TYPE='OBJECT_STORAGE' \
 중단하며 `clean`, `DROP DATABASE`, 덮어쓰기를 수행하지 않는다.
 
 ```bash
-RESTORE_DATABASE_URL='postgresql://...' \
+RESTORE_DATABASE_URL='postgresql://...?sslmode=require' \
 RESTORE_DUMP_FILE='/approved/off-host/path/attend-....dump' \
 BACKUP_STATUS_FILE='/var/lib/attend/backup-status/status.properties' \
 ./ops/backup/restore-verify.sh
@@ -35,9 +37,13 @@ BACKUP_STATUS_FILE='/var/lib/attend/backup-status/status.properties' \
 원자적으로 반영된다. 백업 작업과 복원 시험은 같은 상태 파일을 동시에 갱신하지 않도록
 서로 다른 운영 시간대에 실행한다. 스크립트도 `${BACKUP_STATUS_FILE}.lock` advisory
 lock으로 전체 작업을 직렬화해 최근 성공·실패·복원 시각의 lost update와 겹친 작업의
-누락을 막는다. 운영 Linux는 `flock`, 개발 macOS는 `lockf`가 필요하다. 잠금은 process
-종료·강제 종료·host 재부팅 시 OS가 자동 회수하므로 lock 파일 자체가 남아 있어도 다음
-작업을 막지 않는다. 상태 파일이 없거나 계약이 손상된 경우에는 실제 복원 전에 중단한다.
+누락을 막는다. 상태 파일을 사용하지 않는 백업도 output directory의
+`.attend-backup.lock`으로 직렬화하며, 초 단위 실행이 겹쳐도 임의 suffix가 붙은 서로
+다른 dump를 만든다. 운영 Linux는 `flock`, 개발 macOS는 `lockf`가 필요하다. 잠금은
+process 종료·강제 종료·host 재부팅 시 OS가 자동 회수하므로 lock 파일 자체가 남아
+있어도 다음 작업을 막지 않는다. 설정한 상태 파일의 계약이 손상된 경우 backup은
+기존 메타데이터를 승계하지 않고 이번 결과로 교체하며, restore 시험은 DB 연결 전에
+중단한다.
 
 기본 checksum 경로는 `${RESTORE_DUMP_FILE}.sha256`이다. 다른 위치라면
 `RESTORE_CHECKSUM_FILE`을 지정한다. checksum 파일이 없거나 SHA-256이 일치하지

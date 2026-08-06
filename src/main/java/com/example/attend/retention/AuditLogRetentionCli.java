@@ -73,6 +73,7 @@ public final class AuditLogRetentionCli {
 				databaseConnection.username(),
 				databaseConnection.password())) {
 			connection.setAutoCommit(true);
+			RetentionDatabasePrivilegeGuard.verify(connection);
 			PurgeResult audit = purgeBatches(connection, PURGE_AUDIT_LOG_SQL, "audit");
 			PurgeResult tagEvent = purgeBatches(
 					connection,

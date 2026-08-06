@@ -62,14 +62,14 @@ jobs:
 
           jar tf "${artifact_path}" > build/jar-contents.txt
 
-		  for version in 001 002 003 004 005 006 007 008 009 010 011; do
+          for version in 001 002 003 004 005 006 007 008 009 010 011; do
             grep -Eq "BOOT-INF/classes/db/migration/V${version}__.+[.]sql$" build/jar-contents.txt
           done
 
           migration_count="$(
             grep -Ec 'BOOT-INF/classes/db/migration/V[0-9]+__.+[.]sql$' build/jar-contents.txt
           )"
-		  test "${migration_count}" -eq 11
+          test "${migration_count}" -eq 11
 
           if grep -Eq 'BOOT-INF/classes/(schema|data)[.]sql$' build/jar-contents.txt; then
             echo "Destructive legacy SQL initialization resource found in the application JAR."
@@ -141,7 +141,7 @@ jobs:
           shellcheck -x "${scripts[@]}"
 
           set +e
-          RESTORE_DATABASE_URL='postgresql://restore.example.test/attend' \
+          RESTORE_DATABASE_URL='postgresql://restore.example.test/attend?sslmode=require' \
             RESTORE_DUMP_FILE='build.gradle' \
             RESTORE_CHECKSUM_FILE='src/test/resources/ops/invalid-backup.sha256' \
             ./ops/backup/restore-verify.sh

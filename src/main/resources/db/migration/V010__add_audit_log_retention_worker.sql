@@ -10,7 +10,7 @@ CREATE INDEX idx_audit_occurred_id
 -- Runtime callers must not be able to forge a historical or future audit time
 -- through an explicit INSERT column. Business mappers already omit
 -- occurred_at, so this makes the retention clock an authoritative DB value.
-CREATE OR REPLACE FUNCTION public.attend_set_audit_occurred_at()
+CREATE FUNCTION public.attend_set_audit_occurred_at()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
@@ -30,7 +30,7 @@ EXECUTE FUNCTION public.attend_set_audit_occurred_at();
 -- One call deletes at most 500 rows and commits with the caller's statement.
 -- SKIP LOCKED makes independently scheduled workers safe: each invocation
 -- owns a distinct batch, while a failure rolls back only its own batch.
-CREATE OR REPLACE FUNCTION public.attend_purge_expired_audit_log_batch()
+CREATE FUNCTION public.attend_purge_expired_audit_log_batch()
 RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER

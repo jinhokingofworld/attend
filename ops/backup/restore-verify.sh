@@ -31,6 +31,10 @@ if [[ -z "${restore_database_url}" || -z "${dump_file}" ]]; then
   printf 'RESTORE_DATABASE_URL과 RESTORE_DUMP_FILE이 필요합니다.\n' >&2
   exit 2
 fi
+if ! backup_connection_requires_tls "${restore_database_url}"; then
+  printf 'RESTORE_DATABASE_URL은 TLS를 강제하는 sslmode가 필요합니다.\n' >&2
+  exit 2
+fi
 if [[ ! -f "${dump_file}" ]]; then
   printf '복원 파일을 찾을 수 없습니다: %s\n' "${dump_file}" >&2
   exit 2

@@ -8,7 +8,7 @@ CREATE INDEX idx_tag_event_received_id
 -- runtime-controlled retention escape hatch. The attendance decision still
 -- uses its request-time value separately; this log timestamp is authoritative
 -- for the 90-day lifecycle.
-CREATE OR REPLACE FUNCTION public.attend_set_tag_event_received_at()
+CREATE FUNCTION public.attend_set_tag_event_received_at()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
@@ -27,7 +27,7 @@ EXECUTE FUNCTION public.attend_set_tag_event_received_at();
 
 -- One call deletes at most 500 tag events older than 90 days. SKIP LOCKED
 -- keeps independently scheduled workers from selecting the same rows.
-CREATE OR REPLACE FUNCTION public.attend_purge_expired_tag_event_log_batch()
+CREATE FUNCTION public.attend_purge_expired_tag_event_log_batch()
 RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER

@@ -146,7 +146,9 @@ count와 회전된 로그에서 원인을 확인한 뒤 파일럿을 중단한�
 ### 3.1 audit retention
 
 `compose.prod.yaml`의 `retention` container는 web app과 다른 `retention_worker`
-credential만 받고 시작 직후 한 번, 이후 24시간마다 고정 2년 cutoff batch를 실행한다.
+credential만 받고 시작 직후 한 번, 이후 24시간마다 고정 cutoff batch를 실행한다.
+한 번의 bounded 실행 뒤 `catchup_pending=true`이면 1초 간격으로 다시 실행해 backlog를
+모두 비우고, `false`가 된 뒤에만 24시간 간격으로 돌아간다.
 web `.env`의 `DB_USERNAME`/`DB_PASSWORD`를 이 container에 재사용하지 않는다. 성공 출력은
 삭제 건수·batch 수만 포함하고 행 ID·이름·연락처·생년월일은 포함하지 않는다. 실패하면
 container가 non-zero로 종료되어 Compose restart 정책이 재시도하므로, 반복 restart는
@@ -170,7 +172,7 @@ one-shot을 다시 실행한 뒤에만 app을 연결한다. worker 함수는 만
 
 ### 3.2 backup과 복원
 
-백업 단계가 별도로 승인되면 `ops/backup/backup.sh`를 하루 1회와 날짜 마감 직후 실행한다. 현재 production Compose에는 backup job이나 상태 파일 mount가 구성되어 있지 않다. 승인 후 결과의 dump,
+백업 단계가 별도로 승인되면 `ops/backup/backup.sh`를 하루 1회와 날짜 마감 직후 실행한다. 현재 production Compose에는 backup job이나 상태 파일 mount가 구성되어 있지 않다. 승인 후 TLS를 강제하는 direct PostgreSQL URL만 주입하고 결과의 dump,
 SHA-256과 UTC 완료 시각을 기록한다. 같은 host의 로컬 디스크만 저장소로 인정하지
 않는다.
 

@@ -2,7 +2,6 @@ package com.example.attend.operations;
 
 import com.example.attend.config.AdminSecurityProperties;
 import com.example.attend.config.DeviceApiProperties;
-import com.example.attend.database.DatabaseMigrationRunner;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationContext;
@@ -16,27 +15,36 @@ import static org.mockito.Mockito.when;
 class OperationsRuntimeStatusServiceTest {
 
 	@Test
-	void exposesTheMigrationRunnerTargetVersion() {
+	void exposesDatabaseAndBackupStatusSources() {
 		ApplicationContext applicationContext = mock(ApplicationContext.class);
 		when(applicationContext.getStartupDate()).thenReturn(1_700_000_000_000L);
 		@SuppressWarnings("unchecked")
 		ObjectProvider<org.springframework.boot.info.BuildProperties>
 				buildPropertiesProvider = mock(ObjectProvider.class);
 		when(buildPropertiesProvider.getIfAvailable()).thenReturn(null);
+		DatabaseRuntimeStatusSource databaseStatusSource =
+				mock(DatabaseRuntimeStatusSource.class);
+		when(databaseStatusSource.current()).thenReturn(
+				"정상 · 연결 및 승인된 Flyway target 일치");
+		BackupRuntimeStatusSource backupStatusSource =
+				mock(BackupRuntimeStatusSource.class);
+		BackupRuntimeStatus backupStatus = new BackupRuntimeStatus(
+				BackupRuntimeStatus.State.NOT_CONFIGURED,
+				null, null, null, null);
+		when(backupStatusSource.current()).thenReturn(backupStatus);
 
 		OperationsRuntimeStatus status = new OperationsRuntimeStatusService(
 				new AdminSecurityProperties(true, null, null),
 				new DeviceApiProperties(false, null),
 				new MockEnvironment(),
+				databaseStatusSource,
+				backupStatusSource,
 				applicationContext,
 				buildPropertiesProvider
 		).current();
 
-		String targetVersion = DatabaseMigrationRunner.TARGET_VERSION.getVersion();
-		String displayedTargetVersion = !targetVersion.isEmpty()
-				&& targetVersion.chars().allMatch(Character::isDigit)
-				? "0".repeat(Math.max(0, 3 - targetVersion.length())) + targetVersion
-				: targetVersion;
-		assertThat(status.databaseStatus()).contains("V" + displayedTargetVersion);
+		assertThat(status.databaseStatus())
+				.isEqualTo("정상 · 연결 및 승인된 Flyway target 일치");
+		assertThat(status.backupStatus()).isSameAs(backupStatus);
 	}
 }

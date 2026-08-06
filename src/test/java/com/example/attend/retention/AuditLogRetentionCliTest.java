@@ -4,12 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.Statement;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -21,6 +23,7 @@ class AuditLogRetentionCliTest {
 	void runsIndependentBatchesUntilTheFunctionReturnsAPartialCount()
 			throws Exception {
 		Connection connection = mock(Connection.class);
+		allowMinimumPrivileges(connection);
 		PreparedStatement firstStatement = mock(PreparedStatement.class);
 		PreparedStatement secondStatement = mock(PreparedStatement.class);
 		PreparedStatement tagEventStatement = mock(PreparedStatement.class);
@@ -52,6 +55,7 @@ class AuditLogRetentionCliTest {
 	@Test
 	void marksCatchUpPendingWhenABoundedRunConsumesAllBatches() throws Exception {
 		Connection connection = mock(Connection.class);
+		allowMinimumPrivileges(connection);
 		PreparedStatement auditStatement = mock(PreparedStatement.class);
 		PreparedStatement tagEventStatement = mock(PreparedStatement.class);
 		when(connection.prepareStatement(
@@ -79,6 +83,7 @@ class AuditLogRetentionCliTest {
 	@Test
 	void rejectsAnUnexpectedBatchResult() throws Exception {
 		Connection connection = mock(Connection.class);
+		allowMinimumPrivileges(connection);
 		PreparedStatement statement = mock(PreparedStatement.class);
 		ResultSet resultSet = resultSetWithCount(501);
 		when(connection.prepareStatement(anyString())).thenReturn(statement);
@@ -91,10 +96,44 @@ class AuditLogRetentionCliTest {
 				.hasMessage("Invalid audit retention batch result");
 	}
 
+	/** 과권한 연결은 purge 함수를 한 번도 호출하기 전에 거부한다. */
+	@Test
+	void rejectsIncompatibleWorkerPrivilegesBeforePurging() throws Exception {
+		Connection connection = mock(Connection.class);
+		Statement privilegeStatement = mock(Statement.class);
+		ResultSet privilegeResult = resultSetWithBoolean(false);
+		when(connection.createStatement()).thenReturn(privilegeStatement);
+		when(privilegeStatement.executeQuery(anyString()))
+				.thenReturn(privilegeResult);
+
+		assertThatThrownBy(() -> AuditLogRetentionCli.run(
+				environment(),
+				(url, username, password) -> connection))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("privileges are incompatible");
+		verify(connection, never()).prepareStatement(anyString());
+	}
+
 	private static ResultSet resultSetWithCount(int count) throws Exception {
 		ResultSet resultSet = mock(ResultSet.class);
 		when(resultSet.next()).thenReturn(true);
 		when(resultSet.getInt(1)).thenReturn(count);
+		return resultSet;
+	}
+
+	private static void allowMinimumPrivileges(Connection connection)
+			throws Exception {
+		Statement privilegeStatement = mock(Statement.class);
+		ResultSet privilegeResult = resultSetWithBoolean(true);
+		when(connection.createStatement()).thenReturn(privilegeStatement);
+		when(privilegeStatement.executeQuery(anyString()))
+				.thenReturn(privilegeResult);
+	}
+
+	private static ResultSet resultSetWithBoolean(boolean value) throws Exception {
+		ResultSet resultSet = mock(ResultSet.class);
+		when(resultSet.next()).thenReturn(true);
+		when(resultSet.getBoolean(1)).thenReturn(value);
 		return resultSet;
 	}
 

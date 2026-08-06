@@ -1,5 +1,6 @@
 package com.example.attend.database;
 
+import com.example.attend.retention.RetentionDatabasePrivilegeGuard;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
@@ -1965,6 +1966,71 @@ class FlywayMigrationTest {
         }
     }
 
+    /** history가 없는 DB의 V010 함수 충돌을 어떤 migration보다 먼저 거부한다. */
+    @Test
+    void rejectsUnmanagedV010FunctionBeforeFreshMigration() throws Exception {
+        Database database = createDatabase("fresh_v010_function_collision");
+
+        try (Connection connection = database.connect();
+             Statement statement = connection.createStatement()) {
+            createReservedZeroArgumentFunction(
+                    statement,
+                    "attend_purge_expired_audit_log_batch"
+            );
+        }
+
+        DatabasePreflightInspector.PreflightResult preflight =
+                new DatabasePreflightInspector().inspect(database.dataSource());
+        assertThat(preflight.status()).isEqualTo(REJECTED);
+        assertThat(preflight.reason()).contains("V010 function");
+
+        try (Connection connection = database.connect()) {
+            assertThat(queryString(connection, """
+                    SELECT to_regclass('public.flyway_schema_history')::text
+                    """)).isNull();
+            assertThat(queryString(connection, """
+                    SELECT to_regprocedure(
+                        'public.attend_purge_expired_audit_log_batch()'
+                    )::text
+                    """)).isEqualTo("attend_purge_expired_audit_log_batch()");
+        }
+    }
+
+    /** 관리 중인 V009 DB에도 pending V011 함수가 먼저 생겼으면 적용 전에 거부한다. */
+    @Test
+    void rejectsUnappliedV011FunctionInManagedSchema() throws Exception {
+        Database database = createDatabase("managed_v011_function_collision");
+
+        try (Connection connection = database.connect();
+             Statement statement = connection.createStatement()) {
+            statement.execute("""
+                    CREATE TABLE public.flyway_schema_history (
+                        version VARCHAR(50),
+                        success BOOLEAN NOT NULL
+                    )
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO public.flyway_schema_history(version, success)
+                    VALUES ('9', TRUE)
+                    """);
+            createReservedZeroArgumentFunction(
+                    statement,
+                    "attend_set_tag_event_received_at"
+            );
+        }
+
+        DatabasePreflightInspector.PreflightResult preflight =
+                new DatabasePreflightInspector().inspect(database.dataSource());
+        assertThat(preflight.status()).isEqualTo(REJECTED);
+        assertThat(preflight.reason()).contains("V011 function");
+        try (Connection connection = database.connect()) {
+            assertThat(queryInt(connection, """
+                    SELECT count(*)
+                    FROM public.flyway_schema_history
+                    """)).isEqualTo(1);
+        }
+    }
+
     /**
      * 이름만 같은 알 수 없는 {@code member} 테이블을 레거시로 추측하지 않는지 검증한다.
      *
@@ -2244,6 +2310,50 @@ class FlywayMigrationTest {
                 database.dataSource("retention_worker", retentionPassword);
         SchemaVersionGuard.verify(runtimeDataSource);
         RuntimeDatabasePrivilegeGuard.verify(runtimeDataSource);
+		try (Connection retentionConnection = retentionDataSource.getConnection()) {
+			RetentionDatabasePrivilegeGuard.verify(retentionConnection);
+		}
+		try (Connection migrationConnection = migrationDataSource.getConnection()) {
+			assertThatThrownBy(() ->
+					RetentionDatabasePrivilegeGuard.verify(migrationConnection))
+					.isInstanceOf(IllegalStateException.class)
+					.hasMessageContaining("incompatible");
+		}
+
+		try (Connection migrationConnection = migrationDataSource.getConnection();
+			 Statement statement = migrationConnection.createStatement()) {
+			for (String table : List.of("audit_log", "tag_event_log")) {
+				for (String privilege : List.of("SELECT", "INSERT")) {
+					statement.execute("REVOKE %s ON TABLE public.%s FROM app_runtime"
+							.formatted(privilege, table));
+					assertRuntimePrivilegeGuardRejects(runtimeDataSource);
+					executeSqlFile(
+							statement,
+							"ops/db/roles/003_grant_application_privileges.sql");
+					RuntimeDatabasePrivilegeGuard.verify(runtimeDataSource);
+				}
+			}
+		}
+
+		try (Connection admin = database.connect();
+			 Statement statement = admin.createStatement()) {
+			statement.execute("ALTER ROLE retention_worker NOINHERIT");
+			statement.execute("GRANT app_runtime TO retention_worker");
+		}
+		try (Connection retentionConnection = retentionDataSource.getConnection()) {
+			assertThatThrownBy(() ->
+					RetentionDatabasePrivilegeGuard.verify(retentionConnection))
+					.isInstanceOf(IllegalStateException.class)
+					.hasMessageContaining("incompatible");
+		}
+		try (Connection admin = database.connect();
+			 Statement statement = admin.createStatement()) {
+			statement.execute("REVOKE app_runtime FROM retention_worker");
+			statement.execute("ALTER ROLE retention_worker INHERIT");
+		}
+		try (Connection retentionConnection = retentionDataSource.getConnection()) {
+			RetentionDatabasePrivilegeGuard.verify(retentionConnection);
+		}
 
         long expiredAuditId;
         try (Connection migrationConnection =
@@ -2773,6 +2883,25 @@ class FlywayMigrationTest {
                 END;
                 $function$
                 """);
+    }
+
+    /** preflight가 예약한 zero-argument 함수 identity를 테스트 DB에 만든다. */
+    private static void createReservedZeroArgumentFunction(
+            Statement statement,
+            String functionName
+    ) throws SQLException {
+        if (!Set.of(
+                "attend_purge_expired_audit_log_batch",
+                "attend_set_tag_event_received_at"
+        ).contains(functionName)) {
+            throw new IllegalArgumentException("Unexpected reserved function");
+        }
+        statement.execute("""
+                CREATE FUNCTION public.%s()
+                RETURNS INTEGER
+                LANGUAGE SQL
+                AS 'SELECT 0'
+                """.formatted(functionName));
     }
 
     /**

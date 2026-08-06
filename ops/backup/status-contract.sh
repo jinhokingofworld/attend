@@ -53,28 +53,50 @@ backup_status_initialize() {
   backup_status_configured=true
 }
 
+# When status publishing is disabled, backups still need an advisory lock.
+# The output directory is already an explicit operator-controlled boundary.
+backup_status_use_output_lock() {
+  local output_directory="$1"
+  if [[ "${backup_status_configured}" == true ]]; then
+    return 0
+  fi
+  if [[ "${output_directory}" != /* || "${output_directory}" == "/" ]]; then
+    return 1
+  fi
+  backup_status_lock_file="${output_directory}/.attend-backup.lock"
+}
+
+# Only explicit TLS modes are accepted. libpq's default `prefer` can silently
+# fall back to plaintext when the server permits it.
+backup_connection_requires_tls() {
+  local normalized_url
+  normalized_url="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  [[ "${normalized_url}" =~ (^|[?\&[:space:]])sslmode=(require|verify-ca|verify-full)($|[\&[:space:]]) ]] \
+    && [[ ! "${normalized_url}" =~ (^|[?\&[:space:]])sslmode=(disable|allow|prefer)($|[\&[:space:]]) ]]
+}
+
 # Re-executes the complete job under an OS advisory lock. flock is provided by
 # util-linux on the deployment host; macOS lockf keeps the same developer test
 # path. Both release the lock automatically on exit, SIGKILL and host reboot.
 backup_status_enter_lock() {
   local entrypoint="$1"
   shift
-  if [[ "${backup_status_configured}" != true ]]; then
+  if [[ -z "${backup_status_lock_file}" ]]; then
     return 0
   fi
   if [[ "${ATTEND_INTERNAL_STATUS_LOCK_FILE:-}" \
-      == "${backup_status_file}" ]]; then
+      == "${backup_status_lock_file}" ]]; then
     unset ATTEND_INTERNAL_STATUS_LOCK_FILE
     return 0
   fi
   if command -v flock >/dev/null 2>&1; then
     exec flock "${backup_status_lock_file}" \
-      env ATTEND_INTERNAL_STATUS_LOCK_FILE="${backup_status_file}" \
+      env ATTEND_INTERNAL_STATUS_LOCK_FILE="${backup_status_lock_file}" \
       "${entrypoint}" "$@"
   fi
   if command -v lockf >/dev/null 2>&1; then
     exec lockf "${backup_status_lock_file}" \
-      env ATTEND_INTERNAL_STATUS_LOCK_FILE="${backup_status_file}" \
+      env ATTEND_INTERNAL_STATUS_LOCK_FILE="${backup_status_lock_file}" \
       "${entrypoint}" "$@"
   fi
   printf '상태 파일 직렬화에 필요한 flock 또는 lockf를 찾을 수 없습니다.\n' >&2

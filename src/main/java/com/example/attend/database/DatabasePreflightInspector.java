@@ -120,20 +120,23 @@ public final class DatabasePreflightInspector {
                     }
                 }
 
+                String conflictingFunctionVersion =
+                        conflictingReservedFunctionVersion(
+                                connection,
+                                flywayHistoryExists
+                        );
+                if (conflictingFunctionVersion != null) {
+                    return PreflightResult.rejected(
+                            "unapplied " + conflictingFunctionVersion
+                                    + " function conflicts with migration"
+                    );
+                }
+
                 // 기존 history가 있으면 baseline 후보가 아니며 Flyway validate 대상으로 넘긴다.
                 if (flywayHistoryExists) {
                     return new PreflightResult(
                             PreflightStatus.ALREADY_MANAGED,
                             "Flyway history already exists"
-                    );
-                }
-
-                // baseline 전에는 이후 versioned migration이 만들 함수와 같은
-                // 정확한 signature가 없는지도 확인한다. 그렇지 않으면 baseline은
-                // commit된 뒤 V009에서만 실패해 부분 관리 상태가 남는다.
-                if (containsReservedV009Function(connection)) {
-                    return PreflightResult.rejected(
-                            "unmanaged V009 function conflicts with migration"
                     );
                 }
 
@@ -232,6 +235,69 @@ public final class DatabasePreflightInspector {
                        ) IS NOT NULL
                     OR to_regprocedure(
                            'public.attend_require_closed_card_assignment_immutable()'
+                       ) IS NOT NULL
+                """);
+    }
+
+    /** 아직 적용되지 않은 V009~V011이 생성할 함수와의 충돌 버전을 찾는다. */
+    private static String conflictingReservedFunctionVersion(
+            Connection connection,
+            boolean flywayHistoryExists
+    ) throws SQLException {
+        if ((!flywayHistoryExists || !isSuccessfulMigrationApplied(connection, "9"))
+                && containsReservedV009Function(connection)) {
+            return "V009";
+        }
+        if ((!flywayHistoryExists || !isSuccessfulMigrationApplied(connection, "10"))
+                && containsReservedV010Function(connection)) {
+            return "V010";
+        }
+        if ((!flywayHistoryExists || !isSuccessfulMigrationApplied(connection, "11"))
+                && containsReservedV011Function(connection)) {
+            return "V011";
+        }
+        return null;
+    }
+
+    private static boolean isSuccessfulMigrationApplied(
+            Connection connection,
+            String version
+    ) throws SQLException {
+        if (!Set.of("9", "10", "11").contains(version)) {
+            throw new IllegalArgumentException("Unsupported preflight version");
+        }
+        return queryBoolean(connection, """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM public.flyway_schema_history
+                    WHERE success
+                      AND version IN ('%1$s', '0%1$s', '00%1$s')
+                )
+                """.formatted(version));
+    }
+
+    private static boolean containsReservedV010Function(
+            Connection connection
+    ) throws SQLException {
+        return queryBoolean(connection, """
+                SELECT to_regprocedure(
+                           'public.attend_set_audit_occurred_at()'
+                       ) IS NOT NULL
+                    OR to_regprocedure(
+                           'public.attend_purge_expired_audit_log_batch()'
+                       ) IS NOT NULL
+                """);
+    }
+
+    private static boolean containsReservedV011Function(
+            Connection connection
+    ) throws SQLException {
+        return queryBoolean(connection, """
+                SELECT to_regprocedure(
+                           'public.attend_set_tag_event_received_at()'
+                       ) IS NOT NULL
+                    OR to_regprocedure(
+                           'public.attend_purge_expired_tag_event_log_batch()'
                        ) IS NOT NULL
                 """);
     }

@@ -83,7 +83,8 @@ class BackupScriptIntegrationTest {
 				""");
 		environment.put(
 				"RESTORE_DATABASE_URL",
-				"postgresql://restore:not-used-password@example.invalid/attend");
+				"postgresql://restore:not-used-password@example.invalid/attend"
+						+ "?sslmode=require");
 		environment.put("RESTORE_DUMP_FILE", dumpFile.toString());
 
 		ProcessResult restore = runRestoreVerification(environment);
@@ -142,6 +143,102 @@ class BackupScriptIntegrationTest {
 				.doesNotContain("flock 또는 lockf를 찾을 수 없습니다");
 	}
 
+	/** 상태 파일이 없어도 동시 백업은 직렬화되고 서로 다른 파일로 보존된다. */
+	@Test
+	void serializesConcurrentBackupsWithoutAStatusFile() throws Exception {
+		Path fakeBin = Files.createDirectories(
+				temporaryDirectory.resolve("concurrent-fake-bin"));
+		writeExecutable(fakeBin.resolve("pg_dump"), """
+				#!/usr/bin/env bash
+				set -eu
+				output_file=''
+				for argument in "$@"; do
+				  case "${argument}" in
+				    --file=*) output_file="${argument#--file=}" ;;
+				  esac
+				done
+				sleep 1
+				printf 'dump-%s' "$$" >"${output_file}"
+				""");
+		Path outputDirectory = temporaryDirectory.resolve("concurrent-backups");
+		Map<String, String> environment = new HashMap<>(System.getenv());
+		environment.put(
+				"PATH", fakeBin + System.getProperty("path.separator")
+						+ environment.getOrDefault("PATH", "/usr/bin:/bin"));
+		environment.put(
+				"BACKUP_DATABASE_URL",
+				"postgresql://backup.example.test/attend?sslmode=require");
+		environment.put("BACKUP_OUTPUT_DIR", outputDirectory.toString());
+		environment.remove("BACKUP_STATUS_FILE");
+
+		Process first = scriptProcessBuilder(
+				"ops/backup/backup.sh", environment).start();
+		Process second = scriptProcessBuilder(
+				"ops/backup/backup.sh", environment).start();
+		String firstOutput = new String(
+				first.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+		String secondOutput = new String(
+				second.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+
+		assertThat(first.waitFor()).isZero();
+		assertThat(second.waitFor()).isZero();
+		assertThat(firstOutput).contains("backup_file=");
+		assertThat(secondOutput).contains("backup_file=");
+		try (var files = Files.list(outputDirectory)) {
+			assertThat(files.filter(path -> path.getFileName().toString()
+					.endsWith(".dump"))).hasSize(2);
+		}
+		try (var files = Files.list(outputDirectory)) {
+			assertThat(files.filter(path -> path.getFileName().toString()
+					.endsWith(".sha256"))).hasSize(2);
+		}
+	}
+
+	/** 백업과 복원 URL은 평문 fallback이 가능한 sslmode를 거부한다. */
+	@Test
+	void rejectsConnectionsThatDoNotForceTls() throws Exception {
+		Path fakeBin = Files.createDirectories(
+				temporaryDirectory.resolve("tls-fake-bin"));
+		writeExecutable(fakeBin.resolve("pg_dump"), """
+				#!/usr/bin/env bash
+				exit 0
+				""");
+		Map<String, String> environment = new HashMap<>(System.getenv());
+		environment.put(
+				"PATH", fakeBin + System.getProperty("path.separator")
+						+ environment.getOrDefault("PATH", "/usr/bin:/bin"));
+		environment.put("BACKUP_DATABASE_URL",
+				"postgresql://backup.example.test/attend?sslmode=disable");
+		environment.put("BACKUP_OUTPUT_DIR",
+				temporaryDirectory.resolve("tls-backups").toString());
+		environment.remove("BACKUP_STATUS_FILE");
+
+		ProcessResult backup = runBackup(environment);
+		assertThat(backup.exitCode()).isEqualTo(2);
+		assertThat(backup.output())
+				.contains("TLS를 강제하는 sslmode")
+				.doesNotContain("backup.example.test");
+
+		environment.put("BACKUP_DATABASE_URL",
+				"postgresql://backup.example.test/attend"
+						+ "?sslmode=require&sslmode=disable");
+		ProcessResult conflictingModes = runBackup(environment);
+		assertThat(conflictingModes.exitCode()).isEqualTo(2);
+		assertThat(conflictingModes.output())
+				.contains("TLS를 강제하는 sslmode")
+				.doesNotContain("backup.example.test");
+
+		environment.put("RESTORE_DATABASE_URL",
+				"postgresql://restore.example.test/attend");
+		environment.put("RESTORE_DUMP_FILE",
+				temporaryDirectory.resolve("not-read.dump").toString());
+		ProcessResult restore = runRestoreVerification(environment);
+		assertThat(restore.exitCode()).isEqualTo(2);
+		assertThat(restore.output())
+				.contains("TLS를 강제하는 sslmode")
+				.doesNotContain("restore.example.test");
+	}
+
 	private Map<String, String> environment(
 			Path fakeBin, Path outputDirectory, Path statusFile) {
 		Map<String, String> environment = new HashMap<>(System.getenv());
@@ -150,7 +247,8 @@ class BackupScriptIntegrationTest {
 						+ environment.getOrDefault("PATH", "/usr/bin:/bin"));
 		environment.put(
 				"BACKUP_DATABASE_URL",
-				"postgresql://runtime:not-used-password@example.invalid/attend");
+				"postgresql://runtime:not-used-password@example.invalid/attend"
+						+ "?sslmode=require");
 		environment.put("BACKUP_OUTPUT_DIR", outputDirectory.toString());
 		environment.put("BACKUP_STATUS_FILE", statusFile.toString());
 		environment.put("BACKUP_STORAGE_TYPE", "OBJECT_STORAGE");
@@ -171,17 +269,21 @@ class BackupScriptIntegrationTest {
 	private static ProcessResult runScript(
 			String script, Map<String, String> environment)
 			throws IOException, InterruptedException {
-		Path scriptPath = Path.of(script)
-				.toAbsolutePath().normalize();
+		Process process = scriptProcessBuilder(script, environment).start();
+		String output = new String(
+				process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+		return new ProcessResult(process.waitFor(), output);
+	}
+
+	private static ProcessBuilder scriptProcessBuilder(
+			String script, Map<String, String> environment) {
+		Path scriptPath = Path.of(script).toAbsolutePath().normalize();
 		ProcessBuilder builder = new ProcessBuilder(
 				"/usr/bin/env", "bash", scriptPath.toString())
 				.redirectErrorStream(true);
 		builder.environment().clear();
 		builder.environment().putAll(environment);
-		Process process = builder.start();
-		String output = new String(
-				process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-		return new ProcessResult(process.waitFor(), output);
+		return builder;
 	}
 
 	private static void writeExecutable(Path path, String content)
