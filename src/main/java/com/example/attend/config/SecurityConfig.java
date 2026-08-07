@@ -94,6 +94,23 @@ public class SecurityConfig {
      */
     @Bean
     @Order(2)
+    public SecurityFilterChain telegramWebhookSecurityFilterChain(HttpSecurity http)
+            throws Exception {
+        http
+                .securityMatcher("/api/v1/telegram/**")
+                .csrf(AbstractHttpConfigurer::disable)
+                .sessionManagement(session -> session
+                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .requestCache(AbstractHttpConfigurer::disable)
+                .formLogin(AbstractHttpConfigurer::disable)
+                .httpBasic(AbstractHttpConfigurer::disable)
+                .logout(AbstractHttpConfigurer::disable)
+                .authorizeHttpRequests(authz -> authz.anyRequest().permitAll());
+        return http.build();
+    }
+
+    @Bean
+    @Order(3)
     public SecurityFilterChain webSecurityFilterChain(
             HttpSecurity http,
             Clock clock) throws Exception {

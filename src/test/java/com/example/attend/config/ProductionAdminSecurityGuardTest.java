@@ -42,6 +42,7 @@ class ProductionAdminSecurityGuardTest {
 		return new ProductionAdminSecurityGuard(
 				ADMIN_PROPERTIES,
 				DEVICE_PROPERTIES,
-				new TrustedProxyProperties(proxyToken));
+				new TrustedProxyProperties(proxyToken),
+				new TelegramProperties(false, null, null, null, null, 30_000, 10, 30));
 	}
 }

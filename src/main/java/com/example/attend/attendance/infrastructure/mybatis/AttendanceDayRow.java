@@ -2,6 +2,7 @@ package com.example.attend.attendance.infrastructure.mybatis;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.Instant;
 
 /**
  * 출석일 상태 변경과 시간 경계 검사에 필요한 잠긴 행이다.
@@ -19,6 +20,7 @@ public record AttendanceDayRow(
 		LocalDate attendanceDate,
 		long policyVersionId,
 		String status,
-		LocalTime checkInStartTime
+		LocalTime checkInStartTime,
+		Instant finalizationDueAt
 ) {
 }

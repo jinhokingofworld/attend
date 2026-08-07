@@ -19,6 +19,7 @@ public interface AttendanceDayMapper {
 			@Param("departmentId") long departmentId,
 			@Param("attendanceDate") LocalDate attendanceDate,
 			@Param("policyVersionId") long policyVersionId,
+			@Param("finalizationDueAt") Instant finalizationDueAt,
 			@Param("actorAccountId") long actorAccountId);
 
 	/** 현재 활성 소속 교사를 날짜 대상자로 한 번에 snapshot한다. */
@@ -46,7 +47,8 @@ public interface AttendanceDayMapper {
 	int updateDayPolicy(
 			@Param("departmentId") long departmentId,
 			@Param("attendanceDayId") long attendanceDayId,
-			@Param("policyVersionId") long policyVersionId);
+			@Param("policyVersionId") long policyVersionId,
+			@Param("finalizationDueAt") Instant finalizationDueAt);
 
 	/** 시작 전이고 기록 없는 활성 대상 날짜 전체를 ID 순서로 잠근다. */
 	List<AttendanceDayRow> lockFutureTargetDays(
@@ -72,8 +74,8 @@ public interface AttendanceDayMapper {
 	/** 마감 service가 잠금 순서를 잡기 전에 날짜의 부서를 읽는다. */
 	Long selectDepartmentId(@Param("attendanceDayId") long attendanceDayId);
 
-	/** 현재 업무 날짜보다 이전인 미마감 날짜 ID를 찾는다. */
-	List<Long> selectPastScheduledDayIds(@Param("today") LocalDate today);
+	/** 마감 예정 시각이 지난 미마감 날짜 ID를 찾는다. */
+	List<Long> selectDueScheduledDayIds(@Param("now") Instant now);
 
 	/** 기록 없는 활성 대상자를 결석으로 채운다. */
 	int insertMissingAbsences(@Param("attendanceDayId") long attendanceDayId);

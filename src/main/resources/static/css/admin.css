@@ -677,6 +677,45 @@ th {
     width: 100%;
 }
 
+.panel {
+    margin: 20px 0;
+    padding: 20px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: #fbfcfe;
+}
+
+.panel h2 {
+    margin-top: 0;
+}
+
+.notice {
+    padding: 12px 14px;
+    border-radius: 10px;
+    font-weight: 650;
+}
+
+.notice--success {
+    border: 1px solid #9ed7bd;
+    background: #ecfdf3;
+    color: var(--success);
+}
+
+.notice--error {
+    border: 1px solid #f1b7b2;
+    background: #fff1f0;
+    color: var(--danger);
+}
+
+.button-danger {
+    border-color: var(--danger);
+    background: var(--danger);
+}
+
+.button-danger:hover {
+    background: #8f1d14;
+}
+
 @media (max-width: 720px) {
     .app-header__inner {
         width: min(100% - 20px, 1120px);

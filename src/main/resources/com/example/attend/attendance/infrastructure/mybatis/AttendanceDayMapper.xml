@@ -9,6 +9,7 @@
 			department_id,
 			attendance_date,
 			policy_version_id,
+			finalization_due_at,
 			status,
 			created_by_account_id
 		)
@@ -16,6 +17,7 @@
 			#{departmentId},
 			#{attendanceDate},
 			#{policyVersionId},
+			#{finalizationDueAt},
 			'SCHEDULED',
 			#{actorAccountId}
 		)
@@ -56,7 +58,8 @@
 			day.attendance_date,
 			day.policy_version_id,
 			day.status,
-			policy.check_in_start_time
+			policy.check_in_start_time,
+			day.finalization_due_at
 		FROM public.attendance_day AS day
 		JOIN public.attendance_policy_version AS policy
 		  ON policy.id = day.policy_version_id
@@ -91,6 +94,7 @@
 	<update id="updateDayPolicy">
 		UPDATE public.attendance_day
 		SET policy_version_id = #{policyVersionId}
+			, finalization_due_at = #{finalizationDueAt}
 		WHERE id = #{attendanceDayId}
 		  AND department_id = #{departmentId}
 		  AND status = 'SCHEDULED'
@@ -109,7 +113,8 @@
 			day.attendance_date,
 			day.policy_version_id,
 			day.status,
-			policy.check_in_start_time
+			policy.check_in_start_time,
+			day.finalization_due_at
 		FROM public.attendance_day AS day
 		JOIN public.attendance_policy_version AS policy
 		  ON policy.id = day.policy_version_id
@@ -160,12 +165,12 @@
 		WHERE id = #{attendanceDayId}
 	</select>
 
-	<select id="selectPastScheduledDayIds" resultType="long">
+	<select id="selectDueScheduledDayIds" resultType="long">
 		SELECT id
 		FROM public.attendance_day
 		WHERE status = 'SCHEDULED'
-		  AND attendance_date &lt; #{today}
-		ORDER BY attendance_date, id
+		  AND finalization_due_at &lt; #{now}
+		ORDER BY finalization_due_at, id
 	</select>
 
 	<insert id="insertMissingAbsences">

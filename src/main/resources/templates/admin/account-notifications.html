@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Telegram 알림 설정</title>
+    <link rel="stylesheet" th:href="@{/css/admin.css}">
+</head>
+<body>
+<header th:replace="~{fragments/admin-shell :: header}"></header>
+<main>
+    <p class="eyebrow">내 계정</p>
+    <h1>Telegram 알림 설정</h1>
+    <p>출석일 마감 시 지각·결석 명단을 Telegram 개인 채팅으로 받습니다.
+        전화번호, NFC 카드 번호, 출석 정정 사유는 전송하지 않습니다.</p>
+    <p th:if="${message}" class="notice notice--success" th:text="${message}"></p>
+    <p th:if="${error}" class="notice notice--error" role="alert" th:text="${error}"></p>
+
+    <section th:if="${connection.state == 'DISABLED'}" class="panel">
+        <h2>기능 비활성</h2>
+        <p>Telegram 알림 기능이 현재 비활성화되어 있습니다.</p>
+    </section>
+
+    <section th:if="${connection.state == 'UNLINKED'}" class="panel">
+        <h2>Telegram이 연결되지 않았습니다</h2>
+        <form th:action="@{/admin/account/notifications/telegram/link}" method="post">
+            <button type="submit">Telegram 연결</button>
+        </form>
+    </section>
+
+    <section th:if="${connection.state == 'LINK_PENDING'}" class="panel">
+        <h2>Telegram 연결 대기</h2>
+        <p>기존 연결 link가 있습니다. 새 link를 만들면 기존 link는 즉시 무효화됩니다.</p>
+        <p>만료 시각: <time th:text="${connection.linkExpiresAt}"></time></p>
+        <form th:action="@{/admin/account/notifications/telegram/link}" method="post">
+            <button type="submit">새 link 생성</button>
+        </form>
+    </section>
+
+    <section th:if="${linkUrl != null}" class="panel" aria-live="polite">
+        <h2>Telegram에서 연결하기</h2>
+        <p>아래 버튼을 열고 Telegram에서 <strong>시작</strong>을 누르세요. 이 link는 10분 후 만료되며,
+            이 페이지를 새로고침하면 다시 표시되지 않습니다.</p>
+        <p><a class="button-link" th:href="${linkUrl}" target="_blank" rel="noopener noreferrer">Telegram 열기</a></p>
+        <p><a th:href="@{/admin/account/notifications}">연결 상태 새로고침</a></p>
+    </section>
+
+    <section th:if="${connection.state == 'LINKED'}" class="panel">
+        <h2>Telegram 연결됨</h2>
+        <p>연결 완료 시각: <time th:text="${connection.linkedAt}"></time></p>
+        <p th:if="${connection.testRequestState != null}">
+            최근 시험 메시지 상태: <span th:text="${connection.testRequestState}"></span>
+        </p>
+        <div class="button-group">
+            <form th:action="@{/admin/account/notifications/telegram/test}" method="post">
+                <button type="submit">시험 메시지 발송</button>
+            </form>
+            <form th:action="@{/admin/account/notifications/telegram/disconnect}" method="post"
+                  onsubmit="return confirm('Telegram 연결을 해제할까요? 이후 출석 마감 알림을 받을 수 없습니다.');">
+                <button class="button-danger" type="submit">연결 해제</button>
+            </form>
+        </div>
+    </section>
+    <p><a th:href="@{/admin/account/password}">비밀번호 변경</a></p>
+</main>
+</body>
+</html>
