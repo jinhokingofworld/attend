@@ -239,7 +239,7 @@ public final class DatabasePreflightInspector {
                 """);
     }
 
-    /** 아직 적용되지 않은 V009~V011이 생성할 함수와의 충돌 버전을 찾는다. */
+    /** 아직 적용되지 않은 V009~V012가 생성할 함수와의 충돌 버전을 찾는다. */
     private static String conflictingReservedFunctionVersion(
             Connection connection,
             boolean flywayHistoryExists
@@ -256,6 +256,10 @@ public final class DatabasePreflightInspector {
                 && containsReservedV011Function(connection)) {
             return "V011";
         }
+        if ((!flywayHistoryExists || !isSuccessfulMigrationApplied(connection, "12"))
+                && containsReservedV012Function(connection)) {
+            return "V012";
+        }
         return null;
     }
 
@@ -263,7 +267,7 @@ public final class DatabasePreflightInspector {
             Connection connection,
             String version
     ) throws SQLException {
-        if (!Set.of("9", "10", "11").contains(version)) {
+        if (!Set.of("9", "10", "11", "12").contains(version)) {
             throw new IllegalArgumentException("Unsupported preflight version");
         }
         return queryBoolean(connection, """
@@ -298,6 +302,16 @@ public final class DatabasePreflightInspector {
                        ) IS NOT NULL
                     OR to_regprocedure(
                            'public.attend_purge_expired_tag_event_log_batch()'
+                       ) IS NOT NULL
+                """);
+    }
+
+    private static boolean containsReservedV012Function(
+            Connection connection
+    ) throws SQLException {
+        return queryBoolean(connection, """
+                SELECT to_regprocedure(
+                           'public.attend_purge_expired_telegram_webhook_update_batch()'
                        ) IS NOT NULL
                 """);
     }

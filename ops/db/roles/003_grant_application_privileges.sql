@@ -1,4 +1,4 @@
--- Post-migration grants for the V011 schema. Run as migration_owner or an
+-- Post-migration grants for the V012 schema. Run as migration_owner or an
 -- equivalent owner after guarded dbMigrate succeeds.
 --
 -- This script is intentionally explicit. A future migration that adds a table,
@@ -30,7 +30,11 @@ BEGIN
               ('attendance_target'),
               ('attendance_record'),
               ('tag_event_log'),
-              ('audit_log')
+              ('audit_log'),
+              ('telegram_link_token'),
+              ('account_telegram_connection'),
+              ('telegram_webhook_update'),
+              ('attendance_notification_outbox')
       ) AS expected(table_name)
      WHERE pg_catalog.to_regclass(
                'public.' || expected.table_name
@@ -38,7 +42,7 @@ BEGIN
 
     IF missing_tables IS NOT NULL THEN
         RAISE EXCEPTION
-            'Runtime grants require the complete V011 schema; missing: %',
+            'Runtime grants require the complete V012 schema; missing: %',
             missing_tables;
     END IF;
 
@@ -46,14 +50,21 @@ BEGIN
             'public.attend_purge_expired_audit_log_batch()'
        ) IS NULL THEN
         RAISE EXCEPTION
-            'Runtime grants require the V011 audit retention function';
+            'Runtime grants require the V012 audit retention function';
     END IF;
 
     IF pg_catalog.to_regprocedure(
             'public.attend_purge_expired_tag_event_log_batch()'
        ) IS NULL THEN
         RAISE EXCEPTION
-            'Runtime grants require the V011 tag-event retention function';
+            'Runtime grants require the V012 tag-event retention function';
+    END IF;
+
+    IF pg_catalog.to_regprocedure(
+            'public.attend_purge_expired_telegram_webhook_update_batch()'
+       ) IS NULL THEN
+        RAISE EXCEPTION
+            'Runtime grants require the V012 Telegram webhook retention function';
     END IF;
 END
 $required_schema$;
@@ -121,6 +132,8 @@ GRANT EXECUTE ON FUNCTION public.attend_purge_expired_audit_log_batch()
 TO retention_worker;
 GRANT EXECUTE ON FUNCTION public.attend_purge_expired_tag_event_log_batch()
 TO retention_worker;
+GRANT EXECUTE ON FUNCTION public.attend_purge_expired_telegram_webhook_update_batch()
+TO retention_worker;
 
 -- New runtime and temporary cutover identities share the same application
 -- boundary. cutover_writer is separate so its login can be disabled after use.
@@ -139,7 +152,13 @@ GRANT SELECT, INSERT ON TABLE
     public.attendance_target,
     public.attendance_record,
     public.tag_event_log,
-    public.audit_log
+    public.audit_log,
+    public.telegram_link_token,
+    public.account_telegram_connection,
+    public.attendance_notification_outbox
+TO app_runtime, cutover_writer;
+
+GRANT INSERT ON TABLE public.telegram_webhook_update
 TO app_runtime, cutover_writer;
 
 GRANT UPDATE (
@@ -210,9 +229,36 @@ GRANT UPDATE (
     status,
     canceled_by_account_id,
     finalized_at,
+    finalization_due_at,
     canceled_at,
     cancel_reason
 ) ON TABLE public.attendance_day
+TO app_runtime, cutover_writer;
+
+GRANT UPDATE (
+    consumed_at,
+    revoked_at
+) ON TABLE public.telegram_link_token
+TO app_runtime, cutover_writer;
+
+GRANT UPDATE (
+    chat_id,
+    telegram_user_id,
+    updated_at
+), DELETE ON TABLE public.account_telegram_connection
+TO app_runtime, cutover_writer;
+
+GRANT UPDATE (
+    status,
+    attempt_count,
+    claim_version,
+    next_attempt_at,
+    lease_until,
+    telegram_message_id,
+    sent_at,
+    last_error_code,
+    updated_at
+) ON TABLE public.attendance_notification_outbox
 TO app_runtime, cutover_writer;
 
 GRANT UPDATE (
@@ -285,7 +331,9 @@ GRANT USAGE ON SEQUENCE
     public.attendance_day_id_seq,
     public.attendance_record_id_seq,
     public.tag_event_log_id_seq,
-    public.audit_log_id_seq
+    public.audit_log_id_seq,
+    public.telegram_link_token_id_seq,
+    public.attendance_notification_outbox_id_seq
 TO app_runtime, cutover_writer;
 
 -- The safe legacy release can keep working during a controlled rollback window,

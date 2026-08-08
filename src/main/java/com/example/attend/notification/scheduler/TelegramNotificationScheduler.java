@@ -37,13 +37,15 @@ public final class TelegramNotificationScheduler {
         Instant now = clock.instant();
         mapper.recoverExpiredDispatchLeases(now);
         mapper.cancelIneligibleOutbox(now);
-        for (TelegramDispatchJob job : mapper.selectReadyDispatchJobs(now, 20)) {
-            if (mapper.claimDispatchJob(job.id(), now, now.plus(Duration.ofMinutes(2))) != 1) {
+        for (long outboxId : mapper.selectReadyDispatchJobIds(now, 20)) {
+            TelegramDispatchJob job = mapper.claimDispatchJob(
+                    outboxId, now, now.plus(Duration.ofMinutes(2)));
+            if (job == null) {
                 continue;
             }
             try {
                 long messageId = client.sendMessage(job.chatId(), job.messageText());
-                mapper.markSent(job.id(), messageId, clock.instant());
+                mapper.markSent(job.id(), job.claimVersion(), messageId, clock.instant());
             } catch (TelegramDeliveryFailure exception) {
                 fail(job, exception);
             }
@@ -54,8 +56,8 @@ public final class TelegramNotificationScheduler {
         Instant now = clock.instant();
         int attempted = job.attemptCount() + 1;
         if (exception.permanent() || attempted >= properties.maxAttempts()) {
-            mapper.markDead(job.id(), exception.safeCode(), now);
-            if (exception.permanent()) {
+            mapper.markDead(job.id(), job.claimVersion(), exception.safeCode(), now);
+            if (exception.revokeConnection()) {
                 mapper.deleteConnection(job.accountId());
             }
             return;
@@ -63,6 +65,6 @@ public final class TelegramNotificationScheduler {
         long seconds = exception.retryAfterSeconds() != null
                 ? exception.retryAfterSeconds()
                 : Math.min(3600, 30L * (1L << Math.min(6, attempted - 1)));
-        mapper.markRetry(job.id(), now.plusSeconds(seconds), exception.safeCode(), now);
+        mapper.markRetry(job.id(), job.claimVersion(), now.plusSeconds(seconds), exception.safeCode(), now);
     }
 }

@@ -59,28 +59,31 @@ public interface TelegramNotificationMapper {
 
     String selectLatestTestStatus(@Param("accountId") long accountId);
 
-    List<TelegramDispatchJob> selectReadyDispatchJobs(
+    List<Long> selectReadyDispatchJobIds(
             @Param("now") Instant now,
             @Param("limit") int limit);
 
-    int claimDispatchJob(
+    TelegramDispatchJob claimDispatchJob(
             @Param("id") long id,
             @Param("now") Instant now,
             @Param("leaseUntil") Instant leaseUntil);
 
     int markSent(
             @Param("id") long id,
+            @Param("claimVersion") long claimVersion,
             @Param("telegramMessageId") long telegramMessageId,
             @Param("sentAt") Instant sentAt);
 
     int markRetry(
             @Param("id") long id,
+            @Param("claimVersion") long claimVersion,
             @Param("nextAttemptAt") Instant nextAttemptAt,
             @Param("errorCode") String errorCode,
             @Param("updatedAt") Instant updatedAt);
 
     int markDead(
             @Param("id") long id,
+            @Param("claimVersion") long claimVersion,
             @Param("errorCode") String errorCode,
             @Param("updatedAt") Instant updatedAt);
 

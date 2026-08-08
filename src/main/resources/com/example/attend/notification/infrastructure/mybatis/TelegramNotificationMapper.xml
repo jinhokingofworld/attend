@@ -129,7 +129,7 @@
         UPDATE public.attendance_notification_outbox
         SET status = 'CANCELED', updated_at = #{updatedAt}, lease_until = NULL
         WHERE account_id = #{accountId}
-          AND status IN ('PENDING', 'RETRY')
+          AND status IN ('PENDING', 'RETRY', 'PROCESSING')
     </update>
 
     <insert id="insertTestOutbox">
@@ -143,35 +143,51 @@
         ORDER BY id DESC LIMIT 1
     </select>
 
-    <select id="selectReadyDispatchJobs" resultType="com.example.attend.notification.domain.TelegramDispatchJob">
-        SELECT outbox.id, outbox.account_id, connection.chat_id, outbox.message_text, outbox.attempt_count
+    <select id="selectReadyDispatchJobIds" resultType="long">
+        SELECT outbox.id
         FROM public.attendance_notification_outbox AS outbox
-        JOIN public.account AS account ON account.id = outbox.account_id AND account.status = 'ACTIVE'
-        JOIN public.account_telegram_connection AS connection ON connection.account_id = account.id
         WHERE outbox.status IN ('PENDING', 'RETRY')
           AND outbox.next_attempt_at &lt;= #{now}
+        ORDER BY outbox.next_attempt_at, outbox.id
+        LIMIT #{limit}
+    </select>
+
+    <!-- The UPDATE itself rechecks the account, role, and current chat. A row
+         discovered by the batch query can therefore not be sent after a role,
+         account, or Telegram connection was revoked before its claim. -->
+    <select id="claimDispatchJob"
+            resultType="com.example.attend.notification.domain.TelegramDispatchJob"
+            affectData="true" flushCache="true">
+        UPDATE public.attendance_notification_outbox AS outbox
+        SET status = 'PROCESSING',
+            attempt_count = outbox.attempt_count + 1,
+            claim_version = outbox.claim_version + 1,
+            lease_until = #{leaseUntil},
+            updated_at = #{now}
+        FROM public.account AS account
+        JOIN public.account_telegram_connection AS connection
+          ON connection.account_id = account.id
+        WHERE outbox.id = #{id}
+          AND outbox.status IN ('PENDING', 'RETRY')
+          AND outbox.next_attempt_at &lt;= #{now}
+          AND account.id = outbox.account_id
+          AND account.status = 'ACTIVE'
           AND (outbox.department_id IS NULL OR EXISTS (
               SELECT 1 FROM public.account_department_role AS role_assignment
               WHERE role_assignment.account_id = account.id
                 AND role_assignment.department_id = outbox.department_id
                 AND role_assignment.role = 'DEPARTMENT_ADMIN'
                 AND role_assignment.revoked_at IS NULL))
-        ORDER BY outbox.next_attempt_at, outbox.id
-        LIMIT #{limit}
+        RETURNING outbox.id, outbox.account_id, connection.chat_id,
+                  outbox.message_text, outbox.attempt_count, outbox.claim_version
     </select>
-
-    <update id="claimDispatchJob">
-        UPDATE public.attendance_notification_outbox
-        SET status = 'PROCESSING', attempt_count = attempt_count + 1,
-            lease_until = #{leaseUntil}, updated_at = #{now}
-        WHERE id = #{id} AND status IN ('PENDING', 'RETRY')
-    </update>
 
     <update id="markSent">
         UPDATE public.attendance_notification_outbox
         SET status = 'SENT', telegram_message_id = #{telegramMessageId}, sent_at = #{sentAt},
             lease_until = NULL, last_error_code = NULL, updated_at = #{sentAt}
         WHERE id = #{id} AND status = 'PROCESSING'
+          AND claim_version = #{claimVersion}
     </update>
 
     <update id="markRetry">
@@ -179,18 +195,20 @@
         SET status = 'RETRY', next_attempt_at = #{nextAttemptAt}, last_error_code = #{errorCode},
             lease_until = NULL, updated_at = #{updatedAt}
         WHERE id = #{id} AND status = 'PROCESSING'
+          AND claim_version = #{claimVersion}
     </update>
 
     <update id="markDead">
         UPDATE public.attendance_notification_outbox
         SET status = 'DEAD', last_error_code = #{errorCode}, lease_until = NULL, updated_at = #{updatedAt}
         WHERE id = #{id} AND status = 'PROCESSING'
+          AND claim_version = #{claimVersion}
     </update>
 
     <update id="cancelIneligibleOutbox">
         UPDATE public.attendance_notification_outbox AS outbox
         SET status = 'CANCELED', lease_until = NULL, updated_at = #{updatedAt}
-        WHERE outbox.status IN ('PENDING', 'RETRY')
+        WHERE outbox.status IN ('PENDING', 'RETRY', 'PROCESSING')
           AND NOT EXISTS (
               SELECT 1 FROM public.account AS account
               JOIN public.account_telegram_connection AS connection ON connection.account_id = account.id

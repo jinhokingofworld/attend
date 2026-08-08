@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.attend.attendance.application.FinalizeAttendanceDayService;
 import com.example.attend.notification.application.TelegramConnectionService;
+import com.example.attend.notification.domain.TelegramDispatchJob;
+import com.example.attend.notification.infrastructure.mybatis.TelegramNotificationMapper;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,6 +43,9 @@ class TelegramFinalizationIntegrationTest {
 
     @Autowired
     private TelegramConnectionService connectionService;
+
+    @Autowired
+    private TelegramNotificationMapper notificationMapper;
 
     @BeforeEach
     void clear() {
@@ -125,6 +131,72 @@ class TelegramFinalizationIntegrationTest {
 
         connectionService.disconnect(accountId);
         assertThat(connectionService.view(accountId).state()).isEqualTo("UNLINKED");
+    }
+
+    @Test
+    void invalidStartDoesNotCreateAnUnboundedWebhookDeduplicationRow() {
+        assertThat(connectionService.consumeStart(
+                7001L, "not-a-issued-token", 4444L, 5555L)).isFalse();
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM public.telegram_webhook_update", Integer.class)).isZero();
+    }
+
+    @Test
+    void expiredClaimCannotOverwriteTheNewerClaimResult() {
+        long accountId = insertActiveConnectedAccount("telegram-fencing-admin");
+        notificationMapper.insertTestOutbox(accountId, "fencing test");
+        long outboxId = insert("""
+                SELECT id FROM public.attendance_notification_outbox
+                WHERE account_id = ?
+                """, accountId);
+        Instant firstClaimAt = Instant.now().plusSeconds(1);
+        TelegramDispatchJob first = notificationMapper.claimDispatchJob(
+                outboxId, firstClaimAt, firstClaimAt.plusSeconds(1));
+        assertThat(first).isNotNull();
+
+        Instant recoveryAt = firstClaimAt.plusSeconds(3);
+        notificationMapper.recoverExpiredDispatchLeases(recoveryAt);
+        TelegramDispatchJob second = notificationMapper.claimDispatchJob(
+                outboxId, recoveryAt, recoveryAt.plusSeconds(30));
+        assertThat(second).isNotNull();
+        assertThat(second.claimVersion()).isGreaterThan(first.claimVersion());
+
+        assertThat(notificationMapper.markDead(
+                first.id(), first.claimVersion(), "STALE", recoveryAt)).isZero();
+        assertThat(notificationMapper.markSent(
+                second.id(), second.claimVersion(), 17L, recoveryAt)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT status FROM public.attendance_notification_outbox WHERE id = ?
+                """, String.class, outboxId)).isEqualTo("SENT");
+    }
+
+    @Test
+    void claimRechecksEligibilityInsteadOfUsingAStaleBatchRecipient() {
+        long accountId = insertActiveConnectedAccount("telegram-revoked-admin");
+        notificationMapper.insertTestOutbox(accountId, "recipient check");
+        long outboxId = insert("""
+                SELECT id FROM public.attendance_notification_outbox
+                WHERE account_id = ?
+                """, accountId);
+        jdbcTemplate.update("UPDATE public.account SET status = 'DISABLED' WHERE id = ?", accountId);
+
+        assertThat(notificationMapper.claimDispatchJob(
+                outboxId, Instant.parse("2026-08-01T00:00:00Z"),
+                Instant.parse("2026-08-01T00:02:00Z"))).isNull();
+    }
+
+    private long insertActiveConnectedAccount(String username) {
+        long accountId = insert("""
+                INSERT INTO public.account(username, password_hash, status, password_changed_at)
+                VALUES (?, 'test-password-hash', 'ACTIVE', CURRENT_TIMESTAMP)
+                RETURNING id
+                """, username);
+        jdbcTemplate.update("""
+                INSERT INTO public.account_telegram_connection(account_id, chat_id, telegram_user_id)
+                VALUES (?, ?, ?)
+                """, accountId, 100000L + accountId, 200000L + accountId);
+        return accountId;
     }
 
     private long insert(String sql, Object... args) {

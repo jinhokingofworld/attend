@@ -43,7 +43,7 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
     }
 
     /**
-     * 현재 DB 사용자가 V011 runtime 최소 권한 경계를 지키는지 확인한다.
+     * 현재 DB 사용자가 V012 runtime 최소 권한 경계를 지키는지 확인한다.
      *
      * @param dataSource 검사할 운영 데이터소스
      * @throws IllegalStateException 권한이 과도하거나 필수 조회 권한이 없을 때
@@ -153,6 +153,68 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                             current_user,
                             'public.tag_event_log',
                             'DELETE,TRUNCATE,REFERENCES,TRIGGER'
+                        )
+                        AND has_table_privilege(
+                            current_user,
+                            'public.telegram_link_token',
+                            'SELECT,INSERT'
+                        )
+                        AND has_table_privilege(
+                            current_user,
+                            'public.account_telegram_connection',
+                            'SELECT,INSERT,DELETE'
+                        )
+                        AND has_table_privilege(
+                            current_user,
+                            'public.telegram_webhook_update',
+                            'INSERT'
+                        )
+                        AND has_table_privilege(
+                            current_user,
+                            'public.attendance_notification_outbox',
+                            'SELECT,INSERT'
+                        )
+                        AND has_sequence_privilege(
+                            current_user,
+                            'public.telegram_link_token_id_seq',
+                            'USAGE'
+                        )
+                        AND has_sequence_privilege(
+                            current_user,
+                            'public.attendance_notification_outbox_id_seq',
+                            'USAGE'
+                        )
+                        AND has_column_privilege(
+                            current_user,
+                            'public.attendance_day',
+                            'finalization_due_at',
+                            'UPDATE'
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM (
+                                VALUES
+                                    ('telegram_link_token', 'consumed_at'),
+                                    ('telegram_link_token', 'revoked_at'),
+                                    ('account_telegram_connection', 'chat_id'),
+                                    ('account_telegram_connection', 'telegram_user_id'),
+                                    ('account_telegram_connection', 'updated_at'),
+                                    ('attendance_notification_outbox', 'status'),
+                                    ('attendance_notification_outbox', 'attempt_count'),
+                                    ('attendance_notification_outbox', 'claim_version'),
+                                    ('attendance_notification_outbox', 'next_attempt_at'),
+                                    ('attendance_notification_outbox', 'lease_until'),
+                                    ('attendance_notification_outbox', 'telegram_message_id'),
+                                    ('attendance_notification_outbox', 'sent_at'),
+                                    ('attendance_notification_outbox', 'last_error_code'),
+                                    ('attendance_notification_outbox', 'updated_at')
+                            ) AS required(table_name, column_name)
+                            WHERE NOT has_column_privilege(
+                                current_user,
+                                'public.' || required.table_name,
+                                required.column_name,
+                                'UPDATE'
+                            )
                         )
                         AND NOT EXISTS (
                             SELECT 1

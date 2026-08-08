@@ -34,7 +34,7 @@ import static com.example.attend.database.DatabasePreflightInspector.PreflightSt
 import static com.example.attend.database.DatabasePreflightInspector.PreflightStatus.REJECTED;
 
 /**
- * 실제 PostgreSQL 15에서 V001~V011 migration의 안전성과 핵심 제약조건을 검증한다.
+ * 실제 PostgreSQL 15에서 V001~V012 migration의 안전성과 핵심 제약조건을 검증한다.
  *
  * <p>H2 같은 대체 DB로는 PostgreSQL catalog, partial unique index, 복합 외래 키,
  * SQLSTATE가 실제 운영 DB와 같다고 보장할 수 없다. 따라서 Testcontainers로
@@ -60,7 +60,7 @@ class FlywayMigrationTest {
             new PostgreSQLContainer<>("postgres:15-alpine");
 
     /**
-     * 빈 DB가 올바르게 분류되고 V011까지 정확히 한 번 적용되는지 검증한다.
+     * 빈 DB가 올바르게 분류되고 V012까지 정확히 한 번 적용되는지 검증한다.
      *
      * <p>잘못된 운영자 승인값에서는 history조차 만들지 않아야 하며, 같은
      * migration을 다시 실행해도 결과가 바뀌지 않는 멱등성도 함께 확인한다.</p>
@@ -103,7 +103,7 @@ class FlywayMigrationTest {
                     FROM public.flyway_schema_history
                     WHERE success
                       AND version IS NOT NULL
-                    """ )).isEqualTo(11);
+                    """ )).isEqualTo(12);
 
             assertThat(queryInt(connection, """
                     SELECT count(*)
@@ -194,7 +194,8 @@ class FlywayMigrationTest {
                               'public.attend_set_audit_occurred_at()'::regprocedure,
                               'public.attend_set_tag_event_received_at()'::regprocedure,
                               'public.attend_purge_expired_audit_log_batch()'::regprocedure,
-                              'public.attend_purge_expired_tag_event_log_batch()'::regprocedure
+                              'public.attend_purge_expired_tag_event_log_batch()'::regprocedure,
+                              'public.attend_purge_expired_telegram_webhook_update_batch()'::regprocedure
                         )
                           AND privilege.grantee = 0
                           AND privilege.privilege_type = 'EXECUTE'
@@ -413,6 +414,46 @@ class FlywayMigrationTest {
                         received_at > CURRENT_TIMESTAMP - INTERVAL '1 minute'
                     )::text
                     """)).isEqualTo("true");
+        }
+    }
+
+    /** V012는 검증된 webhook update의 replay 방지 행만 7일 뒤 500개씩 정리한다. */
+    @Test
+    void purgesOnlyExpiredTelegramWebhookUpdatesInBoundedDatabaseBatches()
+            throws Exception {
+        Database database = createDatabase("telegram_webhook_retention");
+        new DatabaseMigrationRunner().migrate(database.dataSource(), NEW_OR_SAMPLE);
+
+        try (Connection connection = database.connect();
+             Statement statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO public.telegram_webhook_update(update_id, received_at)
+                    SELECT generated.value, CURRENT_TIMESTAMP - INTERVAL '8 days'
+                    FROM generate_series(1, 501) AS generated(value)
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO public.telegram_webhook_update(update_id, received_at)
+                    VALUES (1001, CURRENT_TIMESTAMP - INTERVAL '1 day'),
+                           (1002, CURRENT_TIMESTAMP - INTERVAL '6 days')
+                    """);
+
+            assertThat(queryInt(connection, """
+                    SELECT public.attend_purge_expired_telegram_webhook_update_batch()
+                    """)).isEqualTo(500);
+            assertThat(queryInt(connection, """
+                    SELECT count(*) FROM public.telegram_webhook_update
+                    WHERE update_id BETWEEN 1 AND 501
+                    """)).isEqualTo(1);
+            assertThat(queryInt(connection, """
+                    SELECT public.attend_purge_expired_telegram_webhook_update_batch()
+                    """)).isEqualTo(1);
+            assertThat(queryInt(connection, """
+                    SELECT public.attend_purge_expired_telegram_webhook_update_batch()
+                    """)).isZero();
+            assertThat(queryInt(connection, """
+                    SELECT count(*) FROM public.telegram_webhook_update
+                    WHERE update_id IN (1001, 1002)
+                    """)).isEqualTo(2);
         }
     }
 
@@ -1772,7 +1813,7 @@ class FlywayMigrationTest {
                     FROM public.flyway_schema_history
                     WHERE success
                       AND version IS NOT NULL
-                    """)).isEqualTo(12);
+                    """)).isEqualTo(13);
             assertThat(queryInt(connection, """
                     SELECT count(*)
                     FROM public.flyway_schema_history
@@ -2031,6 +2072,35 @@ class FlywayMigrationTest {
         }
     }
 
+    /** 관리 중인 V011 DB에 pending V012 retention 함수가 있으면 적용 전에 거부한다. */
+    @Test
+    void rejectsUnappliedV012FunctionInManagedSchema() throws Exception {
+        Database database = createDatabase("managed_v012_function_collision");
+
+        try (Connection connection = database.connect();
+             Statement statement = connection.createStatement()) {
+            statement.execute("""
+                    CREATE TABLE public.flyway_schema_history (
+                        version VARCHAR(50),
+                        success BOOLEAN NOT NULL
+                    )
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO public.flyway_schema_history(version, success)
+                    VALUES ('11', TRUE)
+                    """);
+            createReservedZeroArgumentFunction(
+                    statement,
+                    "attend_purge_expired_telegram_webhook_update_batch"
+            );
+        }
+
+        DatabasePreflightInspector.PreflightResult preflight =
+                new DatabasePreflightInspector().inspect(database.dataSource());
+        assertThat(preflight.status()).isEqualTo(REJECTED);
+        assertThat(preflight.reason()).contains("V012 function");
+    }
+
     /**
      * 이름만 같은 알 수 없는 {@code member} 테이블을 레거시로 추측하지 않는지 검증한다.
      *
@@ -2176,7 +2246,7 @@ class FlywayMigrationTest {
     }
 
     /**
-     * 애플리케이션 시작 검사가 정확히 성공한 V001~V011만 허용하는지 검증한다.
+     * 애플리케이션 시작 검사가 정확히 성공한 V001~V012만 허용하는지 검증한다.
      *
      * <p>history 없음, 구버전, 실패 처리된 migration, 애플리케이션보다 앞선
      * 버전을 모두 거부하고 정확한 버전 목록만 통과시킨다.</p>
@@ -2219,7 +2289,7 @@ class FlywayMigrationTest {
             statement.executeUpdate("""
                     UPDATE public.flyway_schema_history
                     SET success = FALSE
-                    WHERE version = '011'
+                    WHERE version = '012'
                     """);
             assertThatThrownBy(() ->
                     SchemaVersionGuard.verify(exact.dataSource()))
@@ -2229,8 +2299,8 @@ class FlywayMigrationTest {
             statement.executeUpdate("""
                     UPDATE public.flyway_schema_history
                     SET success = TRUE,
-                        version = '012'
-                    WHERE version = '011'
+                        version = '013'
+                    WHERE version = '012'
                     """);
             assertThatThrownBy(() ->
                     SchemaVersionGuard.verify(exact.dataSource()))
@@ -2242,7 +2312,7 @@ class FlywayMigrationTest {
     /**
      * migration 계정과 웹 runtime 계정의 실제 PostgreSQL 권한이 분리되는지 검증한다.
      *
-     * <p>한 테스트 안에서 역할 생성, 레거시 migration, V011 이후 grant와 runtime
+     * <p>한 테스트 안에서 역할 생성, 레거시 migration, V012 이후 grant와 runtime
      * guard를 모두 실행한다. runtime의 교사 등록·조회·수정은 실제 사용 컬럼까지
      * 허용하면서 DDL, Flyway history 변경, 교사 삭제·card_uid 접근과 레거시
      * 출석 쓰기는 권한 오류로 막아야 한다.</p>
@@ -3076,7 +3146,8 @@ class FlywayMigrationTest {
     ) throws SQLException {
         if (!Set.of(
                 "attend_purge_expired_audit_log_batch",
-                "attend_set_tag_event_received_at"
+                "attend_set_tag_event_received_at",
+                "attend_purge_expired_telegram_webhook_update_batch"
         ).contains(functionName)) {
             throw new IllegalArgumentException("Unexpected reserved function");
         }

@@ -20,6 +20,8 @@ public final class AuditLogRetentionCli {
 			"SELECT public.attend_purge_expired_audit_log_batch()";
 	private static final String PURGE_TAG_EVENT_LOG_SQL =
 			"SELECT public.attend_purge_expired_tag_event_log_batch()";
+	private static final String PURGE_TELEGRAM_WEBHOOK_UPDATE_SQL =
+			"SELECT public.attend_purge_expired_telegram_webhook_update_batch()";
 	private static final int MAX_BATCH_SIZE = 500;
 	private static final int MAX_BATCHES_PER_RUN = 25;
 	private static final int QUERY_TIMEOUT_SECONDS = 30;
@@ -42,9 +44,11 @@ public final class AuditLogRetentionCli {
 			System.out.printf(
 					"retention=SUCCESS audit_deleted_rows=%d audit_batches=%d "
 							+ "tag_event_deleted_rows=%d tag_event_batches=%d "
+							+ "telegram_webhook_deleted_rows=%d telegram_webhook_batches=%d "
 							+ "catchup_pending=%s%n",
 					result.auditDeletedRows(), result.auditBatches(),
 					result.tagEventDeletedRows(), result.tagEventBatches(),
+					result.telegramWebhookDeletedRows(), result.telegramWebhookBatches(),
 					result.catchUpPending());
 		} catch (SQLException | RuntimeException exception) {
 			// DB URL, 계정, SQL 원문, 행 식별자는 worker log에도 쓰지 않는다.
@@ -79,11 +83,17 @@ public final class AuditLogRetentionCli {
 					connection,
 					PURGE_TAG_EVENT_LOG_SQL,
 					"tag event");
+			PurgeResult telegramWebhook = purgeBatches(
+					connection,
+					PURGE_TELEGRAM_WEBHOOK_UPDATE_SQL,
+					"Telegram webhook update");
 			return new RunResult(
 					audit.deletedRows(), audit.batches(),
 					tagEvent.deletedRows(), tagEvent.batches(),
+					telegramWebhook.deletedRows(), telegramWebhook.batches(),
 					audit.batches() == MAX_BATCHES_PER_RUN
-							|| tagEvent.batches() == MAX_BATCHES_PER_RUN);
+							|| tagEvent.batches() == MAX_BATCHES_PER_RUN
+							|| telegramWebhook.batches() == MAX_BATCHES_PER_RUN);
 		}
 	}
 
@@ -134,6 +144,8 @@ public final class AuditLogRetentionCli {
 			int auditBatches,
 			int tagEventDeletedRows,
 			int tagEventBatches,
+			int telegramWebhookDeletedRows,
+			int telegramWebhookBatches,
 			boolean catchUpPending) {
 	}
 

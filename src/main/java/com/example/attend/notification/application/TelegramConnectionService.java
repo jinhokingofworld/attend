@@ -104,11 +104,13 @@ public class TelegramConnectionService {
             return false;
         }
         Instant now = clock.instant();
-        if (mapper.insertWebhookUpdate(updateId, now) != 1) {
-            return false;
-        }
+        // Lock and validate before recording the update ID. Anyone can send a
+        // bot a /start payload; invalid tokens must not turn into durable rows.
         TelegramLinkTokenRow token = mapper.lockLinkToken(hmac(rawToken));
         if (token == null || !now.isBefore(token.expiresAt())) {
+            return false;
+        }
+        if (mapper.insertWebhookUpdate(updateId, now) != 1) {
             return false;
         }
         try {
