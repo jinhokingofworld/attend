@@ -17,6 +17,7 @@ public final class ProductionAdminSecurityGuard {
 	private final AdminSecurityProperties properties;
 	private final DeviceApiProperties deviceProperties;
 	private final TrustedProxyProperties proxyProperties;
+	private final TelegramProperties telegramProperties;
 
 	/**
 	 * 검증할 외부 관리자 보안 설정을 주입받는다.
@@ -28,10 +29,12 @@ public final class ProductionAdminSecurityGuard {
 	public ProductionAdminSecurityGuard(
 			AdminSecurityProperties properties,
 			DeviceApiProperties deviceProperties,
-			TrustedProxyProperties proxyProperties) {
+			TrustedProxyProperties proxyProperties,
+			TelegramProperties telegramProperties) {
 		this.properties = properties;
 		this.deviceProperties = deviceProperties;
 		this.proxyProperties = proxyProperties;
+		this.telegramProperties = telegramProperties;
 	}
 
 	/**
@@ -74,6 +77,23 @@ public final class ProductionAdminSecurityGuard {
 				|| proxyToken.getBytes(StandardCharsets.UTF_8).length < 32) {
 			throw new IllegalStateException(
 					"TRUSTED_PROXY_TOKEN must contain at least 32 bytes in prod");
+		}
+		if (telegramProperties.enabled()) {
+			requireTelegramValue(telegramProperties.botToken(), "TELEGRAM_BOT_TOKEN");
+			requireTelegramValue(telegramProperties.botUsername(), "TELEGRAM_BOT_USERNAME");
+			requireTelegramValue(telegramProperties.webhookSecret(), "TELEGRAM_WEBHOOK_SECRET");
+			String linkPepper = telegramProperties.linkTokenPepper();
+			if (linkPepper == null
+					|| linkPepper.getBytes(StandardCharsets.UTF_8).length < 32) {
+				throw new IllegalStateException(
+						"TELEGRAM_LINK_TOKEN_PEPPER must contain at least 32 bytes in prod");
+			}
+		}
+	}
+
+	private static void requireTelegramValue(String value, String name) {
+		if (value == null || value.isBlank()) {
+			throw new IllegalStateException(name + " is required when Telegram notifications are enabled");
 		}
 	}
 }

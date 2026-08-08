@@ -208,6 +208,14 @@ class M3SecurityIntegrationTest {
 				.andExpect(status().isOk());
 		mockMvc.perform(get("/admin"))
 				.andExpect(status().is3xxRedirection());
+		mockMvc.perform(get("/admin/account/notifications")
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(view().name("admin/account-notifications"))
+				.andExpect(content().string(containsString("Telegram 알림 기능이 현재 비활성화")));
+		mockMvc.perform(post("/admin/account/notifications/telegram/link")
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isForbidden());
 
 		mockMvc.perform(post("/authentication")
 						.with(csrf())

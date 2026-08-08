@@ -98,6 +98,9 @@ public class SecurityConfig {
             HttpSecurity http,
             Clock clock) throws Exception {
         http
+                // Telegram authenticates its webhook with a separate secret
+                // header; only this machine-to-machine endpoint skips CSRF.
+                .csrf(csrf -> csrf.ignoringRequestMatchers("/api/v1/telegram/webhook"))
                 .authorizeHttpRequests(authz -> authz
                         .requestMatchers(
                                 "/",
@@ -108,6 +111,7 @@ public class SecurityConfig {
                                 "/css/**",
                                 "/js/**",
                                 "/error",
+                                "/api/v1/telegram/webhook",
                                 "/actuator/health",
                                 "/actuator/health/**").permitAll()
 						.requestMatchers("/actuator/**").denyAll()

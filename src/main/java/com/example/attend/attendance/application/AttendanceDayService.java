@@ -7,6 +7,7 @@ import com.example.attend.attendance.infrastructure.mybatis.AttendanceDayMapper;
 import com.example.attend.attendance.infrastructure.mybatis.AttendanceDayRow;
 import com.example.attend.attendance.infrastructure.mybatis.AttendancePolicyMapper;
 import com.example.attend.attendance.infrastructure.mybatis.PolicyVersionRow;
+import com.example.attend.attendance.domain.AttendanceBand;
 import com.example.attend.audit.application.AuditLogWriter;
 import com.example.attend.common.error.BusinessRuleException;
 import com.example.attend.common.error.ResourceNotFoundException;
@@ -139,6 +140,7 @@ public class AttendanceDayService {
 				departmentId,
 				attendanceDate,
 				policyVersionId,
+				finalizationDueAt(attendanceDate, policyVersionId),
 				actor.accountId());
 		if (dayId == null) {
 			return null;
@@ -212,6 +214,8 @@ public class AttendanceDayService {
 		requireBeforeCheckIn(day, clock.instant());
 		PolicyVersionRow newPolicy =
 				requirePublishedPolicy(departmentId, newPolicyVersionId);
+		Instant finalizationDueAt = finalizationDueAt(
+				day.attendanceDate(), newPolicyVersionId);
 		Instant newPolicyStart = ZonedDateTime.of(
 				day.attendanceDate(),
 				newPolicy.checkInStartTime(),
@@ -226,7 +230,8 @@ public class AttendanceDayService {
 		requireSingleUpdate(dayMapper.updateDayPolicy(
 				departmentId,
 				attendanceDayId,
-				newPolicyVersionId));
+				newPolicyVersionId,
+				finalizationDueAt));
 		auditLogWriter.writeAccount(
 				departmentId,
 				actor,
@@ -305,6 +310,18 @@ public class AttendanceDayService {
 		if (!now.isBefore(checkInStart)) {
 			throw new BusinessRuleException("attendance day has already started");
 		}
+	}
+
+	/** 발행 정책의 마지막 포함 구간 직후에 실행할 고정 마감 시각을 계산한다. */
+	private Instant finalizationDueAt(LocalDate date, long policyVersionId) {
+		AttendanceBand lastBand = policyMapper.selectBands(policyVersionId)
+				.stream()
+				.reduce((ignored, current) -> current)
+				.orElseThrow(() -> new BusinessRuleException(
+						"published attendance policy has no bands"));
+		return ZonedDateTime.of(date, lastBand.upperTime(), attendanceZone)
+				.plusNanos(1)
+				.toInstant();
 	}
 
 	/**

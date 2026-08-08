@@ -6,11 +6,11 @@ import com.example.attend.audit.application.AuditLogWriter;
 import com.example.attend.common.error.BusinessRuleException;
 import com.example.attend.common.error.ResourceNotFoundException;
 import com.example.attend.organization.api.DepartmentLock;
+import com.example.attend.notification.application.AttendanceFinalizationNotificationPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
-import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -23,6 +23,7 @@ public class FinalizeAttendanceDayService {
 	private final AttendanceDayMapper dayMapper;
 	private final DepartmentLock departmentLock;
 	private final AuditLogWriter auditLogWriter;
+	private final AttendanceFinalizationNotificationPublisher notificationPublisher;
 	private final Clock clock;
 
 	/**
@@ -32,11 +33,13 @@ public class FinalizeAttendanceDayService {
 			AttendanceDayMapper dayMapper,
 			DepartmentLock departmentLock,
 			AuditLogWriter auditLogWriter,
+			AttendanceFinalizationNotificationPublisher notificationPublisher,
 			Clock clock
 	) {
 		this.dayMapper = dayMapper;
 		this.departmentLock = departmentLock;
 		this.auditLogWriter = auditLogWriter;
+		this.notificationPublisher = notificationPublisher;
 		this.clock = clock;
 	}
 
@@ -47,7 +50,7 @@ public class FinalizeAttendanceDayService {
 	 */
 	@Transactional(readOnly = true)
 	public List<Long> findPendingDayIds() {
-		return dayMapper.selectPastScheduledDayIds(LocalDate.now(clock));
+		return dayMapper.selectDueScheduledDayIds(clock.instant());
 	}
 
 	/**
@@ -70,8 +73,8 @@ public class FinalizeAttendanceDayService {
 		if (!"SCHEDULED".equals(day.status())) {
 			return 0;
 		}
-		if (!day.attendanceDate().isBefore(LocalDate.now(clock))) {
-			throw new BusinessRuleException("only a past attendance day can be finalized");
+		if (clock.instant().isBefore(day.finalizationDueAt())) {
+			throw new BusinessRuleException("attendance day is not ready to be finalized");
 		}
 
 		int absenceCount = dayMapper.insertMissingAbsences(attendanceDayId);
@@ -89,6 +92,7 @@ public class FinalizeAttendanceDayService {
 		if (auditRows != 1) {
 			throw new BusinessRuleException("finalization audit already exists");
 		}
+		notificationPublisher.enqueueForFinalizedDay(attendanceDayId);
 		return absenceCount;
 	}
 }

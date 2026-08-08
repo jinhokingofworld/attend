@@ -27,14 +27,17 @@ class AuditLogRetentionCliTest {
 		PreparedStatement firstStatement = mock(PreparedStatement.class);
 		PreparedStatement secondStatement = mock(PreparedStatement.class);
 		PreparedStatement tagEventStatement = mock(PreparedStatement.class);
+		PreparedStatement telegramWebhookStatement = mock(PreparedStatement.class);
 		ResultSet firstResult = resultSetWithCount(500);
 		ResultSet secondResult = resultSetWithCount(7);
 		ResultSet tagEventResult = resultSetWithCount(3);
+		ResultSet telegramWebhookResult = resultSetWithCount(2);
 		when(connection.prepareStatement(anyString()))
-				.thenReturn(firstStatement, secondStatement, tagEventStatement);
+				.thenReturn(firstStatement, secondStatement, tagEventStatement, telegramWebhookStatement);
 		when(firstStatement.executeQuery()).thenReturn(firstResult);
 		when(secondStatement.executeQuery()).thenReturn(secondResult);
 		when(tagEventStatement.executeQuery()).thenReturn(tagEventResult);
+		when(telegramWebhookStatement.executeQuery()).thenReturn(telegramWebhookResult);
 
 		AuditLogRetentionCli.RunResult result = AuditLogRetentionCli.run(
 				environment(),
@@ -44,11 +47,14 @@ class AuditLogRetentionCliTest {
 		assertThat(result.auditBatches()).isEqualTo(2);
 		assertThat(result.tagEventDeletedRows()).isEqualTo(3);
 		assertThat(result.tagEventBatches()).isEqualTo(1);
+		assertThat(result.telegramWebhookDeletedRows()).isEqualTo(2);
+		assertThat(result.telegramWebhookBatches()).isEqualTo(1);
 		assertThat(result.catchUpPending()).isFalse();
 		verify(connection).setAutoCommit(true);
 		verify(firstStatement).setQueryTimeout(30);
 		verify(secondStatement).setQueryTimeout(30);
 		verify(tagEventStatement).setQueryTimeout(30);
+		verify(telegramWebhookStatement).setQueryTimeout(30);
 	}
 
 	/** 25개의 full batch는 다음 분 단위 실행에서도 이어서 정리해야 함을 표시한다. */
@@ -58,16 +64,22 @@ class AuditLogRetentionCliTest {
 		allowMinimumPrivileges(connection);
 		PreparedStatement auditStatement = mock(PreparedStatement.class);
 		PreparedStatement tagEventStatement = mock(PreparedStatement.class);
+		PreparedStatement telegramWebhookStatement = mock(PreparedStatement.class);
 		when(connection.prepareStatement(
 				"SELECT public.attend_purge_expired_audit_log_batch()"))
 				.thenReturn(auditStatement);
 		when(connection.prepareStatement(
 				"SELECT public.attend_purge_expired_tag_event_log_batch()"))
 				.thenReturn(tagEventStatement);
+		when(connection.prepareStatement(
+				"SELECT public.attend_purge_expired_telegram_webhook_update_batch()"))
+				.thenReturn(telegramWebhookStatement);
 		ResultSet auditResult = resultSetWithCount(500);
 		ResultSet tagEventResult = resultSetWithCount(0);
+		ResultSet telegramWebhookResult = resultSetWithCount(0);
 		when(auditStatement.executeQuery()).thenReturn(auditResult);
 		when(tagEventStatement.executeQuery()).thenReturn(tagEventResult);
+		when(telegramWebhookStatement.executeQuery()).thenReturn(telegramWebhookResult);
 
 		AuditLogRetentionCli.RunResult result = AuditLogRetentionCli.run(
 				environment(),

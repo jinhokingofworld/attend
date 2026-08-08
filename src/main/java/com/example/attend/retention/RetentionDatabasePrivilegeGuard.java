@@ -98,6 +98,11 @@ public final class RetentionDatabasePrivilegeGuard {
 						       'public.attend_purge_expired_tag_event_log_batch()',
 						       'EXECUTE'
 						   )
+						   AND has_function_privilege(
+						       current_user,
+						       'public.attend_purge_expired_telegram_webhook_update_batch()',
+						       'EXECUTE'
+						   )
 						   AND NOT EXISTS (
 						       SELECT 1
 						       FROM pg_catalog.pg_class AS relation
@@ -146,10 +151,12 @@ public final class RetentionDatabasePrivilegeGuard {
 						         ON namespace.oid = function.pronamespace
 						       CROSS JOIN current_role_identity AS role
 						       WHERE function.oid NOT IN (
-						             'public.attend_purge_expired_audit_log_batch()'
-						                 ::regprocedure,
-						             'public.attend_purge_expired_tag_event_log_batch()'
-						                 ::regprocedure
+						           'public.attend_purge_expired_audit_log_batch()'
+						               ::regprocedure,
+						           'public.attend_purge_expired_tag_event_log_batch()'
+						               ::regprocedure,
+						           'public.attend_purge_expired_telegram_webhook_update_batch()'
+						               ::regprocedure
 						         )
 						         AND (
 						             (
