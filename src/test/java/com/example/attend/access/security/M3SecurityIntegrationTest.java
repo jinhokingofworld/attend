@@ -295,9 +295,25 @@ class M3SecurityIntegrationTest {
 										AttendanceParentStatus.LATE,
 										LocalTime.of(9, 30)))));
 		mockMvc.perform(get("/admin/departments/" + departmentId
+						+ "/policies")
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(content().string(containsString(
+						"마감 시간 (마지막 태깅 허용 시각)")))
+				.andExpect(content().string(containsString(
+						"1µs 후 미출석자는 결석 처리 대상")))
+				.andExpect(content().string(containsString(
+						"updateFinalizationLabels")));
+		mockMvc.perform(get("/admin/departments/" + departmentId
 						+ "/policies/" + policyId)
 						.with(user(departmentPrincipal)))
-				.andExpect(status().isOk());
+				.andExpect(status().isOk())
+				.andExpect(content().string(containsString(
+						"마감 시간 (마지막 태깅 허용 시각)")))
+				.andExpect(content().string(containsString(
+						"1µs 후 미출석자는 결석 처리 대상")))
+				.andExpect(content().string(containsString(
+						"updateEditFinalizationLabels")));
 		attendancePolicyService.publish(departmentActor, departmentId, policyId);
 		LocalDate today = LocalDate.now(clock);
 		long dashboardMemberId = insertAndReturnId("""

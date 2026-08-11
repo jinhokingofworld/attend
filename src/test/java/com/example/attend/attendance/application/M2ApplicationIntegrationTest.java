@@ -36,6 +36,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -97,6 +98,65 @@ class M2ApplicationIntegrationTest {
 
 	@Autowired
 	private ApplicationContext applicationContext;
+
+	/** 생성과 정책 교체는 마지막 포함 상한의 정확히 1µs 뒤를 마감 경계로 고정한다. */
+	@Test
+	void snapshotsTheFirstMicrosecondAfterTheFinalPolicyBand() {
+		LocalDate attendanceDate = LocalDate.of(2026, 8, 20);
+		clock.setInstant(atSeoul(LocalDate.of(2026, 8, 1), LocalTime.of(8, 0)));
+		TestAuthority authority = createAuthority();
+		AccountActor actor = new AccountActor(authority.accountId());
+		long firstPolicyId = createPublishedPolicy(actor, authority.departmentId());
+		long dayId = dayService.createDay(
+				actor,
+				authority.departmentId(),
+				attendanceDate,
+				firstPolicyId);
+
+		assertThat(finalizationDueAtInSeoul(dayId))
+				.isEqualTo("2026-08-20 09:15:00.000001");
+
+		long replacementPolicyId = policyService.createDraft(
+				actor,
+				authority.departmentId(),
+				new PolicyDraftCommand(
+						"교체 마감 정책",
+						LocalTime.of(8, 30),
+						List.of(
+								new PolicyBandInput(
+										1,
+										"정상 출석",
+										AttendanceParentStatus.PRESENT,
+										LocalTime.of(9, 0)),
+								new PolicyBandInput(
+										2,
+										"1차 지각",
+										AttendanceParentStatus.LATE,
+										LocalTime.of(9, 30)))));
+		policyService.publish(actor, authority.departmentId(), replacementPolicyId);
+		dayService.changePolicy(
+				actor,
+				authority.departmentId(),
+				dayId,
+				replacementPolicyId);
+
+		assertThat(finalizationDueAtInSeoul(dayId))
+				.isEqualTo("2026-08-20 09:30:00.000001");
+
+		clock.setInstant(atSeoul(attendanceDate, LocalTime.of(9, 30)));
+		assertThat(finalizationService.findPendingDayIds()).doesNotContain(dayId);
+		assertThatThrownBy(() -> finalizationService.finalizeDay(dayId))
+				.isInstanceOf(BusinessRuleException.class)
+				.hasMessageContaining("not ready");
+
+		clock.setInstant(atSeoul(attendanceDate, LocalTime.of(9, 30))
+				.plus(1, ChronoUnit.MICROS));
+		assertThat(finalizationService.findPendingDayIds()).contains(dayId);
+		assertThat(finalizationService.finalizeDay(dayId)).isZero();
+		assertThat(queryString(
+				"SELECT status FROM public.attendance_day WHERE id = ?", dayId))
+				.isEqualTo("FINALIZED");
+	}
 
 	/** 신규·수정 command는 생일과 만 나이의 근거인 정확한 생년월일을 요구한다. */
 	@Test
@@ -811,6 +871,17 @@ class M2ApplicationIntegrationTest {
 	/** 단일 boolean SQL 결과를 읽는다. */
 	private boolean queryBoolean(String sql, Object... arguments) {
 		return jdbcTemplate.queryForObject(sql, Boolean.class, arguments);
+	}
+
+	/** 저장된 마감 시각을 서울 현지 마이크로초 문자열로 읽는다. */
+	private String finalizationDueAtInSeoul(long dayId) {
+		return queryString("""
+				SELECT to_char(
+				    finalization_due_at AT TIME ZONE 'Asia/Seoul',
+				    'YYYY-MM-DD HH24:MI:SS.US')
+				FROM public.attendance_day
+				WHERE id = ?
+				""", dayId);
 	}
 
 	/**

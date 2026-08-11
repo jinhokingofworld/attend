@@ -11,8 +11,9 @@
 - 출석 완료는 모든 교사가 태그한 시점이 아니라, 해당 출석 정책의 마지막 출석
   구간이 끝난 뒤 출석일을 `FINALIZED`로 전환한 시점이다. 결석자가 있으면 모든
   대상자의 태그 완료를 기다릴 수 없기 때문이다.
-- 마감 기준 시각은 출석일 생성 시점에 `Asia/Seoul` 기준으로 고정한다. 이후 정책을
-  바꿔도 이미 생성된 출석일의 마감 시각은 변하지 않는다.
+- 마감 기준 시각은 출석일 생성 시점에 `Asia/Seoul` 기준으로 고정한다. 새 정책을
+  발행해도 기존 출석일은 변하지 않으며, 태깅 시작 전 관리자가 해당 날짜의 정책을
+  명시적으로 교체할 때만 새 정책 기준으로 함께 갱신한다.
 - 수신자는 출석일이 속한 부서에 대해 활성 `DEPARTMENT_ADMIN` 권한을 가지고,
   Telegram 개인 채팅을 직접 연결한 모든 활성 계정이다. 현재 데이터 모델에는
   대표 관리자 개념이 없으므로 임의의 한 명만 고르지 않는다.
@@ -64,12 +65,13 @@ finalization_due_at TIMESTAMPTZ NOT NULL
 계산한다.
 
 ```text
-attendance_date + 마지막 upper_time, Asia/Seoul
+attendance_date + 마지막 upper_time + 1µs, Asia/Seoul
 ```
 
-`upper_time`은 포함 경계다. 따라서 동일한 정확한 시각의 체크인은 허용하고, 그
-직후부터 마감 대상이다. 스케줄러의 실제 실행 시각은 설정한 주기에 따라 몇 분
-늦을 수 있다.
+`upper_time`은 포함 경계다. PostgreSQL의 마이크로초 정밀도에 맞춰 그 시각의 정확히
+`1µs` 뒤를 `finalization_due_at`으로 저장한다. 따라서 상한과 같은 시각의 체크인은
+허용하고, 저장된 due 시각부터 마감 대상이다. 스케줄러의 실제 실행 시각은 설정한
+주기에 따라 몇 분 늦을 수 있다.
 
 ### 3.2 스케줄러와 경합 처리
 
@@ -77,7 +79,7 @@ attendance_date + 마지막 upper_time, Asia/Seoul
 `selectDueScheduledDayIds(now)`로 교체한다.
 
 ```text
-status = SCHEDULED AND finalization_due_at < now
+status = SCHEDULED AND finalization_due_at <= now
 ```
 
 기존 `FinalizeAttendanceDayService`의 잠금 순서와 멱등성은 유지한다.
@@ -102,6 +104,9 @@ NFC 체크인과 마감이 동시에 실행돼도 둘 다 같은 `attendance_day
 - 기존 `SCHEDULED`·`FINALIZED` 날짜는 연결된 정책의 마지막 구간 시각을 사용해
   backfill
 - backfill 후 `NOT NULL`과 due-time 조회 인덱스 추가
+
+후속 `V013__align_attendance_finalization_precision.sql`은 `SCHEDULED`, `FINALIZED`,
+`CANCELED` 전체 기존 날짜의 값을 고정 정책 마지막 상한 `+1µs`로 보정한다.
 
 과거 데이터에 마지막 정책 구간이 없으면 migration을 진행하지 말고 운영자가
 데이터를 정정해야 한다. 추정값을 넣으면 마감 이력이 신뢰할 수 없게 된다.
