@@ -743,16 +743,18 @@ sequenceDiagram
     participant Service as FinalizeAttendanceDayService
     participant DB as PostgreSQL
 
-    loop 기본 5분 fixed delay
+    alt Asia/Seoul 기준 매일 자정
         Scheduler->>Service: findPendingDayIds
-        Service->>DB: 오늘보다 이전인 SCHEDULED day 조회
-        loop 각 day를 독립 transaction으로 처리
-            Scheduler->>Service: finalizeDay(dayId)
-            Service->>DB: department → day lock
-            Service->>DB: target인데 record 없는 행에 AUTO_ABSENCE INSERT
-            Service->>DB: day FINALIZED
-            Service->>DB: idempotent system audit INSERT
-        end
+    else 애플리케이션 재기동 완료
+        Scheduler->>Service: findPendingDayIds
+    end
+    Service->>DB: finalization_due_at이 지난 SCHEDULED day 조회
+    loop 각 day를 독립 transaction으로 처리
+        Scheduler->>Service: finalizeDay(dayId)
+        Service->>DB: department → day lock
+        Service->>DB: target인데 record 없는 행에 AUTO_ABSENCE INSERT
+        Service->>DB: day FINALIZED
+        Service->>DB: idempotent system audit INSERT
     end
 ```
 

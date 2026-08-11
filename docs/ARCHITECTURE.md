@@ -750,26 +750,27 @@ check-in은 1번과 2번을 공유 잠금으로 읽고, 구성원·날짜·장�
 
 ```text
 AttendanceFinalizationScheduler
-→ findOverdueScheduledDayIds(today)
-→ 각 ID에 대해 AttendanceFinalizationService.finalize(dayId)
+→ 매일 자정 또는 ApplicationReadyEvent
+→ FinalizeAttendanceDayService.findPendingDayIds()
+→ 각 ID에 대해 FinalizeAttendanceDayService.finalizeDay(dayId)
 ```
 
 날짜 하나당 별도 트랜잭션으로 처리한다.
 
-1. 대상 날짜의 `department` 행을 공유 잠금으로 읽고 활성 범위를 고정
+1. 대상 날짜의 활성 `department` 행을 `FOR UPDATE`로 잠금
 2. `attendance_day FOR UPDATE`
-3. 여전히 과거 `SCHEDULED`인지 재검증
+3. 여전히 마감 시각이 지난 `SCHEDULED`인지 재검증
 4. `is_target = TRUE`이고 기록이 없는 대상자만 `ABSENT` 삽입
-5. 대상자 수와 최종 기록 수 검증
-6. `FINALIZED` 변경
-7. idempotency key가 있는 시스템 감사 로그 기록
+5. 조건부 UPDATE로 `FINALIZED` 변경
+6. idempotency key가 있는 시스템 감사 로그 기록
+7. 마감 알림 outbox 저장
 8. commit
 
 여러 날짜를 한 거대한 트랜잭션으로 묶지 않는다. 한 날짜의 오류가 다른 날짜의 정상 마감을 rollback시키지 않아야 한다.
 
 Spring 내부 self-invocation으로 `@Transactional`이 무시되지 않도록 scheduler와 날짜별 finalization service를 별도 bean으로 둔다.
 
-스케줄러는 특정 자정 한 번의 실행 성공에 의존하지 않는다. 애플리케이션 기동 후와 설정된 주기마다 모든 과거 미마감 날짜를 다시 찾고, 한 날짜의 실패를 기록한 뒤 나머지 날짜 처리를 계속한다.
+스케줄러는 `Asia/Seoul` 기준 매일 자정에 모든 마감 대상 날짜를 처리한다. 또한 애플리케이션 준비 완료 시 동일한 조회를 한 번 실행해 서버 중단 중 놓친 미마감 날짜를 catch-up한다. 두 경로 모두 마감 예정 시각이 지났지만 여전히 `SCHEDULED`인 날짜 전체를 조회하며, 한 날짜의 실패를 기록한 뒤 나머지 날짜 처리를 계속한다.
 
 ### 8.7 수동 등록·정정
 

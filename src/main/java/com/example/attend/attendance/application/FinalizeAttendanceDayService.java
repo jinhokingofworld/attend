@@ -44,7 +44,7 @@ public class FinalizeAttendanceDayService {
 	}
 
 	/**
-	 * 재기동 catch-up 대상인 모든 과거 미마감 날짜를 조회한다.
+	 * 일일 정기 마감과 재기동 catch-up 대상인 모든 미마감 날짜를 조회한다.
 	 *
 	 * @return 날짜·ID 오름차순의 출석일 ID
 	 */

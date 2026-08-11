@@ -30,6 +30,17 @@ class AttendanceSchedulerConfigurationTest {
 				"attendance.scheduler.enabled", Boolean.class)).isFalse();
 	}
 
+	/** 일일 마감은 Asia/Seoul 기준 자정 cron을 기본값으로 사용한다. */
+	@Test
+	void usesSeoulMidnightAsDailySchedule() throws IOException {
+		MockEnvironment environment = applicationEnvironment();
+
+		assertThat(environment.getProperty("attendance.scheduler.daily-cron"))
+				.isEqualTo("0 0 0 * * *");
+		assertThat(environment.getProperty("attendance.scheduler.zone"))
+				.isEqualTo("Asia/Seoul");
+	}
+
 	private static MockEnvironment applicationEnvironment() throws IOException {
 		MockEnvironment environment = new MockEnvironment();
 		environment.getPropertySources().addLast(
