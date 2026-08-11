@@ -35,7 +35,7 @@ import static com.example.attend.database.DatabasePreflightInspector.PreflightSt
 import static com.example.attend.database.DatabasePreflightInspector.PreflightStatus.REJECTED;
 
 /**
- * 실제 PostgreSQL 15에서 V001~V015 migration의 안전성과 핵심 제약조건을 검증한다.
+ * 실제 PostgreSQL 15에서 V001~V016 migration의 안전성과 핵심 제약조건을 검증한다.
  *
  * <p>H2 같은 대체 DB로는 PostgreSQL catalog, partial unique index, 복합 외래 키,
  * SQLSTATE가 실제 운영 DB와 같다고 보장할 수 없다. 따라서 Testcontainers로
@@ -61,7 +61,7 @@ class FlywayMigrationTest {
             new PostgreSQLContainer<>("postgres:15-alpine");
 
     /**
-     * 빈 DB가 올바르게 분류되고 V015까지 정확히 한 번 적용되는지 검증한다.
+     * 빈 DB가 올바르게 분류되고 V016까지 정확히 한 번 적용되는지 검증한다.
      *
      * <p>잘못된 운영자 승인값에서는 history조차 만들지 않아야 하며, 같은
      * migration을 다시 실행해도 결과가 바뀌지 않는 멱등성도 함께 확인한다.</p>
@@ -104,7 +104,7 @@ class FlywayMigrationTest {
                     FROM public.flyway_schema_history
                     WHERE success
                       AND version IS NOT NULL
-                    """ )).isEqualTo(15);
+                    """ )).isEqualTo(16);
 
             assertThat(queryInt(connection, """
                     SELECT count(*)
@@ -347,17 +347,105 @@ class FlywayMigrationTest {
         }
     }
 
-    /** V015가 적용되지 않은 DB에는 현재 release의 runtime 권한을 부여하지 않는다. */
+    /** V016은 진행 중 retry의 최초 실패 시각을 보정하고 운영 outbox를 만든다. */
     @Test
-    void rejectsRuntimePrivilegeGrantsBeforeV015IsApplied()
-            throws Exception {
-        Database database = createDatabase("v015_grant_guard");
-        Flyway.configure()
+    void addsDurableFinalizationOperationalAlertState() throws Exception {
+        Database database = createDatabase("finalization_operational_alert");
+        Flyway flywayAtV15 = Flyway.configure()
+                .configuration(Map.of(
+                        "flyway.postgresql.transactional.lock", "false"))
                 .dataSource(database.dataSource())
                 .locations(MIGRATION_LOCATION)
                 .defaultSchema("public")
                 .schemas("public")
-                .target(MigrationVersion.fromVersion("14"))
+                .target(MigrationVersion.fromVersion("15"))
+                .validateOnMigrate(true)
+                .cleanDisabled(true)
+                .outOfOrder(false)
+                .load();
+        flywayAtV15.migrate();
+
+        try (Connection connection = database.connect();
+             Statement statement = connection.createStatement()) {
+            long accountId = queryLong(statement, """
+                    INSERT INTO public.account (
+                        username, password_hash, status, password_changed_at)
+                    VALUES ('v016-admin', 'test-hash', 'ACTIVE', CURRENT_TIMESTAMP)
+                    RETURNING id
+                    """);
+            long departmentId = queryLong(statement, """
+                    INSERT INTO public.department (name)
+                    VALUES ('V016 운영 알림 부서')
+                    RETURNING id
+                    """);
+            long policyId = queryLong(statement, """
+                    INSERT INTO public.attendance_policy_version (
+                        department_id, version_no, name, check_in_start_time,
+                        status, created_by_account_id)
+                    VALUES (%d, 1, 'V016 정책', TIME '08:30', 'DRAFT', %d)
+                    RETURNING id
+                    """.formatted(departmentId, accountId));
+            statement.executeUpdate("""
+                    INSERT INTO public.attendance_day (
+                        department_id, attendance_date, policy_version_id,
+                        status, created_by_account_id,
+                        finalization_failure_count,
+                        finalization_next_attempt_at,
+                        finalization_claim_version,
+                        finalization_last_error_code,
+                        finalization_last_failed_at)
+                    VALUES (
+                        %d, DATE '2026-08-12', %d, 'SCHEDULED', %d,
+                        2, TIMESTAMPTZ '2026-08-12 00:04:00Z', 2,
+                        'TEST_FAILURE', TIMESTAMPTZ '2026-08-12 00:02:00Z')
+                    """.formatted(departmentId, policyId, accountId));
+        }
+
+        Flyway completeFlyway = Flyway.configure()
+                .configuration(Map.of(
+                        "flyway.postgresql.transactional.lock", "false"))
+                .dataSource(database.dataSource())
+                .locations(MIGRATION_LOCATION)
+                .defaultSchema("public")
+                .schemas("public")
+                .validateOnMigrate(true)
+                .cleanDisabled(true)
+                .outOfOrder(false)
+                .load();
+        completeFlyway.migrate();
+        completeFlyway.migrate();
+
+        try (Connection connection = database.connect()) {
+            assertThat(queryString(connection, """
+                    SELECT (
+                        finalization_first_failed_at =
+                        TIMESTAMPTZ '2026-08-12 00:02:00Z')::text
+                    FROM public.attendance_day
+                    """)).isEqualTo("true");
+            assertThat(queryString(connection, """
+                    SELECT to_regclass(
+                        'public.finalization_operational_event')::text
+                    """)).isEqualTo("finalization_operational_event");
+            assertThat(queryInt(connection, """
+                    SELECT count(*) FROM public.flyway_schema_history
+                    WHERE version = '016' AND success
+                    """)).isEqualTo(1);
+        }
+    }
+
+    /** V016이 적용되지 않은 DB에는 현재 release의 runtime 권한을 부여하지 않는다. */
+    @Test
+    void rejectsRuntimePrivilegeGrantsBeforeV016IsApplied()
+            throws Exception {
+        Database database = createDatabase("v016_grant_guard");
+        Flyway.configure()
+                .configuration(Map.of(
+                        "flyway.postgresql.transactional.lock", "false"))
+                .dataSource(database.dataSource())
+                .locations(MIGRATION_LOCATION)
+                .defaultSchema("public")
+                .schemas("public")
+                .target(MigrationVersion.fromVersion("15"))
                 .validateOnMigrate(true)
                 .cleanDisabled(true)
                 .outOfOrder(false)
@@ -373,8 +461,7 @@ class FlywayMigrationTest {
                     "ops/db/roles/003_grant_application_privileges.sql"
             ))
                     .isInstanceOf(SQLException.class)
-                    .hasMessageContaining(
-                            "successful Flyway migration V015");
+                    .hasMessageContaining("complete V016 schema");
         }
     }
 
@@ -1987,7 +2074,7 @@ class FlywayMigrationTest {
                     FROM public.flyway_schema_history
                     WHERE success
                       AND version IS NOT NULL
-                    """)).isEqualTo(16);
+                    """)).isEqualTo(17);
             assertThat(queryInt(connection, """
                     SELECT count(*)
                     FROM public.flyway_schema_history
@@ -2420,7 +2507,7 @@ class FlywayMigrationTest {
     }
 
     /**
-     * 애플리케이션 시작 검사가 정확히 성공한 V001~V015만 허용하는지 검증한다.
+     * 애플리케이션 시작 검사가 정확히 성공한 V001~V016만 허용하는지 검증한다.
      *
      * <p>history 없음, 구버전, 실패 처리된 migration, 애플리케이션보다 앞선
      * 버전을 모두 거부하고 정확한 버전 목록만 통과시킨다.</p>
@@ -2463,7 +2550,7 @@ class FlywayMigrationTest {
             statement.executeUpdate("""
                     UPDATE public.flyway_schema_history
                     SET success = FALSE
-                    WHERE version = '015'
+                    WHERE version = '016'
                     """);
             assertThatThrownBy(() ->
                     SchemaVersionGuard.verify(exact.dataSource()))
@@ -2473,8 +2560,8 @@ class FlywayMigrationTest {
             statement.executeUpdate("""
                     UPDATE public.flyway_schema_history
                     SET success = TRUE,
-                        version = '016'
-                    WHERE version = '015'
+                        version = '017'
+                    WHERE version = '016'
                     """);
             assertThatThrownBy(() ->
                     SchemaVersionGuard.verify(exact.dataSource()))
@@ -2486,7 +2573,7 @@ class FlywayMigrationTest {
     /**
      * migration 계정과 웹 runtime 계정의 실제 PostgreSQL 권한이 분리되는지 검증한다.
      *
-     * <p>한 테스트 안에서 역할 생성, 레거시 migration, V015 이후 grant와 runtime
+     * <p>한 테스트 안에서 역할 생성, 레거시 migration, V016 이후 grant와 runtime
      * guard를 모두 실행한다. runtime의 교사 등록·조회·수정은 실제 사용 컬럼까지
      * 허용하면서 DDL, Flyway history 변경, 교사 삭제·card_uid 접근과 레거시
      * 출석 쓰기는 권한 오류로 막아야 한다.</p>

@@ -1,6 +1,5 @@
 package com.example.attend.notification.infrastructure.telegram;
 
-import com.example.attend.config.TelegramProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.http.HttpClient;
@@ -18,11 +17,9 @@ public final class TelegramBotClient {
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration READ_TIMEOUT = Duration.ofSeconds(15);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    private final TelegramProperties properties;
     private final RestClient restClient;
 
-    public TelegramBotClient(TelegramProperties properties) {
-        this.properties = properties;
+    public TelegramBotClient() {
         HttpClient httpClient = HttpClient.newBuilder()
                 .connectTimeout(CONNECT_TIMEOUT)
                 .build();
@@ -33,10 +30,10 @@ public final class TelegramBotClient {
     }
 
     /** 성공한 Telegram message ID를 반환한다. */
-    public long sendMessage(long chatId, String messageText) {
+    public long sendMessage(String botToken, long chatId, String messageText) {
         try {
             JsonNode response = restClient.post()
-                    .uri("https://api.telegram.org/bot{token}/sendMessage", properties.botToken())
+                    .uri("https://api.telegram.org/bot{token}/sendMessage", botToken)
                     .body(Map.of("chat_id", chatId, "text", messageText))
                     .retrieve()
                     .body(JsonNode.class);

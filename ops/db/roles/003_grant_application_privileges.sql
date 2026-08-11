@@ -1,4 +1,4 @@
--- Post-migration grants for the V015 schema. Run as migration_owner or an
+-- Post-migration grants for the V016 schema. Run as migration_owner or an
 -- equivalent owner after guarded dbMigrate succeeds.
 --
 -- This script is intentionally explicit. A future migration that adds a table,
@@ -34,7 +34,8 @@ BEGIN
               ('telegram_link_token'),
               ('account_telegram_connection'),
               ('telegram_webhook_update'),
-              ('attendance_notification_outbox')
+              ('attendance_notification_outbox'),
+              ('finalization_operational_event')
       ) AS expected(table_name)
      WHERE pg_catalog.to_regclass(
                'public.' || expected.table_name
@@ -42,18 +43,18 @@ BEGIN
 
     IF missing_tables IS NOT NULL THEN
         RAISE EXCEPTION
-            'Runtime grants require the complete V015 schema; missing: %',
+            'Runtime grants require the complete V016 schema; missing: %',
             missing_tables;
     END IF;
 
     IF NOT EXISTS (
         SELECT 1
         FROM public.flyway_schema_history
-        WHERE version = '015'
+        WHERE version = '016'
           AND success
     ) THEN
         RAISE EXCEPTION
-            'Runtime grants require successful Flyway migration V015';
+            'Runtime grants require successful Flyway migration V016';
     END IF;
 
     IF pg_catalog.to_regprocedure(
@@ -168,6 +169,24 @@ GRANT SELECT, INSERT ON TABLE
     public.attendance_notification_outbox
 TO app_runtime, cutover_writer;
 
+GRANT SELECT ON TABLE public.finalization_operational_event
+TO app_runtime, cutover_writer;
+
+GRANT INSERT (
+    event_type,
+    attendance_day_id,
+    incident_claim_version,
+    department_id,
+    department_name,
+    attendance_date,
+    first_failed_at,
+    occurred_at,
+    total_attempt_count,
+    error_code,
+    next_attempt_at
+) ON TABLE public.finalization_operational_event
+TO app_runtime, cutover_writer;
+
 GRANT INSERT ON TABLE public.telegram_webhook_update
 TO app_runtime, cutover_writer;
 
@@ -245,6 +264,7 @@ GRANT UPDATE (
     finalization_claim_version,
     finalization_lease_until,
     finalization_last_error_code,
+    finalization_first_failed_at,
     finalization_last_failed_at,
     canceled_at,
     cancel_reason
@@ -275,6 +295,19 @@ GRANT UPDATE (
     last_error_code,
     updated_at
 ) ON TABLE public.attendance_notification_outbox
+TO app_runtime, cutover_writer;
+
+GRANT UPDATE (
+    status,
+    delivery_attempt_count,
+    delivery_claim_version,
+    next_attempt_at,
+    lease_until,
+    telegram_message_id,
+    sent_at,
+    last_delivery_error_code,
+    updated_at
+) ON TABLE public.finalization_operational_event
 TO app_runtime, cutover_writer;
 
 GRANT UPDATE (
@@ -349,7 +382,8 @@ GRANT USAGE ON SEQUENCE
     public.tag_event_log_id_seq,
     public.audit_log_id_seq,
     public.telegram_link_token_id_seq,
-    public.attendance_notification_outbox_id_seq
+    public.attendance_notification_outbox_id_seq,
+    public.finalization_operational_event_id_seq
 TO app_runtime, cutover_writer;
 
 -- The safe legacy release can keep working during a controlled rollback window,

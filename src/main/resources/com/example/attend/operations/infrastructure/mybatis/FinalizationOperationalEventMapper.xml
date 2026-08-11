@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.attend.operations.infrastructure.mybatis.FinalizationOperationalEventMapper">
+
+    <insert id="insertRetryExhaustedEvent">
+        INSERT INTO public.finalization_operational_event (
+            event_type,
+            attendance_day_id,
+            incident_claim_version,
+            department_id,
+            department_name,
+            attendance_date,
+            first_failed_at,
+            occurred_at,
+            total_attempt_count,
+            error_code,
+            next_attempt_at
+        )
+        SELECT
+            'FINALIZATION_RETRY_EXHAUSTED',
+            day.id,
+            #{incidentClaimVersion},
+            day.department_id,
+            department.name,
+            day.attendance_date,
+            day.finalization_first_failed_at,
+            #{occurredAt},
+            6,
+            #{errorCode},
+            #{occurredAt}
+        FROM public.attendance_day AS day
+        JOIN public.department AS department ON department.id = day.department_id
+        WHERE day.id = #{attendanceDayId}
+          AND day.status = 'SCHEDULED'
+          AND day.finalization_failure_count = 6
+          AND day.finalization_claim_version = #{incidentClaimVersion}
+        ON CONFLICT (event_type, attendance_day_id, incident_claim_version)
+        DO UPDATE SET event_type = finalization_operational_event.event_type
+    </insert>
+
+    <select id="selectReadyEventIds" resultType="long">
+        SELECT id
+        FROM public.finalization_operational_event
+        WHERE status IN ('PENDING', 'RETRY')
+          AND next_attempt_at &lt;= #{now}
+        ORDER BY next_attempt_at, id
+        LIMIT #{limit}
+    </select>
+
+    <select id="claimEvent"
+            resultType="com.example.attend.operations.domain.FinalizationOperationalAlertJob"
+            affectData="true" flushCache="true">
+        UPDATE public.finalization_operational_event
+        SET status = 'PROCESSING',
+            delivery_attempt_count = delivery_attempt_count + 1,
+            delivery_claim_version = delivery_claim_version + 1,
+            lease_until = #{leaseUntil},
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND status IN ('PENDING', 'RETRY')
+          AND next_attempt_at &lt;= #{now}
+        RETURNING id,
+            event_type,
+            attendance_day_id,
+            incident_claim_version,
+            department_id,
+            department_name,
+            attendance_date,
+            first_failed_at,
+            occurred_at,
+            total_attempt_count,
+            error_code,
+            delivery_attempt_count,
+            delivery_claim_version
+    </select>
+
+    <update id="markSent">
+        UPDATE public.finalization_operational_event
+        SET status = 'SENT',
+            telegram_message_id = #{telegramMessageId},
+            sent_at = #{sentAt},
+            lease_until = NULL,
+            last_delivery_error_code = NULL,
+            updated_at = #{sentAt}
+        WHERE id = #{id}
+          AND status = 'PROCESSING'
+          AND delivery_claim_version = #{deliveryClaimVersion}
+    </update>
+
+    <update id="markRetry">
+        UPDATE public.finalization_operational_event
+        SET status = 'RETRY',
+            next_attempt_at = #{nextAttemptAt},
+            lease_until = NULL,
+            last_delivery_error_code = #{errorCode},
+            updated_at = #{updatedAt}
+        WHERE id = #{id}
+          AND status = 'PROCESSING'
+          AND delivery_claim_version = #{deliveryClaimVersion}
+    </update>
+
+    <update id="recoverExpiredLeases">
+        UPDATE public.finalization_operational_event
+        SET status = 'RETRY',
+            next_attempt_at = #{now},
+            lease_until = NULL,
+            last_delivery_error_code = 'OPERATIONS_TELEGRAM_LEASE_EXPIRED',
+            updated_at = #{now}
+        WHERE status = 'PROCESSING'
+          AND lease_until &lt;= #{now}
+    </update>
+</mapper>

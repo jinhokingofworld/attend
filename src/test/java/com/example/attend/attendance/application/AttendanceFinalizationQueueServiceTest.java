@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 
 import com.example.attend.attendance.infrastructure.mybatis.AttendanceDayMapper;
 import com.example.attend.config.AttendanceFinalizationSchedulerProperties;
+import com.example.attend.operations.infrastructure.mybatis.FinalizationOperationalEventMapper;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -51,27 +52,44 @@ class AttendanceFinalizationQueueServiceTest {
 	@Test
 	void exhaustsAfterTheFifthRetryFailure() {
 		AttendanceDayMapper mapper = mock(AttendanceDayMapper.class);
-		AttendanceFinalizationQueueService service = service(mapper);
+		FinalizationOperationalEventMapper operationalEventMapper =
+				mock(FinalizationOperationalEventMapper.class);
+		AttendanceFinalizationQueueService service =
+				service(mapper, operationalEventMapper);
 		AttendanceFinalizationClaim fifthRetry =
 				new AttendanceFinalizationClaim(42L, 5, 10L);
 		when(mapper.markFinalizationFailure(
 				42L, 10L, 6, null,
 				"IllegalArgumentException", NOW)).thenReturn(1);
+		when(operationalEventMapper.insertRetryExhaustedEvent(
+				42L, 10L, "IllegalArgumentException", NOW)).thenReturn(1);
 
 		assertThat(service.recordFailure(
 				fifthRetry, new IllegalArgumentException("persistent"))).isTrue();
 		verify(mapper).markFinalizationFailure(
 				42L, 10L, 6, null,
 				"IllegalArgumentException", NOW);
+		verify(operationalEventMapper).insertRetryExhaustedEvent(
+				42L, 10L, "IllegalArgumentException", NOW);
 	}
 
 	private static AttendanceFinalizationQueueService service(
 			AttendanceDayMapper mapper
 	) {
+		return service(mapper, mock(FinalizationOperationalEventMapper.class));
+	}
+
+	private static AttendanceFinalizationQueueService service(
+			AttendanceDayMapper mapper,
+			FinalizationOperationalEventMapper operationalEventMapper
+	) {
 		AttendanceFinalizationSchedulerProperties properties =
 				new AttendanceFinalizationSchedulerProperties(
 						true, Duration.ofMinutes(2), Duration.ofMinutes(1), 20);
 		return new AttendanceFinalizationQueueService(
-				mapper, properties, Clock.fixed(NOW, ZoneOffset.UTC));
+				mapper,
+				properties,
+				operationalEventMapper,
+				Clock.fixed(NOW, ZoneOffset.UTC));
 	}
 }

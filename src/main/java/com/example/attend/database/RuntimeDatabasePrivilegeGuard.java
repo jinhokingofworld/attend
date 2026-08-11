@@ -43,7 +43,7 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
     }
 
     /**
-     * 현재 DB 사용자가 V015 runtime 최소 권한 경계를 지키는지 확인한다.
+     * 현재 DB 사용자가 V016 runtime 최소 권한 경계를 지키는지 확인한다.
      *
      * @param dataSource 검사할 운영 데이터소스
      * @throws IllegalStateException 권한이 과도하거나 필수 조회 권한이 없을 때
@@ -174,6 +174,61 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                             'public.attendance_notification_outbox',
                             'SELECT,INSERT'
                         )
+                        AND has_table_privilege(
+                            current_user,
+                            'public.finalization_operational_event',
+                            'SELECT'
+                        )
+                        AND NOT has_table_privilege(
+                            current_user,
+                            'public.finalization_operational_event',
+                            'UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM (
+                                VALUES
+                                    ('event_type'),
+                                    ('attendance_day_id'),
+                                    ('incident_claim_version'),
+                                    ('department_id'),
+                                    ('department_name'),
+                                    ('attendance_date'),
+                                    ('first_failed_at'),
+                                    ('occurred_at'),
+                                    ('total_attempt_count'),
+                                    ('error_code'),
+                                    ('next_attempt_at')
+                            ) AS required(column_name)
+                            WHERE NOT has_column_privilege(
+                                current_user,
+                                'public.finalization_operational_event',
+                                required.column_name,
+                                'INSERT'
+                            )
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM (
+                                VALUES
+                                    ('id'),
+                                    ('status'),
+                                    ('delivery_attempt_count'),
+                                    ('delivery_claim_version'),
+                                    ('lease_until'),
+                                    ('telegram_message_id'),
+                                    ('sent_at'),
+                                    ('last_delivery_error_code'),
+                                    ('created_at'),
+                                    ('updated_at')
+                            ) AS forbidden(column_name)
+                            WHERE has_column_privilege(
+                                current_user,
+                                'public.finalization_operational_event',
+                                forbidden.column_name,
+                                'INSERT'
+                            )
+                        )
                         AND has_sequence_privilege(
                             current_user,
                             'public.telegram_link_token_id_seq',
@@ -182,6 +237,11 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                         AND has_sequence_privilege(
                             current_user,
                             'public.attendance_notification_outbox_id_seq',
+                            'USAGE'
+                        )
+                        AND has_sequence_privilege(
+                            current_user,
+                            'public.finalization_operational_event_id_seq',
                             'USAGE'
                         )
                         AND NOT has_table_privilege(
@@ -199,6 +259,7 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                                     ('attendance_day', 'finalization_claim_version'),
                                     ('attendance_day', 'finalization_lease_until'),
                                     ('attendance_day', 'finalization_last_error_code'),
+                                    ('attendance_day', 'finalization_first_failed_at'),
                                     ('attendance_day', 'finalization_last_failed_at'),
                                     ('telegram_link_token', 'consumed_at'),
                                     ('telegram_link_token', 'revoked_at'),
@@ -213,7 +274,16 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                                     ('attendance_notification_outbox', 'telegram_message_id'),
                                     ('attendance_notification_outbox', 'sent_at'),
                                     ('attendance_notification_outbox', 'last_error_code'),
-                                    ('attendance_notification_outbox', 'updated_at')
+                                    ('attendance_notification_outbox', 'updated_at'),
+                                    ('finalization_operational_event', 'status'),
+                                    ('finalization_operational_event', 'delivery_attempt_count'),
+                                    ('finalization_operational_event', 'delivery_claim_version'),
+                                    ('finalization_operational_event', 'next_attempt_at'),
+                                    ('finalization_operational_event', 'lease_until'),
+                                    ('finalization_operational_event', 'telegram_message_id'),
+                                    ('finalization_operational_event', 'sent_at'),
+                                    ('finalization_operational_event', 'last_delivery_error_code'),
+                                    ('finalization_operational_event', 'updated_at')
                             ) AS required(table_name, column_name)
                             WHERE NOT has_column_privilege(
                                 current_user,

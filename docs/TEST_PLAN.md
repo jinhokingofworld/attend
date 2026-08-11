@@ -91,7 +91,7 @@ Attend MVP는 화면이 열리고 NFC 요청 한 건이 성공하는 것만으�
 | Security/MVC | MockMvc + 실제 security 설정 + Testcontainers | 두 filter chain, CSRF, 세션, IDOR, PRG | 실제 PostgreSQL |
 | Device contract | OpenAPI validation + HTTP integration | schema, status, header, body 제한, 재시도 계약 | 기동한 Spring Boot |
 | Concurrency | 두 개 이상의 독립 DB connection/transaction | 잠금 순서와 race condition | 실제 PostgreSQL |
-| Migration | 빈 DB·레거시 fixture·복원 DB | V001~V015, baseline 0, 권한, 재현성 | 별도 PostgreSQL |
+| Migration | 빈 DB·레거시 fixture·복원 DB | V001~V016, baseline 0, 권한, 재현성 | 별도 PostgreSQL |
 | Firmware integration | 실제 Arduino·NFC reader·운영 유사 네트워크 | UID, HTTP, timeout, LED·부저 | staging 서버 |
 | E2E·파일럿 | 실제 관리자·교사·장치 | 전체 업무 흐름과 운영 절차 | 운영 유사/실환경 |
 
@@ -379,6 +379,10 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | FIN-014 | 두 인스턴스가 같은 날짜를 동시에 조회 | 한 claim version만 선점하고 다른 인스턴스는 lease 만료 전 처리하지 않음 |
 | FIN-015 | 이전 lease worker가 새 claim 뒤 늦게 실패 | 이전 claim version의 실패 update는 0건이며 새 세대 상태를 덮지 않음 |
 | FIN-016 | 출석일 생성·정책 교체 transaction rollback | commit되지 않은 due event는 동적 task를 예약하지 않음 |
+| FIN-017 | 최초 실행과 다섯 retry가 모두 실패 | 같은 transaction에서 개인정보 없는 `FINALIZATION_RETRY_EXHAUSTED` 운영 이벤트 한 건 생성 |
+| FIN-018 | 같은 claim의 실패 결과가 중복 처리됨 | `(event_type, attendance_day_id, incident_claim_version)` 유일성으로 운영 이벤트 중복 없음 |
+| FIN-019 | 운영 Bot timeout·429·5xx·token 오류 | 이벤트를 버리지 않고 Telegram `retry_after` 또는 최대 1시간 capped backoff로 계속 재시도 |
+| FIN-020 | 이전 운영 알림 lease가 만료된 뒤 늦게 완료됨 | delivery claim version 불일치 update는 0건이며 새 전송 결과를 덮지 않음 |
 
 ---
 
@@ -447,7 +451,7 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 
 | ID | 환경·작업 | 합격 기준 |
 |---|---|---|
-| MIG-FRESH-001 | 완전히 빈 DB에 V001~V015 적용 | baseline 행 없이 전체 목표 schema 생성 |
+| MIG-FRESH-001 | 완전히 빈 DB에 V001~V016 적용 | baseline 행 없이 전체 목표 schema 생성 |
 | MIG-FRESH-002 | 같은 migration 집합을 다시 실행하고 validate | 두 번째 schema·data 변경 없음 |
 | MIG-SAFE-001 | `NEW_OR_SAMPLE` DB에 baseline 시도 | baseline 금지, history·schema 변경 없음 |
 | MIG-SAFE-002 | 승인된 `LEGACY_OPERATIONAL` fixture | 사전조건 통과 후 명시적 version 0 `BASELINE` 정확히 한 행, PK·행·sequence 보존 |
@@ -462,7 +466,7 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | MIG-RUNNER-002 | 적용 파일 checksum 변경 | runner의 `flyway validate` 실패, 배포 중단 |
 | MIG-RUNNER-003 | pending·out-of-order·repeatable checksum 불일치 | runner의 `info`·`validate` gate 실패 |
 | MIG-RUNNER-004 | 운영 runner에서 `clean` 시도 | `cleanDisabled=true`로 거부 |
-| MIG-RUNTIME-001 | 성공한 versioned history가 V001~V015와 정확히 일치 | runtime 기동 허용 |
+| MIG-RUNTIME-001 | 성공한 versioned history가 V001~V016과 정확히 일치 | runtime 기동 허용 |
 | MIG-RUNTIME-002 | history 없음·실패 행·version 누락·V011 미만·승인 target 초과 각각 | runtime이 쓰기 받기 전에 fail fast |
 | MIG-RUNTIME-003 | `001` 같은 표시 형식과 숫자 version 비교 | 문자열 `MAX(version)`이 아니라 Flyway `MigrationVersion`으로 판정 |
 | MIG-RUNTIME-004 | `migration_owner` credential을 웹 runtime에 설정 | 설정 검증 실패 |

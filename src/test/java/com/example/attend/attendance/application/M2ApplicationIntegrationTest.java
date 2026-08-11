@@ -16,6 +16,8 @@ import com.example.attend.organization.application.TeacherRosterService;
 import com.example.attend.organization.application.UpdateTeacherCommand;
 import com.example.attend.organization.domain.CardDisposition;
 import com.example.attend.organization.domain.NfcUid;
+import com.example.attend.operations.domain.FinalizationOperationalAlertJob;
+import com.example.attend.operations.infrastructure.mybatis.FinalizationOperationalEventMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -91,6 +93,12 @@ class M2ApplicationIntegrationTest {
 
 	@Autowired
 	private AttendanceDayMapper dayMapper;
+
+	@Autowired
+	private AttendanceFinalizationQueueService finalizationQueueService;
+
+	@Autowired
+	private FinalizationOperationalEventMapper operationalEventMapper;
 
 	@Autowired
 	private AttendanceStatisticsService statisticsService;
@@ -195,14 +203,12 @@ class M2ApplicationIntegrationTest {
 			Instant nextAttemptAt = failureCount <= delays.size()
 					? failedAt.plus(delays.get(failureCount - 1))
 					: null;
-			assertThat(dayMapper.markFinalizationFailure(
-					dayId,
-					claim.claimVersion(),
-					failureCount,
-					nextAttemptAt,
-					"TEST_FAILURE",
-					failedAt)).isEqualTo(1);
+			clock.setInstant(failedAt);
+			assertThat(finalizationQueueService.recordFailure(
+					claim, new IllegalStateException("test-only failure"))).isTrue();
 			if (failureCount == 6) {
+				assertThat(finalizationQueueService.recordFailure(
+						claim, new IllegalStateException("duplicate result"))).isTrue();
 				break;
 			}
 			assertThat(dayMapper.claimFinalizationDay(
@@ -235,6 +241,54 @@ class M2ApplicationIntegrationTest {
 				"SELECT status || ':' || finalization_failure_count "
 						+ "FROM public.attendance_day WHERE id = ?",
 				dayId)).isEqualTo("SCHEDULED:6");
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT count(*)
+				FROM public.finalization_operational_event
+				WHERE attendance_day_id = ?
+				  AND event_type = 'FINALIZATION_RETRY_EXHAUSTED'
+				""", Integer.class, dayId)).isEqualTo(1);
+		assertThat(queryString("""
+				SELECT total_attempt_count || ':' || error_code
+				FROM public.finalization_operational_event
+				WHERE attendance_day_id = ?
+				""", dayId)).isEqualTo("6:IllegalStateException");
+
+		long eventId = jdbcTemplate.queryForObject("""
+				SELECT id FROM public.finalization_operational_event
+				WHERE attendance_day_id = ?
+				""", Long.class, dayId);
+		assertThat(operationalEventMapper.selectReadyEventIds(failedAt, 20))
+				.contains(eventId);
+		FinalizationOperationalAlertJob firstDelivery =
+				operationalEventMapper.claimEvent(
+						eventId, failedAt, failedAt.plus(Duration.ofMinutes(2)));
+		assertThat(firstDelivery.deliveryAttemptCount()).isEqualTo(1);
+		assertThat(firstDelivery.departmentId()).isEqualTo(authority.departmentId());
+
+		Instant retryAt = failedAt.plusSeconds(30);
+		assertThat(operationalEventMapper.markRetry(
+				eventId,
+				firstDelivery.deliveryClaimVersion(),
+				retryAt,
+				"TELEGRAM_NETWORK_ERROR",
+				failedAt)).isEqualTo(1);
+		assertThat(operationalEventMapper.selectReadyEventIds(
+				retryAt.minusNanos(1_000), 20)).doesNotContain(eventId);
+		FinalizationOperationalAlertJob secondDelivery =
+				operationalEventMapper.claimEvent(
+						eventId, retryAt, retryAt.plus(Duration.ofMinutes(2)));
+		assertThat(secondDelivery.deliveryClaimVersion())
+				.isGreaterThan(firstDelivery.deliveryClaimVersion());
+		assertThat(operationalEventMapper.markSent(
+				eventId,
+				firstDelivery.deliveryClaimVersion(),
+				900L,
+				retryAt)).isZero();
+		assertThat(operationalEventMapper.markSent(
+				eventId,
+				secondDelivery.deliveryClaimVersion(),
+				901L,
+				retryAt)).isEqualTo(1);
 	}
 
 	/** 신규·수정 command는 생일과 만 나이의 근거인 정확한 생년월일을 요구한다. */

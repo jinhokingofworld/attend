@@ -2,6 +2,7 @@ package com.example.attend.attendance.application;
 
 import com.example.attend.attendance.infrastructure.mybatis.AttendanceDayMapper;
 import com.example.attend.config.AttendanceFinalizationSchedulerProperties;
+import com.example.attend.operations.infrastructure.mybatis.FinalizationOperationalEventMapper;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -23,15 +24,18 @@ public class AttendanceFinalizationQueueService {
 
 	private final AttendanceDayMapper dayMapper;
 	private final AttendanceFinalizationSchedulerProperties properties;
+	private final FinalizationOperationalEventMapper operationalEventMapper;
 	private final Clock clock;
 
 	public AttendanceFinalizationQueueService(
 			AttendanceDayMapper dayMapper,
 			AttendanceFinalizationSchedulerProperties properties,
+			FinalizationOperationalEventMapper operationalEventMapper,
 			Clock clock
 	) {
 		this.dayMapper = dayMapper;
 		this.properties = properties;
+		this.operationalEventMapper = operationalEventMapper;
 		this.clock = clock;
 	}
 
@@ -71,16 +75,34 @@ public class AttendanceFinalizationQueueService {
 				? failedAt.plus(RETRY_DELAYS.get(newFailureCount - 1))
 				: null;
 		String errorCode = failure.getClass().getSimpleName();
+		if (errorCode.isBlank()) {
+			errorCode = RuntimeException.class.getSimpleName();
+		}
 		if (errorCode.length() > 80) {
 			errorCode = errorCode.substring(0, 80);
 		}
-		return dayMapper.markFinalizationFailure(
+		int updated = dayMapper.markFinalizationFailure(
 				claim.attendanceDayId(),
 				claim.claimVersion(),
 				newFailureCount,
 				nextAttemptAt,
 				errorCode,
-				failedAt) == 1;
+				failedAt);
+		if (updated != 1) {
+			return false;
+		}
+		if (newFailureCount > RETRY_DELAYS.size()) {
+			int eventRows = operationalEventMapper.insertRetryExhaustedEvent(
+					claim.attendanceDayId(),
+					claim.claimVersion(),
+					errorCode,
+					failedAt);
+			if (eventRows != 1) {
+				throw new IllegalStateException(
+						"Could not persist finalization retry exhaustion event");
+			}
+		}
+		return true;
 	}
 
 	public int claimLimit() {

@@ -44,7 +44,8 @@ public final class TelegramNotificationScheduler {
                 continue;
             }
             try {
-                long messageId = client.sendMessage(job.chatId(), job.messageText());
+                long messageId = client.sendMessage(
+                        properties.botToken(), job.chatId(), job.messageText());
                 mapper.markSent(job.id(), job.claimVersion(), messageId, clock.instant());
             } catch (TelegramDeliveryFailure exception) {
                 fail(job, exception);

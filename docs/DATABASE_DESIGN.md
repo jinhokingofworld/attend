@@ -358,7 +358,11 @@ MVP에서 `device.department_id`는 생성 후 불변이다. 다른 부서로 �
 6이면 자동 재시도 소진 상태라 다음 시각은 `NULL`이다. `finalization_claim_version`은
 선점 때마다 증가하며 `finalization_lease_until`과 함께 다중 인스턴스의 중복 작업과
 만료 worker의 늦은 실패 update를 차단한다. 마지막 오류에는 예외 종류와 실패
-시각만 저장하고 메시지·개인정보는 저장하지 않는다.
+시각만 저장하고 메시지·개인정보는 저장하지 않는다. 첫 실패 시각은
+`finalization_first_failed_at`에 한 번만 기록한다. 실패 횟수가 6이 되는 transaction은
+`finalization_operational_event`에 부서·날짜·안전한 오류 코드만 snapshot하며,
+출석 명단·계정·연락처는 포함하지 않는다. 사건 claim version별 유일 제약으로
+중복 통보를 막고 별도 delivery claim version과 lease로 만료 worker의 결과를 차단한다.
 
 `attendance_record`는 다음 조건을 만족해야 한다.
 
