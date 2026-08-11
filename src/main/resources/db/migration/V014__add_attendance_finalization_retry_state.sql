@@ -34,11 +34,3 @@ ALTER TABLE public.attendance_day
 
 ALTER TABLE public.attendance_day
     VALIDATE CONSTRAINT ck_attendance_day_finalization_retry_state;
-
-DROP INDEX CONCURRENTLY IF EXISTS
-    public.idx_attendance_day_finalization_dispatch;
-
-CREATE INDEX CONCURRENTLY idx_attendance_day_finalization_dispatch
-    ON public.attendance_day (
-        (COALESCE(finalization_next_attempt_at, finalization_due_at)), id)
-    WHERE status = 'SCHEDULED' AND finalization_failure_count < 6;

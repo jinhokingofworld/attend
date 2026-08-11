@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -19,7 +20,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -100,6 +105,56 @@ class AttendanceFinalizationSchedulerTest {
 				any(Runnable.class), eq(NOW.plus(Duration.ofMinutes(1))));
 	}
 
+	@Test
+	void preservesEarlierDatabaseWorkWhenCommitEventRacesWithRefresh()
+			throws Exception {
+		Instant databaseDueAt = NOW.plusSeconds(30);
+		Instant eventDueAt = NOW.plusSeconds(90);
+		CountDownLatch queryStarted = new CountDownLatch(1);
+		CountDownLatch releaseQuery = new CountDownLatch(1);
+		Fixture fixture = fixture();
+		when(fixture.queueService().findNextActionAt()).thenAnswer(invocation -> {
+			queryStarted.countDown();
+			if (!releaseQuery.await(5, TimeUnit.SECONDS)) {
+				throw new IllegalStateException("test query was not released");
+			}
+			return databaseDueAt;
+		});
+
+		try (ExecutorService executor = Executors.newSingleThreadExecutor()) {
+			var refresh = executor.submit(
+					() -> fixture.scheduler().startAfterApplicationReady());
+			assertThat(queryStarted.await(5, TimeUnit.SECONDS)).isTrue();
+
+			fixture.scheduler().scheduleChanged(
+					new AttendanceFinalizationScheduleChanged(eventDueAt));
+			releaseQuery.countDown();
+			refresh.get(5, TimeUnit.SECONDS);
+		}
+
+		verify(fixture.taskScheduler()).schedule(any(Runnable.class), eq(eventDueAt));
+		verify(fixture.taskScheduler()).schedule(any(Runnable.class), eq(databaseDueAt));
+		verify(fixture.future()).cancel(false);
+	}
+
+	@Test
+	void clearsRejectedScheduleStateBeforeRecoveryAttempt() {
+		Fixture fixture = fixture();
+		Instant dueAt = NOW.plusSeconds(30);
+		when(fixture.queueService().findNextActionAt()).thenReturn(dueAt);
+		doThrow(new IllegalStateException("scheduler unavailable"))
+				.doReturn(fixture.future())
+				.when(fixture.taskScheduler())
+				.schedule(any(Runnable.class), any(Instant.class));
+
+		fixture.scheduler().startAfterApplicationReady();
+
+		verify(fixture.taskScheduler(), times(2))
+				.schedule(any(Runnable.class), any(Instant.class));
+		verify(fixture.taskScheduler()).schedule(
+				any(Runnable.class), eq(NOW.plus(Duration.ofMinutes(1))));
+	}
+
 	private static Fixture fixture() {
 		AttendanceFinalizationQueueService queueService =
 				mock(AttendanceFinalizationQueueService.class);
@@ -117,6 +172,7 @@ class AttendanceFinalizationSchedulerTest {
 				queueService,
 				finalizationService,
 				taskScheduler,
+				future,
 				new AttendanceFinalizationScheduler(
 						queueService, finalizationService, taskScheduler, clock));
 	}
@@ -135,6 +191,7 @@ class AttendanceFinalizationSchedulerTest {
 			AttendanceFinalizationQueueService queueService,
 			FinalizeAttendanceDayService finalizationService,
 			TaskScheduler taskScheduler,
+			ScheduledFuture<?> future,
 			AttendanceFinalizationScheduler scheduler
 	) {
 	}

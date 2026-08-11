@@ -62,17 +62,23 @@ jobs:
 
           jar tf "${artifact_path}" > build/jar-contents.txt
 
-          for version in 001 002 003 004 005 006 007 008 009 010 011 012 013 014; do
+          for version in 001 002 003 004 005 006 007 008 009 010 011 012 013 014 015; do
             grep -Eq "BOOT-INF/classes/db/migration/V${version}__.+[.]sql$" build/jar-contents.txt
           done
 
           migration_count="$(
             grep -Ec 'BOOT-INF/classes/db/migration/V[0-9]+__.+[.]sql$' build/jar-contents.txt
           )"
-          test "${migration_count}" -eq 14
+          test "${migration_count}" -eq 15
           grep -Fxq \
-            'BOOT-INF/classes/db/migration/V014__add_attendance_finalization_retry_state.sql.conf' \
+            'BOOT-INF/classes/db/migration/V015__add_attendance_finalization_dispatch_index.sql.conf' \
             build/jar-contents.txt
+          if grep -Fxq \
+            'BOOT-INF/classes/db/migration/V014__add_attendance_finalization_retry_state.sql.conf' \
+            build/jar-contents.txt; then
+            echo "Transactional V014 must not carry a non-transactional override."
+            exit 1
+          fi
 
           if grep -Eq 'BOOT-INF/classes/(schema|data)[.]sql$' build/jar-contents.txt; then
             echo "Destructive legacy SQL initialization resource found in the application JAR."

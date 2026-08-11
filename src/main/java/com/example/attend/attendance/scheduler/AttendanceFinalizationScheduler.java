@@ -141,6 +141,11 @@ public class AttendanceFinalizationScheduler {
 	) {
 		synchronized (scheduleMonitor) {
 			if (observedGeneration != scheduleGeneration) {
+				// refresh가 DB를 읽는 동안 commit event가 예약을 바꿨다면
+				// DB에서 찾은 작업과 현재 예약 중 더 이른 시각을 보존한다.
+				if (requestedAt != null) {
+					scheduleIfEarlier(requestedAt, trigger + "-generation-changed");
+				}
 				return;
 			}
 			cancelScheduledTask();
@@ -171,13 +176,19 @@ public class AttendanceFinalizationScheduler {
 		Instant effectiveAt = requestedAt.isBefore(clock.instant())
 				? clock.instant() : requestedAt;
 		long generation = ++scheduleGeneration;
-		scheduledAt = effectiveAt;
-		scheduledTask = taskScheduler.schedule(
-				() -> dispatch(generation), effectiveAt);
-		if (scheduledTask == null) {
+		try {
+			ScheduledFuture<?> acceptedTask = taskScheduler.schedule(
+					() -> dispatch(generation), effectiveAt);
+			if (acceptedTask == null) {
+				throw new IllegalStateException(
+						"TaskScheduler rejected attendance finalization task: " + trigger);
+			}
+			scheduledTask = acceptedTask;
+			scheduledAt = effectiveAt;
+		} catch (RuntimeException exception) {
+			scheduledTask = null;
 			scheduledAt = null;
-			throw new IllegalStateException(
-					"TaskScheduler rejected attendance finalization task: " + trigger);
+			throw exception;
 		}
 	}
 
