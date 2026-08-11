@@ -8,7 +8,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 과거 미마감 날짜를 찾아 날짜별 application 트랜잭션을 호출한다.
+ * 저장된 마감 시각이 지난 미마감 날짜를 찾아 날짜별 application 트랜잭션을 호출한다.
  *
  * <p>스케줄러는 실행 계기만 제공한다. 결석 생성과 날짜 마감 규칙은
  * {@link FinalizeAttendanceDayService}에 있으며, 한 날짜 실패가 다른 날짜의

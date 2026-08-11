@@ -758,7 +758,7 @@ AttendanceFinalizationScheduler
 
 1. 대상 날짜의 `department` 행을 공유 잠금으로 읽고 활성 범위를 고정
 2. `attendance_day FOR UPDATE`
-3. 여전히 과거 `SCHEDULED`인지 재검증
+3. 여전히 `SCHEDULED`이고 저장된 마감 시각에 도달했는지 재검증
 4. `is_target = TRUE`이고 기록이 없는 대상자만 `ABSENT` 삽입
 5. 대상자 수와 최종 기록 수 검증
 6. `FINALIZED` 변경
@@ -769,7 +769,7 @@ AttendanceFinalizationScheduler
 
 Spring 내부 self-invocation으로 `@Transactional`이 무시되지 않도록 scheduler와 날짜별 finalization service를 별도 bean으로 둔다.
 
-스케줄러는 특정 자정 한 번의 실행 성공에 의존하지 않는다. 애플리케이션 기동 후와 설정된 주기마다 모든 과거 미마감 날짜를 다시 찾고, 한 날짜의 실패를 기록한 뒤 나머지 날짜 처리를 계속한다.
+스케줄러는 특정 자정 한 번의 실행 성공에 의존하지 않는다. 설정된 주기마다 `finalization_due_at <= now`인 모든 미마감 날짜를 다시 찾고, 한 날짜의 실패를 기록한 뒤 나머지 날짜 처리를 계속한다.
 
 ### 8.7 수동 등록·정정
 
@@ -950,7 +950,7 @@ MVP는 Spring Boot 애플리케이션 한 인스턴스를 기본으로 한다.
 - 최근 장치별 `last_seen_at`
 - 장치 인증 실패 수
 - 결과 코드별 최근 태깅 수와 처리 시간
-- 과거 미마감 `attendance_day` 수
+- 마감 시각 경과·미마감 `attendance_day` 수
 - 마지막 자동 마감 성공·실패
 - 마지막 백업 성공 시각과 복원 시험 기록
 
@@ -1007,7 +1007,7 @@ Spring Boot Actuator를 도입하면 health endpoint를 외부에 무제한 공�
 - 수동 출석 시각이 출석 날짜·소속 기간 밖인 요청과 상태·구간을 임의 지정한 요청
 - 기록이 있는 날짜 취소
 - 자동 마감 도중 강제 오류
-- 앱 재시작 뒤 과거 미마감 날짜 복구
+- 앱 재시작 뒤 마감 시각 경과·미마감 날짜 복구
 - 새 앱의 레거시 출석·로그 DML 시도
 
 현재 환경의 JDK 21과 PostgreSQL 15 Testcontainers에서 전체 자동 테스트가 통과한다. M2 통합 테스트는 교사·카드 등록, 정책 발행·불변성, 날짜·대상자 snapshot, 시작 전 대상 변경, 수동 판정, 자동 결석·멱등 마감, 통계, 메모 원천 보존과 부서 제외를 한 대표 흐름으로 검증한다. M3 통합 테스트는 활성 계정 로그인, 시스템·부서 역할 분리, CSRF, 장치 chain의 stateless availability 차단, 관리자 주요 화면 rendering과 초대·재설정 token의 hash 저장·재사용 거부·교체 무효화를 검증한다. M4 통합 테스트는 INACTIVE 차단, credential 시험, 활성화, 최초 NFC 출석, 동일 requestId의 canonical 응답 재현, UID 충돌, 새 requestId 재태깅 뒤 최초 기록·시각 유지, 서로 다른 장치의 code/key 혼합 인증 거부, 다른 부서 카드의 상세정보 비노출, 중복 JSON member와 1 KiB 본문 제한을 검증한다. 별도 PostgreSQL 동시성 테스트는 같은 날짜 자동 마감 2건에서 결석·상태·멱등 감사 중복이 없음을 검증한다. 로컬 HTTP 시뮬레이터도 두 부서의 실제 서버·DB를 대상으로 멱등성과 장치·카드 격리 계약을 반복한다. 아직 자동화하지 않은 전체 부정·경합 시나리오와 실제 Arduino 현장 연동까지 검증됐다는 의미는 아니다.

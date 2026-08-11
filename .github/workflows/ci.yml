@@ -180,6 +180,17 @@ jobs:
           )"
           test "${future_day_count}" -eq 2
 
+          future_due_count="$(
+            docker compose --env-file /dev/null -f compose.local.yaml \
+              exec --no-TTY db psql \
+              --username=attend_local \
+              --dbname=attend_local \
+              --tuples-only \
+              --no-align \
+              --command="SELECT COUNT(*) FROM attendance_day WHERE attendance_date = DATE '2099-12-31' AND finalization_due_at = ((attendance_date + TIME '23:59:59.999999') AT TIME ZONE 'Asia/Seoul') + INTERVAL '1 microsecond';"
+          )"
+          test "${future_due_count}" -eq 2
+
       - name: Stop local E2E services
         if: always()
         run: >-

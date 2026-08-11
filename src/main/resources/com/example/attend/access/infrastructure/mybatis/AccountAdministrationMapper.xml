@@ -206,7 +206,7 @@
 		    (SELECT count(*)
 		     FROM public.attendance_day
 		     WHERE status = 'SCHEDULED'
-		       AND attendance_date &lt; CURRENT_DATE) AS overdue_day_count,
+		       AND finalization_due_at &lt;= CURRENT_TIMESTAMP) AS overdue_day_count,
 		    (SELECT count(*)
 		     FROM public.department
 		     WHERE active) AS active_department_count,

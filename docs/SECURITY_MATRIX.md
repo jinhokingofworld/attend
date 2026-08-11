@@ -48,7 +48,7 @@
 | `INACTIVE` 장치 | 장치 코드와 장치별 비밀키 | 같은 방식 | credential test | check-in, 자동 활성화 |
 | `REVOKED` 장치 | 유효했던 키가 남아 있어도 권한 없음 | 종결 상태 | 없음 | check-in, credential test, 키 재발급, 재활성화 |
 | 미등록·인증 실패 장치 | 없음 | 없음 | 없음 | `last_seen_at`, `tag_event_log`, 출석 데이터 생성 |
-| 시스템 스케줄러 `SYSTEM` | 외부 인증 없음 | 조건부 생성된 내부 bean과 서버 생성 actor | 과거 미마감 날짜의 멱등 자동 마감 | HTTP 호출, 일반 관리자 command, 임의 `SYSTEM` actor 지정 |
+| 시스템 스케줄러 `SYSTEM` | 외부 인증 없음 | 조건부 생성된 내부 bean과 서버 생성 actor | 저장된 마감 시각이 지난 날짜의 멱등 자동 마감 | HTTP 호출, 일반 관리자 command, 임의 `SYSTEM` actor 지정 |
 
 `DEPARTMENT_ADMIN(D)`의 D는 로그인 때 선택한 화면 값이 아니라, 요청 시점에 DB에서 확인한 `revoked_at IS NULL`인 활성 권한이다. 로그인 뒤 권한이 회수되더라도 다음 부서 command는 service 검사에서 거부되어야 한다.
 
@@ -538,7 +538,7 @@ DB grant와 FK만으로 막지 못하는 항목:
 | actor | 서버가 만든 `SYSTEM`; request parameter로 받지 않음 |
 | 서비스 | 자동 마감 전용 command만 호출 |
 | DB 계정 | 별도 superuser가 아니라 `app_runtime` |
-| 범위 | 현재 날짜보다 이전인 모든 `SCHEDULED` 날짜 |
+| 범위 | `SCHEDULED`이고 `finalization_due_at <= CURRENT_TIMESTAMP`인 날짜 |
 | 무결성 | 날짜별 lock, unique, 멱등 audit key |
 | 감사 | `attendance-day:{dayId}:finalize`, actor type `SYSTEM` |
 | 오류 | 한 날짜 실패를 기록하고 다른 날짜 계속; 부분 transaction rollback |

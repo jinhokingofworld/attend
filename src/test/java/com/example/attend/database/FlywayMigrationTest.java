@@ -344,6 +344,37 @@ class FlywayMigrationTest {
         }
     }
 
+    /** V013이 적용되지 않은 DB에는 V013 runtime 권한을 부여하지 않는다. */
+    @Test
+    void rejectsRuntimePrivilegeGrantsBeforeV013IsApplied()
+            throws Exception {
+        Database database = createDatabase("v013_grant_guard");
+        Flyway.configure()
+                .dataSource(database.dataSource())
+                .locations(MIGRATION_LOCATION)
+                .defaultSchema("public")
+                .schemas("public")
+                .target(MigrationVersion.fromVersion("12"))
+                .validateOnMigrate(true)
+                .cleanDisabled(true)
+                .outOfOrder(false)
+                .load()
+                .migrate();
+
+        try (Connection connection = database.connect();
+             Statement statement = connection.createStatement()) {
+            executeSqlFile(statement, "ops/db/roles/001_create_login_roles.sql");
+
+            assertThatThrownBy(() -> executeSqlFile(
+                    statement,
+                    "ops/db/roles/003_grant_application_privileges.sql"
+            ))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining(
+                            "successful Flyway migration V013");
+        }
+    }
+
     /**
      * V010은 기존의 만료 감사 행을 500개씩만 삭제하고 이후 INSERT 시각은
      * PostgreSQL이 강제한다.

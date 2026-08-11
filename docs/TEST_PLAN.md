@@ -364,14 +364,14 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 
 | ID | 상황 | 기대 결과 |
 |---|---|---|
-| FIN-001 | 과거 `SCHEDULED` 날짜 | 현재 소속 상태와 무관하게 `attendance_target.is_target = TRUE`이고 기록 없는 snapshot 대상자만 `ABSENT`, 이후 `FINALIZED` |
-| FIN-002 | 오늘·미래 날짜 | 처리하지 않음 |
+| FIN-001 | `finalization_due_at <= now`인 `SCHEDULED` 날짜 | 현재 소속 상태와 무관하게 `attendance_target.is_target = TRUE`이고 기록 없는 snapshot 대상자만 `ABSENT`, 이후 `FINALIZED` |
+| FIN-002 | 아직 `finalization_due_at`에 도달하지 않은 오늘·미래 날짜 | 처리하지 않음 |
 | FIN-003 | `CANCELED`·이미 `FINALIZED` | 처리하지 않음 |
 | FIN-004 | 일부 대상자 정상·지각 | 기존 기록 보존, 누락자만 결석 |
 | FIN-005 | 중간 강제 오류 | 결석·상태·audit 전체 rollback |
 | FIN-006 | 같은 날짜 반복 실행 | 결과와 idempotency audit 한 건 |
 | FIN-007 | 여러 날짜 중 한 날짜 실패 | 해당 날짜 rollback, 나머지는 계속 처리 |
-| FIN-008 | 자정에 서버 중지 후 재기동 | startup catch-up이 모든 과거 미마감 날짜 처리 |
+| FIN-008 | 마감 시각에 서버 중지 후 재기동 | 다음 scheduler 주기가 모든 마감 시각 경과·미마감 날짜 처리 |
 | FIN-009 | 대상자 수와 기록 수 불일치 유도 | `FINALIZED` 전환 거부·오류 기록 |
 | FIN-010 | 마감 후 NFC 태깅 | 기존 결석 자동 변경 없음 |
 | FIN-011 | 소속은 종료됐지만 `is_target = TRUE`로 고정된 대상자 | 다른 기록이 없으면 `ABSENT` 생성 |
@@ -716,7 +716,7 @@ LED·부저 패턴이 확정되기 전에는 code별 기대 신호를 `TBD`로 �
 - `admin-write=false`에서 화면 숨김뿐 아니라 command 거부
 - `scheduler=false`에서 bean 실행 없음
 - schema check 실패 시 write를 받지 않고 기동 실패
-- health, 최근 장치 auth, 인증 실패, 결과별 event, 과거 미마감 날짜, 마지막 마감과 백업 상태 확인
+- health, 최근 장치 auth, 인증 실패, 결과별 event, 마감 시각 경과·미마감 날짜, 마지막 마감과 백업 상태 확인
 - health/Actuator 외부 무인증 노출 금지
 
 ---

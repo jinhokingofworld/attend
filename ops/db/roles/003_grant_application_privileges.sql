@@ -46,6 +46,16 @@ BEGIN
             missing_tables;
     END IF;
 
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.flyway_schema_history
+        WHERE version = '013'
+          AND success
+    ) THEN
+        RAISE EXCEPTION
+            'Runtime grants require successful Flyway migration V013';
+    END IF;
+
     IF pg_catalog.to_regprocedure(
             'public.attend_purge_expired_audit_log_batch()'
        ) IS NULL THEN

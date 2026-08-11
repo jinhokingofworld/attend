@@ -35,6 +35,19 @@
                 </label>
             </div>
         </fieldset>
+        <template id="edit-band-template">
+            <div class="band-row">
+                <input name="bandLabel" maxlength="50" required>
+                <select name="bandStatus">
+                    <option value="PRESENT">정상</option>
+                    <option value="LATE">지각</option>
+                </select>
+                <label>
+                    <span class="band-time-label">마감 시간 (마지막 태깅 허용 시각)</span>
+                    <input type="time" name="bandUpperTime" required>
+                </label>
+            </div>
+        </template>
         <button type="button" id="addEditBand">단계 추가</button>
         <button type="submit">초안 수정</button>
     </form>
@@ -57,11 +70,17 @@ const updateEditFinalizationLabels = () => {
 };
 
 document.getElementById("addEditBand")?.addEventListener("click", () => {
-    const row = document.querySelector("#edit-bands .band-row").cloneNode(true);
-    row.querySelector("input[name='bandLabel']").value = "";
-    row.querySelector("select[name='bandStatus']").value = "LATE";
-    row.querySelector("input[name='bandUpperTime']").value = "";
-    document.getElementById("edit-bands").appendChild(row);
+    const bands = document.getElementById("edit-bands");
+    const isFirstBand = !bands.querySelector(".band-row");
+    const row = document.getElementById("edit-band-template")
+        .content.firstElementChild.cloneNode(true);
+    row.querySelector("input[name='bandLabel']").value = isFirstBand
+        ? "정상 출석"
+        : "";
+    row.querySelector("select[name='bandStatus']").value = isFirstBand
+        ? "PRESENT"
+        : "LATE";
+    bands.appendChild(row);
     updateEditFinalizationLabels();
 });
 updateEditFinalizationLabels();
