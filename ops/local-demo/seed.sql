@@ -249,8 +249,7 @@ BEGIN
                 LIMIT 1
             )
         ) AT TIME ZONE 'Asia/Seoul') + INTERVAL '1 microsecond')
-    ON CONFLICT (department_id, attendance_date) DO UPDATE
-    SET finalization_due_at = EXCLUDED.finalization_due_at;
+    ON CONFLICT (department_id, attendance_date) DO NOTHING;
     SELECT id INTO STRICT day_a_id
     FROM public.attendance_day
     WHERE department_id = department_a_id
@@ -271,8 +270,7 @@ BEGIN
                 LIMIT 1
             )
         ) AT TIME ZONE 'Asia/Seoul') + INTERVAL '1 microsecond')
-    ON CONFLICT (department_id, attendance_date) DO UPDATE
-    SET finalization_due_at = EXCLUDED.finalization_due_at;
+    ON CONFLICT (department_id, attendance_date) DO NOTHING;
     SELECT id INTO STRICT day_b_id
     FROM public.attendance_day
     WHERE department_id = department_b_id
