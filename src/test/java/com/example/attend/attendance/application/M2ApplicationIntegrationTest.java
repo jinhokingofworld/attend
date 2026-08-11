@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.example.attend.access.api.AccountActor;
 import com.example.attend.attendance.domain.AttendanceParentStatus;
 import com.example.attend.attendance.domain.AttendanceStatus;
+import com.example.attend.attendance.infrastructure.mybatis.AttendanceDayMapper;
 import com.example.attend.common.error.BusinessRuleException;
 import com.example.attend.common.error.DepartmentAccessDeniedException;
 import com.example.attend.common.error.ResourceNotFoundException;
@@ -32,6 +33,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Clock;
 import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -86,6 +88,9 @@ class M2ApplicationIntegrationTest {
 
 	@Autowired
 	private FinalizeAttendanceDayService finalizationService;
+
+	@Autowired
+	private AttendanceDayMapper dayMapper;
 
 	@Autowired
 	private AttendanceStatisticsService statisticsService;
@@ -156,6 +161,80 @@ class M2ApplicationIntegrationTest {
 		assertThat(queryString(
 				"SELECT status FROM public.attendance_day WHERE id = ?", dayId))
 				.isEqualTo("FINALIZED");
+	}
+
+	/** due 정각 claim, 세대 fencing과 다섯 번의 retry 소진을 실제 PostgreSQL로 검증한다. */
+	@Test
+	void persistsFinalizationClaimsAndExhaustsFiveRetries() {
+		LocalDate attendanceDate = LocalDate.of(2026, 9, 1);
+		clock.setInstant(atSeoul(LocalDate.of(2026, 8, 1), LocalTime.of(8, 0)));
+		TestAuthority authority = createAuthority();
+		AccountActor actor = new AccountActor(authority.accountId());
+		long policyId = createPublishedPolicy(actor, authority.departmentId());
+		long dayId = dayService.createDay(
+				actor, authority.departmentId(), attendanceDate, policyId);
+		Instant dueAt = atSeoul(attendanceDate, LocalTime.of(9, 15))
+				.plus(1, ChronoUnit.MICROS);
+
+		AttendanceFinalizationClaim claim = dayMapper.claimFinalizationDay(
+				dayId, dueAt, dueAt.plus(Duration.ofMinutes(2)));
+		assertThat(claim).isNotNull();
+		assertThat(claim.failureCount()).isZero();
+		assertThat(dayMapper.claimFinalizationDay(
+				dayId, dueAt, dueAt.plus(Duration.ofMinutes(2)))).isNull();
+
+		List<Duration> delays = List.of(
+				Duration.ofMinutes(1),
+				Duration.ofMinutes(2),
+				Duration.ofMinutes(4),
+				Duration.ofMinutes(8),
+				Duration.ofMinutes(16));
+		Instant failedAt = dueAt;
+		AttendanceFinalizationClaim firstClaim = claim;
+		for (int failureCount = 1; failureCount <= 6; failureCount++) {
+			Instant nextAttemptAt = failureCount <= delays.size()
+					? failedAt.plus(delays.get(failureCount - 1))
+					: null;
+			assertThat(dayMapper.markFinalizationFailure(
+					dayId,
+					claim.claimVersion(),
+					failureCount,
+					nextAttemptAt,
+					"TEST_FAILURE",
+					failedAt)).isEqualTo(1);
+			if (failureCount == 6) {
+				break;
+			}
+			assertThat(dayMapper.claimFinalizationDay(
+					dayId,
+					nextAttemptAt.minusNanos(1_000),
+					nextAttemptAt.plus(Duration.ofMinutes(2)))).isNull();
+			claim = dayMapper.claimFinalizationDay(
+					dayId,
+					nextAttemptAt,
+					nextAttemptAt.plus(Duration.ofMinutes(2)));
+			assertThat(claim.failureCount()).isEqualTo(failureCount);
+			if (failureCount == 1) {
+				assertThat(dayMapper.markFinalizationFailure(
+						dayId,
+						firstClaim.claimVersion(),
+						2,
+						nextAttemptAt,
+						"STALE_FAILURE",
+						nextAttemptAt)).isZero();
+			}
+			failedAt = nextAttemptAt;
+		}
+
+		assertThat(dayMapper.claimFinalizationDay(
+				dayId,
+				failedAt.plus(Duration.ofDays(1)),
+				failedAt.plus(Duration.ofDays(1)).plus(Duration.ofMinutes(2))))
+				.isNull();
+		assertThat(queryString(
+				"SELECT status || ':' || finalization_failure_count "
+						+ "FROM public.attendance_day WHERE id = ?",
+				dayId)).isEqualTo("SCHEDULED:6");
 	}
 
 	/** 신규·수정 command는 생일과 만 나이의 근거인 정확한 생년월일을 요구한다. */

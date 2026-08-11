@@ -266,6 +266,15 @@ sequenceDiagram
 
 시작 스크립트는 PostgreSQL과 애플리케이션을 실행하고, health 및 seed 완료를 기다린 뒤
 당일 출석 데이터를 준비합니다. 날짜가 바뀌어도 당일 출석일과 대상자를 다시 upsert합니다.
+로컬 seed는 운영 경로와 달리 애플리케이션 기동 후 SQL로 직접 데이터를 넣는 예외입니다.
+따라서 새 seed 데이터의 자동 마감 예약까지 시험하려면 seed 완료 후 애플리케이션을 한 번
+재시작해 startup DB scan이 해당 날짜를 읽도록 해야 합니다. 일반 HTTP·관리자 데모에는
+이 재시작이 필요하지 않습니다.
+
+```bash
+docker compose --env-file /dev/null -f compose.local.yaml restart app
+docker compose --env-file /dev/null -f compose.local.yaml up --detach --wait app
+```
 
 | 주소 | 용도 |
 |---|---|
@@ -362,7 +371,7 @@ src/main/java/com/example/attend
 ├── retention       # 웹과 분리된 audit(2년)·tag event(90일) retention worker
 └── operations      # health와 민감정보 로그 처리
 
-src/main/resources/db/migration  # V001~V009 Flyway migration
+src/main/resources/db/migration  # V001~V015 Flyway migration
 firmware/attend-nfc              # WiFiNINA 기반 Arduino 펌웨어
 ops                              # Caddy, DB role, retention, backup·restore
 scripts                          # 로컬 E2E와 HTTP simulator
@@ -411,6 +420,16 @@ docs                             # 프로젝트 기준 문서
 - DB URL, 사용자명과 비밀번호를 분리하고 secret source에서 주입합니다.
 - 최초 migration은 읽기 전용 `dbPreflight`가 `FRESH`로 판정한 빈 Neon DB에만 적용합니다.
 - migration 계정과 애플리케이션 runtime 계정의 권한을 분리합니다.
+- 현재 자동 마감 scheduler는 **단일 애플리케이션 인스턴스** 운영만 지원합니다. DB claim과
+  lease는 중복 처리를 막지만, 여러 인스턴스 사이에서 새 due를 깨우는 분산 알림은 제공하지
+  않습니다. 다중 인스턴스 전환 전에는 DB notification/outbox 또는 주기적 reconciliation을
+  추가해야 합니다.
+- 운영 중 `attendance_day`를 포함한 업무 DB 쓰기는 애플리케이션 경로로만 수행합니다.
+  애플리케이션 기동 뒤 직접 SQL, 외부 importer나 별도 writer가 행을 추가·수정하는 운영은
+  지원하지 않습니다.
+- V014~V015 migration은 maintenance window에서 애플리케이션을 중지하고 기존 DB 연결을
+  종료한 뒤 실행합니다. V014 transaction 동안 `attendance_day` 접근이 차단될 수 있으며,
+  이 release는 migration과 동시에 읽기·쓰기를 계속하는 online 배포를 지원하지 않습니다.
 - 업무 DB 보유기간은 확정되어 `audit_log`는 2년, `tag_event_log`는 90일 뒤 자동 삭제합니다. backup은 별도 승인 전에는 시작하지 않으며, 도입 시 보유 기간·저장 위치·삭제 담당자를 확정합니다.
 - 장치 API와 자동 마감은 제한 시험 후 순서대로 활성화합니다.
 

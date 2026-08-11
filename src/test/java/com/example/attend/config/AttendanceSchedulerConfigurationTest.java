@@ -30,6 +30,19 @@ class AttendanceSchedulerConfigurationTest {
 				"attendance.scheduler.enabled", Boolean.class)).isFalse();
 	}
 
+	/** 동적 마감 worker는 고정 lease, 복구 지연과 batch 크기를 사용한다. */
+	@Test
+	void usesBoundedDynamicScheduleDefaults() throws IOException {
+		MockEnvironment environment = applicationEnvironment();
+
+		assertThat(environment.getProperty("attendance.scheduler.lease-duration"))
+				.isEqualTo("PT2M");
+		assertThat(environment.getProperty("attendance.scheduler.recovery-delay"))
+				.isEqualTo("PT1M");
+		assertThat(environment.getProperty("attendance.scheduler.claim-limit"))
+				.isEqualTo("20");
+	}
+
 	private static MockEnvironment applicationEnvironment() throws IOException {
 		MockEnvironment environment = new MockEnvironment();
 		environment.getPropertySources().addLast(

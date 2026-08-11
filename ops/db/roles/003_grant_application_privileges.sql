@@ -1,4 +1,4 @@
--- Post-migration grants for the V013 schema. Run as migration_owner or an
+-- Post-migration grants for the V015 schema. Run as migration_owner or an
 -- equivalent owner after guarded dbMigrate succeeds.
 --
 -- This script is intentionally explicit. A future migration that adds a table,
@@ -42,18 +42,18 @@ BEGIN
 
     IF missing_tables IS NOT NULL THEN
         RAISE EXCEPTION
-            'Runtime grants require the complete V013 schema; missing: %',
+            'Runtime grants require the complete V015 schema; missing: %',
             missing_tables;
     END IF;
 
     IF NOT EXISTS (
         SELECT 1
         FROM public.flyway_schema_history
-        WHERE version = '013'
+        WHERE version = '015'
           AND success
     ) THEN
         RAISE EXCEPTION
-            'Runtime grants require successful Flyway migration V013';
+            'Runtime grants require successful Flyway migration V015';
     END IF;
 
     IF pg_catalog.to_regprocedure(
@@ -240,6 +240,12 @@ GRANT UPDATE (
     canceled_by_account_id,
     finalized_at,
     finalization_due_at,
+    finalization_failure_count,
+    finalization_next_attempt_at,
+    finalization_claim_version,
+    finalization_lease_until,
+    finalization_last_error_code,
+    finalization_last_failed_at,
     canceled_at,
     cancel_reason
 ) ON TABLE public.attendance_day

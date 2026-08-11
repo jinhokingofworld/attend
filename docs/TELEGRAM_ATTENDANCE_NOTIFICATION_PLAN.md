@@ -70,8 +70,9 @@ attendance_date + 마지막 upper_time + 1µs, Asia/Seoul
 
 `upper_time`은 포함 경계다. PostgreSQL의 마이크로초 정밀도에 맞춰 그 시각의 정확히
 `1µs` 뒤를 `finalization_due_at`으로 저장한다. 따라서 상한과 같은 시각의 체크인은
-허용하고, 저장된 due 시각부터 마감 대상이다. 스케줄러의 실제 실행 시각은 설정한
-주기에 따라 몇 분 늦을 수 있다.
+허용하고, 저장된 due 시각부터 마감 대상이다. 후속 V014부터 스케줄러는 고정 주기
+polling 대신 DB의 가장 이른 due·retry·활성 lease 만료 시각에 단일 task를
+동적으로 예약한다.
 
 ### 3.2 스케줄러와 경합 처리
 
@@ -83,6 +84,10 @@ status = SCHEDULED AND finalization_due_at <= now
 ```
 
 기존 `FinalizeAttendanceDayService`의 잠금 순서와 멱등성은 유지한다.
+
+V014는 claim version과 lease를 DB에 저장하고 최초 실패 뒤 1·2·4·8·16분에
+다섯 번 재시도한다. 이전 lease의 늦은 실패 update는 현재 claim version과 달라
+반영되지 않는다.
 
 ```text
 department 잠금 → attendance_day 잠금 → 누락 대상 결석 생성

@@ -352,6 +352,14 @@ MVP에서 `device.department_id`는 생성 후 불변이다. 다른 부서로 �
 
 `attendance_day.status`에는 `SCHEDULED`, `FINALIZED`, `CANCELED`만 저장한다. `OPEN`은 저장하지 않는다.
 
+`attendance_day.finalization_due_at`은 고정 정책의 마지막 포함 상한보다 정확히
+1µs 뒤다. 최초 실패와 다섯 번의 retry는 `finalization_failure_count` 0~6과
+`finalization_next_attempt_at`으로 구분한다. 1~5이면 다음 retry 시각이 필수이고
+6이면 자동 재시도 소진 상태라 다음 시각은 `NULL`이다. `finalization_claim_version`은
+선점 때마다 증가하며 `finalization_lease_until`과 함께 다중 인스턴스의 중복 작업과
+만료 worker의 늦은 실패 update를 차단한다. 마지막 오류에는 예외 종류와 실패
+시각만 저장하고 메시지·개인정보는 저장하지 않는다.
+
 `attendance_record`는 다음 조건을 만족해야 한다.
 
 - 상태는 `PRESENT`, `LATE`, `ABSENT` 중 하나다.
@@ -531,7 +539,7 @@ attendance_record:
 | `device(department_id, status)` | 부서별 장치 관리 |
 | `attendance_policy_version(department_id, status, version_no DESC)` | 최신 발행 정책 조회 |
 | `attendance_band(policy_version_id, sequence_no)` | 정책 구간 순서 조회 |
-| `attendance_day(finalization_due_at, id) WHERE status = 'SCHEDULED'` | 마감 시각 경과·미마감 날짜 탐색 |
+| `attendance_day(COALESCE(finalization_next_attempt_at, finalization_due_at), id) WHERE status = 'SCHEDULED' AND finalization_failure_count < 6` | 최초 마감·retry·lease worker dispatch |
 | `attendance_day(policy_version_id, attendance_date DESC)` | 정책 적용 날짜 조회 |
 | `attendance_target(member_id, attendance_day_id) WHERE is_target` | 개인 통계 분모 계산 |
 | `attendance_target(member_id)` | 비활성 이력을 포함한 교사 FK 검사 |

@@ -417,7 +417,7 @@ IDOR 방지를 위해 자식 ID만으로 조회하지 않는다. 예를 들어 r
 | `device` | 필요한 metadata `SELECT`, `INSERT`; 이름·credential·상태·telemetry column `UPDATE` | `department_id`, `device_code` 변경, `DELETE`, hash를 일반 query로 조회 |
 | `attendance_policy_version` | `SELECT`, `INSERT`, DRAFT 내용·발행 metadata `UPDATE` | 부서·version 변경, PUBLISHED 수정, `DELETE` |
 | `attendance_band` | `SELECT`, DRAFT 정책에서 `INSERT`·`UPDATE`·`DELETE` | PUBLISHED 정책 변경 |
-| `attendance_day` | `SELECT`, `INSERT`, 상태·마감·취소 metadata `UPDATE` | 부서·날짜·정책 변경, `DELETE` |
+| `attendance_day` | `SELECT`, `INSERT`, 상태·마감·취소와 finalization claim·retry metadata `UPDATE` | 부서·날짜·정책 변경, `DELETE` |
 | `attendance_target` | `SELECT`, `INSERT`, 활성·변경 metadata `UPDATE` | scope FK 변경, `DELETE` |
 | `attendance_record` | `SELECT`, `INSERT`, 정정 허용 column `UPDATE` | scope FK 변경, `DELETE` |
 | `tag_event_log` | `SELECT`, `INSERT`, 선점 행의 결과 확정 `UPDATE` | request identity·scope 변경, `DELETE` |
@@ -538,7 +538,7 @@ DB grant와 FK만으로 막지 못하는 항목:
 | actor | 서버가 만든 `SYSTEM`; request parameter로 받지 않음 |
 | 서비스 | 자동 마감 전용 command만 호출 |
 | DB 계정 | 별도 superuser가 아니라 `app_runtime` |
-| 범위 | `SCHEDULED`이고 `finalization_due_at <= CURRENT_TIMESTAMP`인 날짜 |
+| 범위 | `SCHEDULED`, 실패 횟수 6 미만, due 또는 retry 시각 도달, 활성 lease 없음 |
 | 무결성 | 날짜별 lock, unique, 멱등 audit key |
 | 감사 | `attendance-day:{dayId}:finalize`, actor type `SYSTEM` |
 | 오류 | 한 날짜 실패를 기록하고 다른 날짜 계속; 부분 transaction rollback |

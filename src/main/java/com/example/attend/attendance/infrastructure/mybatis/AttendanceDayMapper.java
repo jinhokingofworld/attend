@@ -1,5 +1,6 @@
 package com.example.attend.attendance.infrastructure.mybatis;
 
+import com.example.attend.attendance.application.AttendanceFinalizationClaim;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -76,6 +77,29 @@ public interface AttendanceDayMapper {
 
 	/** 마감 예정 시각이 지난 미마감 날짜 ID를 찾는다. */
 	List<Long> selectDueScheduledDayIds(@Param("now") Instant now);
+
+	/** due, retry와 만료 lease 중 가장 이른 다음 실행 시각을 찾는다. */
+	Instant selectNextFinalizationActionAt(@Param("now") Instant now);
+
+	/** 현재 실행할 수 있는 미마감 날짜 후보를 제한된 개수로 찾는다. */
+	List<Long> selectReadyFinalizationDayIds(
+			@Param("now") Instant now,
+			@Param("limit") int limit);
+
+	/** 후보 날짜 하나를 claim version과 lease로 원자적으로 선점한다. */
+	AttendanceFinalizationClaim claimFinalizationDay(
+			@Param("attendanceDayId") long attendanceDayId,
+			@Param("now") Instant now,
+			@Param("leaseUntil") Instant leaseUntil);
+
+	/** claim 세대를 확인하고 실패 횟수와 다음 backoff를 기록한다. */
+	int markFinalizationFailure(
+			@Param("attendanceDayId") long attendanceDayId,
+			@Param("claimVersion") long claimVersion,
+			@Param("failureCount") int failureCount,
+			@Param("nextAttemptAt") Instant nextAttemptAt,
+			@Param("errorCode") String errorCode,
+			@Param("failedAt") Instant failedAt);
 
 	/** 기록 없는 활성 대상자를 결석으로 채운다. */
 	int insertMissingAbsences(@Param("attendanceDayId") long attendanceDayId);

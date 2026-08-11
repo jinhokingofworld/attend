@@ -12,6 +12,7 @@ import com.example.attend.audit.application.AuditLogWriter;
 import com.example.attend.common.error.BusinessRuleException;
 import com.example.attend.common.error.ResourceNotFoundException;
 import com.example.attend.organization.api.DepartmentLock;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,6 +37,7 @@ public class AttendanceDayService {
 	private final AttendancePolicyMapper policyMapper;
 	private final AttendanceDayMapper dayMapper;
 	private final AuditLogWriter auditLogWriter;
+	private final ApplicationEventPublisher eventPublisher;
 	private final Clock clock;
 	private final ZoneId attendanceZone;
 
@@ -49,6 +51,7 @@ public class AttendanceDayService {
 			AttendancePolicyMapper policyMapper,
 			AttendanceDayMapper dayMapper,
 			AuditLogWriter auditLogWriter,
+			ApplicationEventPublisher eventPublisher,
 			Clock clock,
 			ZoneId attendanceZone
 	) {
@@ -58,6 +61,7 @@ public class AttendanceDayService {
 		this.policyMapper = policyMapper;
 		this.dayMapper = dayMapper;
 		this.auditLogWriter = auditLogWriter;
+		this.eventPublisher = eventPublisher;
 		this.clock = clock;
 		this.attendanceZone = attendanceZone;
 	}
@@ -137,11 +141,13 @@ public class AttendanceDayService {
 			LocalDate attendanceDate,
 			long policyVersionId
 	) {
+		Instant finalizationDueAt = finalizationDueAt(
+				attendanceDate, policyVersionId);
 		Long dayId = dayMapper.insertDayIfAbsent(
 				departmentId,
 				attendanceDate,
 				policyVersionId,
-				finalizationDueAt(attendanceDate, policyVersionId),
+				finalizationDueAt,
 				actor.accountId());
 		if (dayId == null) {
 			return null;
@@ -160,6 +166,8 @@ public class AttendanceDayService {
 						"policyVersionId", policyVersionId,
 						"targetCount", targetCount),
 				null);
+		eventPublisher.publishEvent(
+				new AttendanceFinalizationScheduleChanged(finalizationDueAt));
 		return dayId;
 	}
 
@@ -243,6 +251,8 @@ public class AttendanceDayService {
 				Map.of("policyVersionId", day.policyVersionId()),
 				Map.of("policyVersionId", newPolicyVersionId),
 				null);
+		eventPublisher.publishEvent(
+				new AttendanceFinalizationScheduleChanged(finalizationDueAt));
 	}
 
 	/**
