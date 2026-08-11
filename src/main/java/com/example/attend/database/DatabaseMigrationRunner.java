@@ -8,6 +8,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Map;
 
 import static com.example.attend.database.DatabasePreflightInspector.PreflightStatus.ALREADY_MANAGED;
 import static com.example.attend.database.DatabasePreflightInspector.PreflightStatus.FRESH;
@@ -108,6 +109,8 @@ public final class DatabaseMigrationRunner {
         verifyMigrationPrivileges(dataSource, preflight.status());
 
         Flyway flyway = Flyway.configure()
+                .configuration(Map.of(
+                        "flyway.postgresql.transactional.lock", "false"))
                 .dataSource(dataSource)
                 .locations("classpath:db/migration")
                 .defaultSchema("public")

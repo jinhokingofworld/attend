@@ -538,7 +538,7 @@ DB grant와 FK만으로 막지 못하는 항목:
 | actor | 서버가 만든 `SYSTEM`; request parameter로 받지 않음 |
 | 서비스 | 자동 마감 전용 command만 호출 |
 | DB 계정 | 별도 superuser가 아니라 `app_runtime` |
-| 범위 | `SCHEDULED`이고 `finalization_due_at <= CURRENT_TIMESTAMP`인 날짜 |
+| 범위 | `SCHEDULED`, 실패 횟수 6 미만, due 또는 retry 시각 도달, 활성 lease 없음 |
 | 무결성 | 날짜별 lock, unique, 멱등 audit key |
 | 감사 | `attendance-day:{dayId}:finalize`, actor type `SYSTEM` |
 | 오류 | 한 날짜 실패를 기록하고 다른 날짜 계속; 부분 transaction rollback |

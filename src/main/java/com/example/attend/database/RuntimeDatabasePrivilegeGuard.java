@@ -184,6 +184,11 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                             'public.attendance_notification_outbox_id_seq',
                             'USAGE'
                         )
+                        AND NOT has_table_privilege(
+                            current_user,
+                            'public.attendance_day',
+                            'UPDATE'
+                        )
                         AND NOT EXISTS (
                             SELECT 1
                             FROM (

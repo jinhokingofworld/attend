@@ -71,7 +71,8 @@ attendance_date + 마지막 upper_time + 1µs, Asia/Seoul
 `upper_time`은 포함 경계다. PostgreSQL의 마이크로초 정밀도에 맞춰 그 시각의 정확히
 `1µs` 뒤를 `finalization_due_at`으로 저장한다. 따라서 상한과 같은 시각의 체크인은
 허용하고, 저장된 due 시각부터 마감 대상이다. 후속 V014부터 스케줄러는 고정 주기
-polling 대신 DB의 가장 이른 due·retry 시각에 단일 task를 동적으로 예약한다.
+polling 대신 DB의 가장 이른 due·retry·활성 lease 만료 시각에 단일 task를
+동적으로 예약한다.
 
 ### 3.2 스케줄러와 경합 처리
 

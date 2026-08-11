@@ -21,6 +21,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -313,6 +314,8 @@ class FlywayMigrationTest {
         }
 
         Flyway completeFlyway = Flyway.configure()
+                .configuration(Map.of(
+                        "flyway.postgresql.transactional.lock", "false"))
                 .dataSource(database.dataSource())
                 .locations(MIGRATION_LOCATION)
                 .defaultSchema("public")
@@ -2551,6 +2554,16 @@ class FlywayMigrationTest {
                 database.dataSource("retention_worker", retentionPassword);
         SchemaVersionGuard.verify(runtimeDataSource);
         RuntimeDatabasePrivilegeGuard.verify(runtimeDataSource);
+		try (Connection migrationConnection = migrationDataSource.getConnection();
+			 Statement statement = migrationConnection.createStatement()) {
+			statement.execute(
+					"GRANT UPDATE ON TABLE public.attendance_day TO app_runtime");
+			assertRuntimePrivilegeGuardRejects(runtimeDataSource);
+			executeSqlFile(
+					statement,
+					"ops/db/roles/003_grant_application_privileges.sql");
+			RuntimeDatabasePrivilegeGuard.verify(runtimeDataSource);
+		}
 		try (Connection retentionConnection = retentionDataSource.getConnection()) {
 			RetentionDatabasePrivilegeGuard.verify(retentionConnection);
 		}
@@ -3173,6 +3186,8 @@ class FlywayMigrationTest {
      */
     private static Flyway flyway(Database database) {
         return Flyway.configure()
+                .configuration(Map.of(
+                        "flyway.postgresql.transactional.lock", "false"))
                 .dataSource(database.url(), postgres.getUsername(), postgres.getPassword())
                 .locations(MIGRATION_LOCATION)
                 .defaultSchema("public")

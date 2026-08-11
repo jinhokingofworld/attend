@@ -44,7 +44,7 @@ public class FinalizeAttendanceDayService {
 	/**
 	 * 저장된 마감 시각에 도달한 모든 미마감 날짜를 조회한다.
 	 *
-	 * @return 날짜·ID 오름차순의 출석일 ID
+	 * @return 마감 예정 시각·ID 오름차순의 출석일 ID
 	 */
 	@Transactional(readOnly = true)
 	public List<Long> findPendingDayIds() {

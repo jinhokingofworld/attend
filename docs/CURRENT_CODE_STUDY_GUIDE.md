@@ -751,6 +751,7 @@ sequenceDiagram
         Service->>DB: target인데 record 없는 행에 AUTO_ABSENCE INSERT
         Service->>DB: day FINALIZED
         Service->>DB: idempotent system audit INSERT
+        Service->>DB: Telegram notification outbox INSERT
     end
     opt 실패
         Scheduler->>DB: 1·2·4·8·16분 retry 상태 저장

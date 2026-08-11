@@ -219,6 +219,11 @@ MIGRATION_SOURCE_CLASS=NEW_OR_SAMPLE | LEGACY_OPERATIONAL
 
 `dbMigrate`는 V014를 고정 target으로 사용한다. Flyway를 호출하기 전에 read-only transaction에서 V001의 catalog·데이터 검사를 실행하고, fresh 또는 정확한 legacy 후보만 허용한다. 이 사전검사는 V001의 `ACCESS EXCLUSIVE` 잠금을 메모리에서 `ACCESS SHARE`로 바꾼 검증 블록을 실행해 실제 DDL 직전의 read-only 위반에 도달한 경우만 통과시킨다. 파일 자체는 수정하지 않으며 V001은 실제 적용 시 다시 원래의 exclusive lock과 전체 검사를 수행한다. history가 없는 schema에는 V009~V012가 만드는 정확한 함수 signature도 사전에 검사해 baseline commit 뒤의 부분 실패를 막는다.
 
+V014는 쓰기 중단을 줄이기 위해 제약을 `NOT VALID`로 추가한 뒤 검증하고 인덱스를
+`CREATE INDEX CONCURRENTLY`로 생성한다. 이 migration의 `.sql.conf`는 transaction을
+끄며, runner와 Spring Boot Flyway는 PostgreSQL session-level advisory lock을 사용해
+동시 인덱스 생성과 transactional lock이 서로 기다리는 상태를 방지한다.
+
 사전검사가 거부한 DB에는 `flyway_schema_history`도 만들지 않는다. 기존 공개 샘플 계정은 원문 비밀번호나 BCrypt hash를 artifact에 넣지 않고 공개된 비밀번호 hash 자체의 one-way fingerprint denylist로 탐지해 baseline 전에 중단한다. 사용자명이나 권한을 바꿔도 같은 공개 hash면 거부하며, 실제 V001도 exclusive lock을 잡은 뒤 같은 fingerprint를 재검사한다. 기술 검사가 fresh 또는 legacy 형태를 확인해도 실제 용도는 추정하지 않으며 `MIGRATION_SOURCE_CLASS`에는 운영 책임자의 승인 기록과 같은 분류만 입력한다.
 
 - 운영 migration은 이 runner를 포함한 동일 commit의 고정 컨테이너 또는 승인된 job으로 한 번만 실행한다.

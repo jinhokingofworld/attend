@@ -70,6 +70,9 @@ jobs:
             grep -Ec 'BOOT-INF/classes/db/migration/V[0-9]+__.+[.]sql$' build/jar-contents.txt
           )"
           test "${migration_count}" -eq 14
+          grep -Fxq \
+            'BOOT-INF/classes/db/migration/V014__add_attendance_finalization_retry_state.sql.conf' \
+            build/jar-contents.txt
 
           if grep -Eq 'BOOT-INF/classes/(schema|data)[.]sql$' build/jar-contents.txt; then
             echo "Destructive legacy SQL initialization resource found in the application JAR."
