@@ -11,8 +11,9 @@
 - 출석 완료는 모든 교사가 태그한 시점이 아니라, 해당 출석 정책의 마지막 출석
   구간이 끝난 뒤 출석일을 `FINALIZED`로 전환한 시점이다. 결석자가 있으면 모든
   대상자의 태그 완료를 기다릴 수 없기 때문이다.
-- 마감 기준 시각은 출석일 생성 시점에 `Asia/Seoul` 기준으로 고정한다. 이후 정책을
-  바꿔도 이미 생성된 출석일의 마감 시각은 변하지 않는다.
+- 마감 기준 시각은 출석일 생성 시점에 `Asia/Seoul` 기준으로 고정한다. 새 정책을
+  발행해도 기존 출석일은 변하지 않으며, 태깅 시작 전 관리자가 해당 날짜의 정책을
+  명시적으로 교체할 때만 새 정책 기준으로 함께 갱신한다.
 - 수신자는 출석일이 속한 부서에 대해 활성 `DEPARTMENT_ADMIN` 권한을 가지고,
   Telegram 개인 채팅을 직접 연결한 모든 활성 계정이다. 현재 데이터 모델에는
   대표 관리자 개념이 없으므로 임의의 한 명만 고르지 않는다.
@@ -28,7 +29,7 @@
 ### 포함
 
 - 당일 마지막 출석 구간 종료 뒤 자동 마감
-- 과거 미마감 출석일 catch-up 유지
+- 마감 시각 경과·미마감 출석일 catch-up 유지
 - 관리자 본인의 Telegram 개인 채팅 연결·해제·시험 발송
 - 마감 집계와 지각·결석 명단의 Telegram 발송
 - 멱등 outbox, 재시도, 영구 실패 표시와 운영 집계
@@ -49,8 +50,8 @@ Telegram `sendMessage`에는 호출자용 idempotency key가 없다. 전송 성�
 
 ## 3. 마감 규칙 변경
 
-현재 구현은 `attendance_date < today`인 `SCHEDULED` 날짜만 자동 마감한다. 이대로면
-"당일 마감 알림"은 다음 날에 도착하므로 요구사항과 맞지 않는다.
+기존 구현은 `attendance_date < today`인 `SCHEDULED` 날짜만 자동 마감했다. 이대로면
+"당일 마감 알림"이 다음 날에 도착하므로 due-time 기준으로 교체했다.
 
 ### 3.1 고정 마감 시각
 
@@ -64,12 +65,13 @@ finalization_due_at TIMESTAMPTZ NOT NULL
 계산한다.
 
 ```text
-attendance_date + 마지막 upper_time, Asia/Seoul
+attendance_date + 마지막 upper_time + 1µs, Asia/Seoul
 ```
 
-`upper_time`은 포함 경계다. 따라서 동일한 정확한 시각의 체크인은 허용하고, 그
-직후부터 마감 대상이다. 스케줄러의 실제 실행 시각은 설정한 주기에 따라 몇 분
-늦을 수 있다.
+`upper_time`은 포함 경계다. PostgreSQL의 마이크로초 정밀도에 맞춰 그 시각의 정확히
+`1µs` 뒤를 `finalization_due_at`으로 저장한다. 따라서 상한과 같은 시각의 체크인은
+허용하고, 저장된 due 시각부터 마감 대상이다. 스케줄러의 실제 실행 시각은 설정한
+주기에 따라 몇 분 늦을 수 있다.
 
 ### 3.2 스케줄러와 경합 처리
 
@@ -77,7 +79,7 @@ attendance_date + 마지막 upper_time, Asia/Seoul
 `selectDueScheduledDayIds(now)`로 교체한다.
 
 ```text
-status = SCHEDULED AND finalization_due_at < now
+status = SCHEDULED AND finalization_due_at <= now
 ```
 
 기존 `FinalizeAttendanceDayService`의 잠금 순서와 멱등성은 유지한다.
@@ -102,6 +104,9 @@ NFC 체크인과 마감이 동시에 실행돼도 둘 다 같은 `attendance_day
 - 기존 `SCHEDULED`·`FINALIZED` 날짜는 연결된 정책의 마지막 구간 시각을 사용해
   backfill
 - backfill 후 `NOT NULL`과 due-time 조회 인덱스 추가
+
+후속 `V013__align_attendance_finalization_precision.sql`은 `SCHEDULED`, `FINALIZED`,
+`CANCELED` 전체 기존 날짜의 값을 고정 정책 마지막 상한 `+1µs`로 보정한다.
 
 과거 데이터에 마지막 정책 구간이 없으면 migration을 진행하지 말고 운영자가
 데이터를 정정해야 한다. 추정값을 넣으면 마감 이력이 신뢰할 수 없게 된다.
@@ -528,7 +533,7 @@ bot token, webhook secret, chat ID, 메시지 원문은 화면과 운영 로그�
 - 마지막 구간 종료 전에는 당일 마감하지 않는다.
 - 마지막 구간의 정확한 경계 시각에는 체크인이 허용된다.
 - 경계 직후에는 마감되고 이후 체크인은 거부된다.
-- 과거 미마감 날짜도 다시 찾아 처리한다.
+- 마감 시각이 지난 미마감 날짜도 다시 찾아 처리한다.
 - 체크인과 마감의 동시 실행에서 기록이 유실·결석으로 덮어쓰기 되지 않는다.
 - 반복·동시 마감에도 날짜 상태, 감사 로그, 관리자별 outbox가 중복되지 않는다.
 - 활성·연결된 부서 관리자에게만 outbox가 생성된다.

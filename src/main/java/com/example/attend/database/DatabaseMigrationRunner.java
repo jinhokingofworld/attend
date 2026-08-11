@@ -23,7 +23,7 @@ import static com.example.attend.database.DatabasePreflightInspector.PreflightSt
  *     <li>DB를 읽기 전용으로 검사한다.</li>
  *     <li>신규·레거시 DB라면 운영 책임자의 승인 분류와 실제 구조를 대조한다.</li>
  *     <li>정확한 레거시 구조에만 version 0 baseline을 명시적으로 기록한다.</li>
- *     <li>V012까지만 순서대로 적용하고 checksum을 검증한다.</li>
+ *     <li>V013까지만 순서대로 적용하고 checksum을 검증한다.</li>
  *     <li>애플리케이션이 요구하는 버전 목록과 정확히 일치하는지 다시 확인한다.</li>
  * </ol>
  */
@@ -33,7 +33,7 @@ public final class DatabaseMigrationRunner {
      * 이 애플리케이션 버전이 지원하는 유일한 목표 스키마 버전이다.
      */
     public static final MigrationVersion TARGET_VERSION =
-            MigrationVersion.fromVersion("12");
+            MigrationVersion.fromVersion("13");
 
     private final DatabasePreflightInspector preflightInspector;
 
@@ -56,7 +56,7 @@ public final class DatabaseMigrationRunner {
     }
 
     /**
-     * 승인된 원본 DB에 V012까지의 migration을 적용하고 결과를 검증한다.
+     * 승인된 원본 DB에 V013까지의 migration을 적용하고 결과를 검증한다.
      *
      * <p>{@link ApprovedSourceClass}는 코드가 데이터의 실제 용도를 추측한 결과가
      * 아니라 운영 책임자가 확인한 값이어야 한다. 신규·레거시 DB에서 승인값과

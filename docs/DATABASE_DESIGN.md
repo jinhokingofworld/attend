@@ -531,7 +531,7 @@ attendance_record:
 | `device(department_id, status)` | 부서별 장치 관리 |
 | `attendance_policy_version(department_id, status, version_no DESC)` | 최신 발행 정책 조회 |
 | `attendance_band(policy_version_id, sequence_no)` | 정책 구간 순서 조회 |
-| `attendance_day(attendance_date, id) WHERE status = 'SCHEDULED'` | 과거 미마감 날짜 탐색 |
+| `attendance_day(finalization_due_at, id) WHERE status = 'SCHEDULED'` | 마감 시각 경과·미마감 날짜 탐색 |
 | `attendance_day(policy_version_id, attendance_date DESC)` | 정책 적용 날짜 조회 |
 | `attendance_target(member_id, attendance_day_id) WHERE is_target` | 개인 통계 분모 계산 |
 | `attendance_target(member_id)` | 비활성 이력을 포함한 교사 FK 검사 |

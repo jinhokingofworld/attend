@@ -34,7 +34,7 @@ import static com.example.attend.database.DatabasePreflightInspector.PreflightSt
 import static com.example.attend.database.DatabasePreflightInspector.PreflightStatus.REJECTED;
 
 /**
- * 실제 PostgreSQL 15에서 V001~V012 migration의 안전성과 핵심 제약조건을 검증한다.
+ * 실제 PostgreSQL 15에서 V001~V013 migration의 안전성과 핵심 제약조건을 검증한다.
  *
  * <p>H2 같은 대체 DB로는 PostgreSQL catalog, partial unique index, 복합 외래 키,
  * SQLSTATE가 실제 운영 DB와 같다고 보장할 수 없다. 따라서 Testcontainers로
@@ -60,7 +60,7 @@ class FlywayMigrationTest {
             new PostgreSQLContainer<>("postgres:15-alpine");
 
     /**
-     * 빈 DB가 올바르게 분류되고 V012까지 정확히 한 번 적용되는지 검증한다.
+     * 빈 DB가 올바르게 분류되고 V013까지 정확히 한 번 적용되는지 검증한다.
      *
      * <p>잘못된 운영자 승인값에서는 history조차 만들지 않아야 하며, 같은
      * migration을 다시 실행해도 결과가 바뀌지 않는 멱등성도 함께 확인한다.</p>
@@ -103,7 +103,7 @@ class FlywayMigrationTest {
                     FROM public.flyway_schema_history
                     WHERE success
                       AND version IS NOT NULL
-                    """ )).isEqualTo(12);
+                    """ )).isEqualTo(13);
 
             assertThat(queryInt(connection, """
                     SELECT count(*)
@@ -201,6 +201,177 @@ class FlywayMigrationTest {
                           AND privilege.privilege_type = 'EXECUTE'
                     ))::text
                     """)).isEqualTo("true");
+        }
+    }
+
+    /** V013은 모든 상태의 기존 출석일을 마지막 포함 상한의 1µs 뒤로 보정한다. */
+    @Test
+    void alignsExistingFinalizationDueTimesToMicrosecondPrecision()
+            throws Exception {
+        Database database = createDatabase("finalization_precision");
+        Flyway flywayAtV12 = Flyway.configure()
+                .dataSource(database.dataSource())
+                .locations(MIGRATION_LOCATION)
+                .defaultSchema("public")
+                .schemas("public")
+                .target(MigrationVersion.fromVersion("12"))
+                .validateOnMigrate(true)
+                .cleanDisabled(true)
+                .outOfOrder(false)
+                .load();
+        flywayAtV12.migrate();
+
+        try (Connection connection = database.connect();
+             Statement statement = connection.createStatement()) {
+            long accountId = queryLong(statement, """
+                    INSERT INTO public.account (
+                        username,
+                        password_hash,
+                        status,
+                        password_changed_at
+                    )
+                    VALUES (
+                        'v013-admin',
+                        'test-only-hash',
+                        'ACTIVE',
+                        CURRENT_TIMESTAMP
+                    )
+                    RETURNING id
+                    """);
+            long departmentId = queryLong(statement, """
+                    INSERT INTO public.department (name)
+                    VALUES ('V013 보정 부서')
+                    RETURNING id
+                    """);
+            long policyId = queryLong(statement, """
+                    INSERT INTO public.attendance_policy_version (
+                        department_id,
+                        version_no,
+                        name,
+                        check_in_start_time,
+                        status,
+                        created_by_account_id,
+                        published_by_account_id,
+                        published_at
+                    )
+                    VALUES (
+                        %d,
+                        1,
+                        'V013 보정 정책',
+                        TIME '08:30',
+                        'PUBLISHED',
+                        %d,
+                        %d,
+                        CURRENT_TIMESTAMP
+                    )
+                    RETURNING id
+                    """.formatted(departmentId, accountId, accountId));
+            statement.executeUpdate("""
+                    INSERT INTO public.attendance_band (
+                        policy_version_id,
+                        sequence_no,
+                        label,
+                        parent_status,
+                        upper_time
+                    )
+                    VALUES
+                        (%d, 1, '정상 출석', 'PRESENT', TIME '09:00'),
+                        (%d, 2, '1차 지각', 'LATE', TIME '09:15')
+                    """.formatted(policyId, policyId));
+            statement.executeUpdate("""
+                    INSERT INTO public.attendance_day (
+                        department_id,
+                        attendance_date,
+                        policy_version_id,
+                        status,
+                        created_by_account_id,
+                        finalized_at,
+                        canceled_at,
+                        canceled_by_account_id,
+                        cancel_reason,
+                        finalization_due_at
+                    )
+                    VALUES
+                        (
+                            %d, DATE '2026-08-01', %d, 'SCHEDULED', %d,
+                            NULL, NULL, NULL, NULL, TIMESTAMPTZ '2000-01-01 00:00:00Z'
+                        ),
+                        (
+                            %d, DATE '2026-08-02', %d, 'FINALIZED', %d,
+                            CURRENT_TIMESTAMP, NULL, NULL, NULL,
+                            TIMESTAMPTZ '2000-01-01 00:00:00Z'
+                        ),
+                        (
+                            %d, DATE '2026-08-03', %d, 'CANCELED', %d,
+                            NULL, CURRENT_TIMESTAMP, %d, '운영 취소',
+                            TIMESTAMPTZ '2000-01-01 00:00:00Z'
+                        )
+                    """.formatted(
+                    departmentId, policyId, accountId,
+                    departmentId, policyId, accountId,
+                    departmentId, policyId, accountId, accountId));
+        }
+
+        Flyway completeFlyway = Flyway.configure()
+                .dataSource(database.dataSource())
+                .locations(MIGRATION_LOCATION)
+                .defaultSchema("public")
+                .schemas("public")
+                .validateOnMigrate(true)
+                .cleanDisabled(true)
+                .outOfOrder(false)
+                .load();
+        completeFlyway.migrate();
+        completeFlyway.migrate();
+
+        try (Connection connection = database.connect()) {
+            assertThat(queryString(connection, """
+                    SELECT string_agg(
+                        to_char(
+                            finalization_due_at AT TIME ZONE 'Asia/Seoul',
+                            'YYYY-MM-DD HH24:MI:SS.US'),
+                        ',' ORDER BY attendance_date)
+                    FROM public.attendance_day
+                    """)).isEqualTo(
+                    "2026-08-01 09:15:00.000001,"
+                            + "2026-08-02 09:15:00.000001,"
+                            + "2026-08-03 09:15:00.000001");
+            assertThat(queryInt(connection, """
+                    SELECT count(*)
+                    FROM public.flyway_schema_history
+                    WHERE version = '013' AND success
+                    """)).isEqualTo(1);
+        }
+    }
+
+    /** V013이 적용되지 않은 DB에는 V013 runtime 권한을 부여하지 않는다. */
+    @Test
+    void rejectsRuntimePrivilegeGrantsBeforeV013IsApplied()
+            throws Exception {
+        Database database = createDatabase("v013_grant_guard");
+        Flyway.configure()
+                .dataSource(database.dataSource())
+                .locations(MIGRATION_LOCATION)
+                .defaultSchema("public")
+                .schemas("public")
+                .target(MigrationVersion.fromVersion("12"))
+                .validateOnMigrate(true)
+                .cleanDisabled(true)
+                .outOfOrder(false)
+                .load()
+                .migrate();
+
+        try (Connection connection = database.connect();
+             Statement statement = connection.createStatement()) {
+            executeSqlFile(statement, "ops/db/roles/001_create_login_roles.sql");
+
+            assertThatThrownBy(() -> executeSqlFile(
+                    statement,
+                    "ops/db/roles/003_grant_application_privileges.sql"
+            ))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining(
+                            "successful Flyway migration V013");
         }
     }
 
@@ -1813,7 +1984,7 @@ class FlywayMigrationTest {
                     FROM public.flyway_schema_history
                     WHERE success
                       AND version IS NOT NULL
-                    """)).isEqualTo(13);
+                    """)).isEqualTo(14);
             assertThat(queryInt(connection, """
                     SELECT count(*)
                     FROM public.flyway_schema_history
@@ -2246,7 +2417,7 @@ class FlywayMigrationTest {
     }
 
     /**
-     * 애플리케이션 시작 검사가 정확히 성공한 V001~V012만 허용하는지 검증한다.
+     * 애플리케이션 시작 검사가 정확히 성공한 V001~V013만 허용하는지 검증한다.
      *
      * <p>history 없음, 구버전, 실패 처리된 migration, 애플리케이션보다 앞선
      * 버전을 모두 거부하고 정확한 버전 목록만 통과시킨다.</p>
@@ -2289,7 +2460,7 @@ class FlywayMigrationTest {
             statement.executeUpdate("""
                     UPDATE public.flyway_schema_history
                     SET success = FALSE
-                    WHERE version = '012'
+                    WHERE version = '013'
                     """);
             assertThatThrownBy(() ->
                     SchemaVersionGuard.verify(exact.dataSource()))
@@ -2299,8 +2470,8 @@ class FlywayMigrationTest {
             statement.executeUpdate("""
                     UPDATE public.flyway_schema_history
                     SET success = TRUE,
-                        version = '013'
-                    WHERE version = '012'
+                        version = '014'
+                    WHERE version = '013'
                     """);
             assertThatThrownBy(() ->
                     SchemaVersionGuard.verify(exact.dataSource()))
@@ -2312,7 +2483,7 @@ class FlywayMigrationTest {
     /**
      * migration 계정과 웹 runtime 계정의 실제 PostgreSQL 권한이 분리되는지 검증한다.
      *
-     * <p>한 테스트 안에서 역할 생성, 레거시 migration, V012 이후 grant와 runtime
+     * <p>한 테스트 안에서 역할 생성, 레거시 migration, V013 이후 grant와 runtime
      * guard를 모두 실행한다. runtime의 교사 등록·조회·수정은 실제 사용 컬럼까지
      * 허용하면서 DDL, Flyway history 변경, 교사 삭제·card_uid 접근과 레거시
      * 출석 쓰기는 권한 오류로 막아야 한다.</p>

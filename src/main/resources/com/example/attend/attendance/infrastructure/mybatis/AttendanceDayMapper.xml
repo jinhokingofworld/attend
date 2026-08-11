@@ -169,7 +169,7 @@
 		SELECT id
 		FROM public.attendance_day
 		WHERE status = 'SCHEDULED'
-		  AND finalization_due_at &lt; #{now}
+		  AND finalization_due_at &lt;= #{now}
 		ORDER BY finalization_due_at, id
 	</select>
 

@@ -20,6 +20,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 
@@ -320,7 +321,7 @@ public class AttendanceDayService {
 				.orElseThrow(() -> new BusinessRuleException(
 						"published attendance policy has no bands"));
 		return ZonedDateTime.of(date, lastBand.upperTime(), attendanceZone)
-				.plusNanos(1)
+				.plus(1, ChronoUnit.MICROS)
 				.toInstant();
 	}
 

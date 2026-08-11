@@ -236,10 +236,19 @@ BEGIN
     -- 날짜가 바뀌어도 오늘의 출석일과 대상자는 항상 존재하도록 멱등 upsert한다.
     INSERT INTO public.attendance_day(
         department_id, attendance_date, policy_version_id, status,
-        created_by_account_id)
+        created_by_account_id, finalization_due_at)
     VALUES (
         department_a_id, local_attendance_date, policy_a_id, 'SCHEDULED',
-        actor_id)
+        actor_id,
+        ((
+            local_attendance_date + (
+                SELECT band.upper_time
+                FROM public.attendance_band AS band
+                WHERE band.policy_version_id = policy_a_id
+                ORDER BY band.sequence_no DESC
+                LIMIT 1
+            )
+        ) AT TIME ZONE 'Asia/Seoul') + INTERVAL '1 microsecond')
     ON CONFLICT (department_id, attendance_date) DO NOTHING;
     SELECT id INTO STRICT day_a_id
     FROM public.attendance_day
@@ -248,10 +257,19 @@ BEGIN
 
     INSERT INTO public.attendance_day(
         department_id, attendance_date, policy_version_id, status,
-        created_by_account_id)
+        created_by_account_id, finalization_due_at)
     VALUES (
         department_b_id, local_attendance_date, policy_b_id, 'SCHEDULED',
-        actor_id)
+        actor_id,
+        ((
+            local_attendance_date + (
+                SELECT band.upper_time
+                FROM public.attendance_band AS band
+                WHERE band.policy_version_id = policy_b_id
+                ORDER BY band.sequence_no DESC
+                LIMIT 1
+            )
+        ) AT TIME ZONE 'Asia/Seoul') + INTERVAL '1 microsecond')
     ON CONFLICT (department_id, attendance_date) DO NOTHING;
     SELECT id INTO STRICT day_b_id
     FROM public.attendance_day

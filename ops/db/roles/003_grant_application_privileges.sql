@@ -1,4 +1,4 @@
--- Post-migration grants for the V012 schema. Run as migration_owner or an
+-- Post-migration grants for the V013 schema. Run as migration_owner or an
 -- equivalent owner after guarded dbMigrate succeeds.
 --
 -- This script is intentionally explicit. A future migration that adds a table,
@@ -42,29 +42,39 @@ BEGIN
 
     IF missing_tables IS NOT NULL THEN
         RAISE EXCEPTION
-            'Runtime grants require the complete V012 schema; missing: %',
+            'Runtime grants require the complete V013 schema; missing: %',
             missing_tables;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.flyway_schema_history
+        WHERE version = '013'
+          AND success
+    ) THEN
+        RAISE EXCEPTION
+            'Runtime grants require successful Flyway migration V013';
     END IF;
 
     IF pg_catalog.to_regprocedure(
             'public.attend_purge_expired_audit_log_batch()'
        ) IS NULL THEN
         RAISE EXCEPTION
-            'Runtime grants require the V012 audit retention function';
+            'Runtime grants require the audit retention function';
     END IF;
 
     IF pg_catalog.to_regprocedure(
             'public.attend_purge_expired_tag_event_log_batch()'
        ) IS NULL THEN
         RAISE EXCEPTION
-            'Runtime grants require the V012 tag-event retention function';
+            'Runtime grants require the tag-event retention function';
     END IF;
 
     IF pg_catalog.to_regprocedure(
             'public.attend_purge_expired_telegram_webhook_update_batch()'
        ) IS NULL THEN
         RAISE EXCEPTION
-            'Runtime grants require the V012 Telegram webhook retention function';
+            'Runtime grants require the Telegram webhook retention function';
     END IF;
 END
 $required_schema$;
