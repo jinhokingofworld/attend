@@ -4,9 +4,23 @@ ALTER TABLE public.attendance_day
     ADD COLUMN finalization_first_failed_at TIMESTAMPTZ;
 
 UPDATE public.attendance_day
-SET finalization_first_failed_at = finalization_last_failed_at
-WHERE finalization_failure_count > 0
-  AND finalization_first_failed_at IS NULL;
+SET finalization_first_failed_at = NULL,
+    finalization_last_failed_at = NULL
+WHERE finalization_failure_count = 0;
+
+-- V014 did not require a failure timestamp. CURRENT_TIMESTAMP is the only
+-- honest durable fallback when an older row has already lost that detail.
+UPDATE public.attendance_day
+SET finalization_first_failed_at = COALESCE(
+        finalization_first_failed_at,
+        finalization_last_failed_at,
+        CURRENT_TIMESTAMP
+    ),
+    finalization_last_failed_at = COALESCE(
+        finalization_last_failed_at,
+        CURRENT_TIMESTAMP
+    )
+WHERE finalization_failure_count > 0;
 
 ALTER TABLE public.attendance_day
     ADD CONSTRAINT ck_attendance_day_finalization_failure_timestamps
@@ -63,7 +77,7 @@ CREATE TABLE public.finalization_operational_event (
     CONSTRAINT ck_finalization_operational_event_attempts
         CHECK (total_attempt_count = 6 AND delivery_attempt_count >= 0),
     CONSTRAINT ck_finalization_operational_event_claim_versions
-        CHECK (incident_claim_version > 0 AND delivery_claim_version >= 0),
+        CHECK (incident_claim_version >= 0 AND delivery_claim_version >= 0),
     CONSTRAINT ck_finalization_operational_event_error_code
         CHECK (char_length(btrim(error_code)) > 0),
     CONSTRAINT ck_finalization_operational_event_time_order
@@ -87,8 +101,44 @@ CREATE TABLE public.finalization_operational_event (
                 AND telegram_message_id IS NOT NULL
                 AND telegram_message_id > 0
                 AND sent_at IS NOT NULL)
-        )
+    )
 );
+
+-- Dates that exhausted all attempts before this release cannot produce the
+-- application event again. Seed their durable alerts so startup recovery sends
+-- them after the upgraded application becomes ready.
+INSERT INTO public.finalization_operational_event (
+    event_type,
+    attendance_day_id,
+    incident_claim_version,
+    department_id,
+    department_name,
+    attendance_date,
+    first_failed_at,
+    occurred_at,
+    total_attempt_count,
+    error_code,
+    next_attempt_at
+)
+SELECT
+    'FINALIZATION_RETRY_EXHAUSTED',
+    day.id,
+    day.finalization_claim_version,
+    day.department_id,
+    department.name,
+    day.attendance_date,
+    day.finalization_first_failed_at,
+    day.finalization_last_failed_at,
+    6,
+    COALESCE(
+        NULLIF(btrim(day.finalization_last_error_code), ''),
+        'UNKNOWN_FINALIZATION_ERROR'
+    ),
+    CURRENT_TIMESTAMP
+FROM public.attendance_day AS day
+JOIN public.department AS department ON department.id = day.department_id
+WHERE day.status = 'SCHEDULED'
+  AND day.finalization_failure_count = 6;
 
 CREATE INDEX idx_finalization_operational_event_dispatch
     ON public.finalization_operational_event (next_attempt_at, id)

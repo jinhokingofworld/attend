@@ -10,7 +10,7 @@ import org.apache.ibatis.annotations.Param;
 @Mapper
 public interface FinalizationOperationalEventMapper {
 
-    int insertRetryExhaustedEvent(
+    Long insertRetryExhaustedEvent(
             @Param("attendanceDayId") long attendanceDayId,
             @Param("incidentClaimVersion") long incidentClaimVersion,
             @Param("errorCode") String errorCode,

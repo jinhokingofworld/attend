@@ -131,6 +131,31 @@ REVOKE ALL PRIVILEGES (
 ) ON TABLE public.nfc_card_assignment
 FROM app_runtime, cutover_writer, legacy_writer;
 
+REVOKE ALL PRIVILEGES (
+    id,
+    event_type,
+    attendance_day_id,
+    incident_claim_version,
+    department_id,
+    department_name,
+    attendance_date,
+    first_failed_at,
+    occurred_at,
+    total_attempt_count,
+    error_code,
+    status,
+    delivery_attempt_count,
+    delivery_claim_version,
+    next_attempt_at,
+    lease_until,
+    telegram_message_id,
+    sent_at,
+    last_delivery_error_code,
+    created_at,
+    updated_at
+) ON TABLE public.finalization_operational_event
+FROM app_runtime, cutover_writer, legacy_writer, retention_worker;
+
 GRANT USAGE ON SCHEMA public
     TO app_runtime, cutover_writer, legacy_writer, retention_worker;
 REVOKE CREATE ON SCHEMA public

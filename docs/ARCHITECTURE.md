@@ -771,7 +771,7 @@ AttendanceFinalizationScheduler
 
 Spring 내부 self-invocation으로 `@Transactional`이 무시되지 않도록 scheduler와 날짜별 finalization service를 별도 bean으로 둔다.
 
-스케줄러는 고정 polling이나 자정 cron을 사용하지 않는다. 애플리케이션 시작 시와 출석일 생성·정책 교체 transaction commit 시 DB의 가장 이른 실행 시각을 동적으로 예약한다. 다중 인스턴스는 `claim_version`과 2분 lease로 같은 날짜를 선점하며, 늦은 worker의 실패 결과는 세대 조건으로 무시한다. 최초 마감 실패 뒤에는 DB에 실패 횟수와 다음 시각을 저장하고 1·2·4·8·16분 간격으로 다섯 번 재시도한다. 모두 실패하면 날짜는 `SCHEDULED`와 마감 지연 상태로 남고 자동 재시도 대상에서는 제외되며, 같은 transaction에서 `FINALIZATION_RETRY_EXHAUSTED` 운영 이벤트를 한 번만 생성한다. 운영 이벤트 worker는 출석 알림 Bot과 분리된 개발자 Telegram Bot으로 개인정보 없는 사고 메타데이터만 보내고, 전송 실패는 DB lease와 claim version으로 fencing하며 성공할 때까지 최대 1시간 backoff로 재시도한다.
+스케줄러는 출석일 마감을 찾기 위한 고정 polling이나 자정 cron을 사용하지 않는다. 애플리케이션 시작 시와 출석일 생성·정책 교체 transaction commit 시 DB의 가장 이른 실행 시각을 동적으로 예약한다. 다중 인스턴스는 `claim_version`과 2분 lease로 같은 날짜를 선점하며, 늦은 worker의 실패 결과는 세대 조건으로 무시한다. 최초 마감 실패 뒤에는 DB에 실패 횟수와 다음 시각을 저장하고 1·2·4·8·16분 간격으로 다섯 번 재시도한다. 모두 실패하면 날짜는 `SCHEDULED`와 마감 지연 상태로 남고 자동 재시도 대상에서는 제외되며, 같은 transaction에서 `FINALIZATION_RETRY_EXHAUSTED` 운영 이벤트를 한 번만 생성한다. commit 직후 전용 executor가 출석 알림 Bot과 분리된 개발자 Telegram Bot으로 개인정보 없는 사고 메타데이터를 즉시 보내며, 앱 시작 시와 60초마다 outbox 전달만 복구한다. 전송 실패는 DB lease와 claim version으로 fencing하며 성공할 때까지 최대 1시간 backoff로 재시도한다.
 
 ### 8.7 수동 등록·정정
 

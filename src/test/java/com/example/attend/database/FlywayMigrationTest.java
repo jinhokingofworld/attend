@@ -1,12 +1,17 @@
 package com.example.attend.database;
 
+import com.example.attend.operations.domain.FinalizationOperationalAlertJob;
+import com.example.attend.operations.infrastructure.mybatis.FinalizationOperationalEventMapper;
 import com.example.attend.retention.RetentionDatabasePrivilegeGuard;
+import org.apache.ibatis.session.SqlSession;
+import org.apache.ibatis.session.SqlSessionFactory;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
+import org.mybatis.spring.SqlSessionFactoryBean;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -20,6 +25,8 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -394,10 +401,21 @@ class FlywayMigrationTest {
                         finalization_claim_version,
                         finalization_last_error_code,
                         finalization_last_failed_at)
-                    VALUES (
-                        %d, DATE '2026-08-12', %d, 'SCHEDULED', %d,
-                        2, TIMESTAMPTZ '2026-08-12 00:04:00Z', 2,
-                        'TEST_FAILURE', TIMESTAMPTZ '2026-08-12 00:02:00Z')
+                    VALUES
+                        (
+                            %1$d, DATE '2026-08-12', %2$d, 'SCHEDULED', %3$d,
+                            2, TIMESTAMPTZ '2026-08-12 00:04:00Z', 2,
+                            'TEST_FAILURE', TIMESTAMPTZ '2026-08-12 00:02:00Z'
+                        ),
+                        (
+                            %1$d, DATE '2026-08-13', %2$d, 'SCHEDULED', %3$d,
+                            6, NULL, 0, NULL, NULL
+                        ),
+                        (
+                            %1$d, DATE '2026-08-14', %2$d, 'SCHEDULED', %3$d,
+                            0, NULL, 0, NULL,
+                            TIMESTAMPTZ '2026-08-14 00:02:00Z'
+                        )
                     """.formatted(departmentId, policyId, accountId));
         }
 
@@ -421,7 +439,37 @@ class FlywayMigrationTest {
                         finalization_first_failed_at =
                         TIMESTAMPTZ '2026-08-12 00:02:00Z')::text
                     FROM public.attendance_day
+                    WHERE attendance_date = DATE '2026-08-12'
                     """)).isEqualTo("true");
+            assertThat(queryString(connection, """
+                    SELECT (
+                        day.finalization_first_failed_at IS NOT NULL
+                        AND day.finalization_first_failed_at = day.finalization_last_failed_at
+                        AND event.first_failed_at = day.finalization_first_failed_at
+                        AND event.occurred_at = day.finalization_last_failed_at
+                        AND event.incident_claim_version = 0
+                        AND event.error_code = 'UNKNOWN_FINALIZATION_ERROR'
+                        AND event.status = 'PENDING'
+                        AND event.total_attempt_count = 6
+                        AND event.next_attempt_at <= CURRENT_TIMESTAMP
+                    )::text
+                    FROM public.attendance_day AS day
+                    JOIN public.finalization_operational_event AS event
+                      ON event.attendance_day_id = day.id
+                    WHERE day.attendance_date = DATE '2026-08-13'
+                    """)).isEqualTo("true");
+            assertThat(queryString(connection, """
+                    SELECT (
+                        finalization_first_failed_at IS NULL
+                        AND finalization_last_failed_at IS NULL
+                    )::text
+                    FROM public.attendance_day
+                    WHERE attendance_date = DATE '2026-08-14'
+                    """)).isEqualTo("true");
+            assertThat(queryInt(connection, """
+                    SELECT count(*)
+                    FROM public.finalization_operational_event
+                    """)).isEqualTo(1);
             assertThat(queryString(connection, """
                     SELECT to_regclass(
                         'public.finalization_operational_event')::text
@@ -2641,6 +2689,110 @@ class FlywayMigrationTest {
                 database.dataSource("retention_worker", retentionPassword);
         SchemaVersionGuard.verify(runtimeDataSource);
         RuntimeDatabasePrivilegeGuard.verify(runtimeDataSource);
+
+		long exhaustedDayId;
+		try (Connection migrationConnection = migrationDataSource.getConnection();
+			 Statement statement = migrationConnection.createStatement()) {
+			long accountId = queryLong(statement, """
+					INSERT INTO public.account (
+					    username, password_hash, status, password_changed_at)
+					VALUES ('runtime-outbox-admin', 'test-hash', 'ACTIVE', CURRENT_TIMESTAMP)
+					RETURNING id
+					""");
+			long departmentId = queryLong(statement, """
+					INSERT INTO public.department (name)
+					VALUES ('runtime outbox 권한 부서')
+					RETURNING id
+					""");
+			long policyId = queryLong(statement, """
+					INSERT INTO public.attendance_policy_version (
+					    department_id, version_no, name, check_in_start_time,
+					    status, created_by_account_id)
+					VALUES (%d, 1, 'runtime outbox 정책', TIME '08:30', 'DRAFT', %d)
+					RETURNING id
+					""".formatted(departmentId, accountId));
+			exhaustedDayId = queryLong(statement, """
+					INSERT INTO public.attendance_day (
+					    department_id, attendance_date, policy_version_id,
+					    status, created_by_account_id,
+					    finalization_failure_count,
+					    finalization_claim_version,
+					    finalization_last_error_code,
+					    finalization_first_failed_at,
+					    finalization_last_failed_at)
+					VALUES (
+					    %d, DATE '2026-08-12', %d, 'SCHEDULED', %d,
+					    6, 9, 'RUNTIME_PERMISSION_TEST',
+					    TIMESTAMPTZ '2026-08-12 00:00:00Z',
+					    TIMESTAMPTZ '2026-08-12 00:05:00Z')
+					RETURNING id
+					""".formatted(departmentId, policyId, accountId));
+		}
+
+		SqlSessionFactory runtimeMapperFactory = mapperFactory(runtimeDataSource);
+		try (SqlSession session = runtimeMapperFactory.openSession(true)) {
+			FinalizationOperationalEventMapper mapper =
+					session.getMapper(FinalizationOperationalEventMapper.class);
+			Instant occurredAt = Instant.parse("2026-08-12T00:05:00Z");
+			Long firstEventId = mapper.insertRetryExhaustedEvent(
+					exhaustedDayId, 9L, "RUNTIME_PERMISSION_TEST", occurredAt);
+			Long duplicateEventId = mapper.insertRetryExhaustedEvent(
+					exhaustedDayId, 9L, "RUNTIME_PERMISSION_TEST", occurredAt);
+			assertThat(firstEventId).isPositive();
+			assertThat(duplicateEventId).isEqualTo(firstEventId);
+			assertThat(mapper.selectReadyEventIds(occurredAt, 20))
+					.contains(firstEventId);
+
+			Instant firstLeaseUntil = occurredAt.plus(Duration.ofMinutes(2));
+			FinalizationOperationalAlertJob firstClaim = mapper.claimEvent(
+					firstEventId, occurredAt, firstLeaseUntil);
+			assertThat(firstClaim).isNotNull();
+			assertThat(mapper.recoverExpiredLeases(firstLeaseUntil)).isEqualTo(1);
+
+			FinalizationOperationalAlertJob secondClaim = mapper.claimEvent(
+					firstEventId,
+					firstLeaseUntil,
+					firstLeaseUntil.plus(Duration.ofMinutes(2)));
+			assertThat(secondClaim.deliveryClaimVersion())
+					.isGreaterThan(firstClaim.deliveryClaimVersion());
+			Instant retryAt = firstLeaseUntil.plusSeconds(30);
+			assertThat(mapper.markRetry(
+					firstEventId,
+					secondClaim.deliveryClaimVersion(),
+					retryAt,
+					"RUNTIME_RETRY_TEST",
+					firstLeaseUntil)).isEqualTo(1);
+
+			FinalizationOperationalAlertJob thirdClaim = mapper.claimEvent(
+					firstEventId,
+					retryAt,
+					retryAt.plus(Duration.ofMinutes(2)));
+			assertThat(mapper.markSent(
+					firstEventId,
+					thirdClaim.deliveryClaimVersion(),
+					700L,
+					retryAt)).isEqualTo(1);
+		}
+		try (Connection migrationConnection = migrationDataSource.getConnection()) {
+			assertThat(queryInt(migrationConnection, """
+					SELECT count(*)
+					FROM public.finalization_operational_event
+					WHERE attendance_day_id = %d
+					""".formatted(exhaustedDayId))).isEqualTo(1);
+		}
+		try (Connection migrationConnection = migrationDataSource.getConnection();
+			 Statement statement = migrationConnection.createStatement()) {
+			statement.execute("""
+					GRANT UPDATE (event_type)
+					ON TABLE public.finalization_operational_event
+					TO app_runtime
+					""");
+			assertRuntimePrivilegeGuardRejects(runtimeDataSource);
+			executeSqlFile(
+					statement,
+					"ops/db/roles/003_grant_application_privileges.sql");
+			RuntimeDatabasePrivilegeGuard.verify(runtimeDataSource);
+		}
 		try (Connection migrationConnection = migrationDataSource.getConnection();
 			 Statement statement = migrationConnection.createStatement()) {
 			statement.execute(
@@ -3564,6 +3716,26 @@ class FlywayMigrationTest {
                 StandardCharsets.UTF_8
         );
         statement.execute(sql);
+    }
+
+    /** 제한된 runtime DataSource에 실제 운영 mapper XML을 연결한다. */
+    private static SqlSessionFactory mapperFactory(DataSource dataSource)
+            throws Exception {
+        SqlSessionFactoryBean factoryBean = new SqlSessionFactoryBean();
+        factoryBean.setDataSource(dataSource);
+        factoryBean.setMapperLocations(new ClassPathResource(
+                "com/example/attend/operations/infrastructure/mybatis/"
+                        + "FinalizationOperationalEventMapper.xml"));
+        org.apache.ibatis.session.Configuration configuration =
+                new org.apache.ibatis.session.Configuration();
+        configuration.setMapUnderscoreToCamelCase(true);
+        factoryBean.setConfiguration(configuration);
+        factoryBean.afterPropertiesSet();
+        SqlSessionFactory factory = factoryBean.getObject();
+        if (factory == null) {
+            throw new IllegalStateException("Could not create runtime mapper factory");
+        }
+        return factory;
     }
 
     /**

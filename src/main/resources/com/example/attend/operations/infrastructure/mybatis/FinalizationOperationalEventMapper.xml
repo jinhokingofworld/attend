@@ -2,7 +2,8 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.example.attend.operations.infrastructure.mybatis.FinalizationOperationalEventMapper">
 
-    <insert id="insertRetryExhaustedEvent">
+    <select id="insertRetryExhaustedEvent"
+            resultType="long" affectData="true" flushCache="true">
         INSERT INTO public.finalization_operational_event (
             event_type,
             attendance_day_id,
@@ -35,8 +36,9 @@
           AND day.finalization_failure_count = 6
           AND day.finalization_claim_version = #{incidentClaimVersion}
         ON CONFLICT (event_type, attendance_day_id, incident_claim_version)
-        DO UPDATE SET event_type = finalization_operational_event.event_type
-    </insert>
+        DO UPDATE SET updated_at = finalization_operational_event.updated_at
+        RETURNING finalization_operational_event.id
+    </select>
 
     <select id="selectReadyEventIds" resultType="long">
         SELECT id

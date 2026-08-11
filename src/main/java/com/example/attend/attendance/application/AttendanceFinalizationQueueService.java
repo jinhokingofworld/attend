@@ -2,12 +2,14 @@ package com.example.attend.attendance.application;
 
 import com.example.attend.attendance.infrastructure.mybatis.AttendanceDayMapper;
 import com.example.attend.config.AttendanceFinalizationSchedulerProperties;
+import com.example.attend.operations.application.FinalizationOperationalIncidentCreated;
 import com.example.attend.operations.infrastructure.mybatis.FinalizationOperationalEventMapper;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,17 +27,20 @@ public class AttendanceFinalizationQueueService {
 	private final AttendanceDayMapper dayMapper;
 	private final AttendanceFinalizationSchedulerProperties properties;
 	private final FinalizationOperationalEventMapper operationalEventMapper;
+	private final ApplicationEventPublisher eventPublisher;
 	private final Clock clock;
 
 	public AttendanceFinalizationQueueService(
 			AttendanceDayMapper dayMapper,
 			AttendanceFinalizationSchedulerProperties properties,
 			FinalizationOperationalEventMapper operationalEventMapper,
+			ApplicationEventPublisher eventPublisher,
 			Clock clock
 	) {
 		this.dayMapper = dayMapper;
 		this.properties = properties;
 		this.operationalEventMapper = operationalEventMapper;
+		this.eventPublisher = eventPublisher;
 		this.clock = clock;
 	}
 
@@ -92,15 +97,17 @@ public class AttendanceFinalizationQueueService {
 			return false;
 		}
 		if (newFailureCount > RETRY_DELAYS.size()) {
-			int eventRows = operationalEventMapper.insertRetryExhaustedEvent(
+			Long eventId = operationalEventMapper.insertRetryExhaustedEvent(
 					claim.attendanceDayId(),
 					claim.claimVersion(),
 					errorCode,
 					failedAt);
-			if (eventRows != 1) {
+			if (eventId == null || eventId <= 0) {
 				throw new IllegalStateException(
 						"Could not persist finalization retry exhaustion event");
 			}
+			eventPublisher.publishEvent(
+					new FinalizationOperationalIncidentCreated(eventId));
 		}
 		return true;
 	}

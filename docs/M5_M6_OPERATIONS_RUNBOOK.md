@@ -192,7 +192,12 @@ DB가 아니면 중단한다. 복원 후에는 계정·교사·출석의 **건�
 3. `device-api=true`로 restart하고 시험 카드 한 장의 첫 check-in을 화면·DB와
    대사한다. 같은 requestId 재전송이 최초 canonical 응답인지 확인한다.
 4. 나머지 장치를 같은 절차로 활성화한다.
-5. 하루 마감과 수동 대사까지 확인한 뒤 마지막으로 `scheduler=true`를 켠다.
+5. 하루 마감과 수동 대사까지 확인한 뒤 별도 개발자 운영 Bot을 만들고 비공개 운영
+   채팅의 chat ID를 확보한다. 배포 secret에 `OPERATIONS_TELEGRAM_BOT_TOKEN`,
+   `OPERATIONS_TELEGRAM_CHAT_ID`, `OPERATIONS_TELEGRAM_ENABLED=true`를 등록하되
+   아직 `scheduler=false`로 재기동해 health와 시험 발송을 확인한다.
+6. 운영 알림 설정이 확인된 뒤 마지막으로 `scheduler=true`를 켠다. 운영 profile은
+   자동 마감만 켜고 운영 Telegram을 끈 조합의 기동을 거부한다.
 
 오류가 발생하면 scheduler → device API → admin write 역순으로 flag를 닫는다.
 DB migration을 되돌리거나 dump를 운영 DB 위에 덮어쓰지 않는다. 데이터 복구가

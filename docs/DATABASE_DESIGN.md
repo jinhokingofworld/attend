@@ -362,7 +362,10 @@ MVP에서 `device.department_id`는 생성 후 불변이다. 다른 부서로 �
 `finalization_first_failed_at`에 한 번만 기록한다. 실패 횟수가 6이 되는 transaction은
 `finalization_operational_event`에 부서·날짜·안전한 오류 코드만 snapshot하며,
 출석 명단·계정·연락처는 포함하지 않는다. 사건 claim version별 유일 제약으로
-중복 통보를 막고 별도 delivery claim version과 lease로 만료 worker의 결과를 차단한다.
+중복 outbox 생성을 막고 별도 delivery claim version과 lease로 만료 worker의 결과를
+차단한다. commit 직후 전용 executor가 즉시 전달을 시도하며 앱 시작 시와 60초마다
+`PENDING`·`RETRY`·만료 `PROCESSING` 전달을 복구한다. 외부 Telegram 성공과 `SENT`
+갱신은 한 transaction이 아니므로 드문 중복 문자를 허용하는 at-least-once 계약이다.
 
 `attendance_record`는 다음 조건을 만족해야 한다.
 

@@ -13,7 +13,7 @@ public record OperationalTelegramProperties(
     public OperationalTelegramProperties {
         botToken = normalize(botToken);
         if (dispatchFixedDelayMs <= 0) {
-            dispatchFixedDelayMs = 10_000;
+            dispatchFixedDelayMs = 60_000;
         }
     }
 

@@ -1,6 +1,7 @@
 package com.example.attend.operations.scheduler;
 
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -17,11 +18,25 @@ import java.time.ZoneOffset;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-class FinalizationOperationalAlertSchedulerTest {
+class FinalizationOperationalAlertDispatcherTest {
     private static final Instant NOW = Instant.parse("2026-08-12T01:00:00Z");
 
     @Test
-    void sendsWithTheDedicatedBotAndFencesTheSuccessUpdate() {
+    void sendsClaimedEventWithTheDedicatedBotAndFencesTheSuccessUpdate() {
+        Fixture fixture = fixture();
+        when(fixture.mapper().claimEvent(51L, NOW, NOW.plusSeconds(120)))
+                .thenReturn(job());
+        when(fixture.client().sendMessage("operations-token", -100123L, "safe message"))
+                .thenReturn(700L);
+
+        fixture.dispatcher().dispatchById(51L);
+
+        verify(fixture.client()).sendMessage("operations-token", -100123L, "safe message");
+        verify(fixture.mapper()).markSent(51L, 4L, 700L, NOW);
+    }
+
+    @Test
+    void recoversExpiredLeasesBeforeClaimingTheReadyBatch() {
         Fixture fixture = fixture();
         when(fixture.mapper().selectReadyEventIds(NOW, 20)).thenReturn(List.of(51L));
         when(fixture.mapper().claimEvent(51L, NOW, NOW.plusSeconds(120)))
@@ -29,27 +44,41 @@ class FinalizationOperationalAlertSchedulerTest {
         when(fixture.client().sendMessage("operations-token", -100123L, "safe message"))
                 .thenReturn(700L);
 
-        fixture.scheduler().dispatch();
+        fixture.dispatcher().recoverAndDispatchReady();
 
         verify(fixture.mapper()).recoverExpiredLeases(NOW);
-        verify(fixture.client()).sendMessage("operations-token", -100123L, "safe message");
+        verify(fixture.mapper()).selectReadyEventIds(NOW, 20);
         verify(fixture.mapper()).markSent(51L, 4L, 700L, NOW);
     }
 
     @Test
     void persistsTelegramRetryAfterWithoutDiscardingTheIncident() {
         Fixture fixture = fixture();
-        when(fixture.mapper().selectReadyEventIds(NOW, 20)).thenReturn(List.of(51L));
         when(fixture.mapper().claimEvent(51L, NOW, NOW.plusSeconds(120)))
                 .thenReturn(job());
         when(fixture.client().sendMessage("operations-token", -100123L, "safe message"))
                 .thenThrow(new TelegramDeliveryFailure(
                         false, false, 45, "TELEGRAM_HTTP_429", null));
 
-        fixture.scheduler().dispatch();
+        fixture.dispatcher().dispatchById(51L);
 
         verify(fixture.mapper()).markRetry(
                 51L, 4L, NOW.plusSeconds(45), "TELEGRAM_HTTP_429", NOW);
+    }
+
+    @Test
+    void sendsOnlyOnceWhenImmediateAndRecoveryDispatchCompeteForTheSameEvent() {
+        Fixture fixture = fixture();
+        when(fixture.mapper().claimEvent(51L, NOW, NOW.plusSeconds(120)))
+                .thenReturn(job(), (FinalizationOperationalAlertJob) null);
+        when(fixture.client().sendMessage("operations-token", -100123L, "safe message"))
+                .thenReturn(700L);
+
+        fixture.dispatcher().dispatchById(51L);
+        fixture.dispatcher().dispatchById(51L);
+
+        verify(fixture.client(), times(1))
+                .sendMessage("operations-token", -100123L, "safe message");
     }
 
     private static Fixture fixture() {
@@ -61,11 +90,11 @@ class FinalizationOperationalAlertSchedulerTest {
         when(formatter.format(job())).thenReturn("safe message");
         OperationalTelegramProperties properties =
                 new OperationalTelegramProperties(
-                        true, "operations-token", -100123L, 10_000);
+                        true, "operations-token", -100123L, 60_000);
         return new Fixture(
                 mapper,
                 client,
-                new FinalizationOperationalAlertScheduler(
+                new FinalizationOperationalAlertDispatcher(
                         mapper,
                         formatter,
                         client,
@@ -93,6 +122,6 @@ class FinalizationOperationalAlertSchedulerTest {
     private record Fixture(
             FinalizationOperationalEventMapper mapper,
             TelegramBotClient client,
-            FinalizationOperationalAlertScheduler scheduler) {
+            FinalizationOperationalAlertDispatcher dispatcher) {
     }
 }

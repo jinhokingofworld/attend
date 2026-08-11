@@ -296,6 +296,30 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                             SELECT 1
                             FROM (
                                 VALUES
+                                    ('id'),
+                                    ('event_type'),
+                                    ('attendance_day_id'),
+                                    ('incident_claim_version'),
+                                    ('department_id'),
+                                    ('department_name'),
+                                    ('attendance_date'),
+                                    ('first_failed_at'),
+                                    ('occurred_at'),
+                                    ('total_attempt_count'),
+                                    ('error_code'),
+                                    ('created_at')
+                            ) AS forbidden(column_name)
+                            WHERE has_column_privilege(
+                                current_user,
+                                'public.finalization_operational_event',
+                                forbidden.column_name,
+                                'UPDATE'
+                            )
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM (
+                                VALUES
                                     ('id', 'SELECT'),
                                     ('name', 'SELECT'),
                                     ('phone', 'SELECT'),

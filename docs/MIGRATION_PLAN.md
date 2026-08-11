@@ -313,7 +313,7 @@ ORDER BY installed_rank;
 | V013 | `V013__align_attendance_finalization_precision.sql` | 모든 기존 출석일의 마감 경계를 고정 정책 마지막 포함 상한의 정확히 1µs 뒤로 보정 |
 | V014 | `V014__add_attendance_finalization_retry_state.sql` | 마감 실패 횟수, 다음 retry 시각, claim version과 lease를 추가해 다중 인스턴스의 1·2·4·8·16분 재시도를 영속화 |
 | V015 | `V015__add_attendance_finalization_dispatch_index.sql` | 마감·재시도 dispatch 인덱스를 독립된 비트랜잭션 online migration으로 생성 |
-| V016 | `V016__add_finalization_operational_alert_outbox.sql` | 최초 마감 실패 시각과 재시도 소진 운영 이벤트 outbox·Telegram delivery fencing 상태 추가 |
+| V016 | `V016__add_finalization_operational_alert_outbox.sql` | 최초 마감 실패 시각과 재시도 소진 운영 이벤트 outbox·Telegram delivery fencing 상태 추가. V015의 기존 6회 소진 날짜도 `PENDING` 사건으로 backfill |
 | R | `R__update_member_column_comments.sql` | 적용된 V001 checksum은 바꾸지 않고 `age`·`birth` catalog 설명을 현재 최소수집 계약과 동기화 |
 
 V002는 비밀번호가 없는 `PENDING_SETUP`, 비밀번호가 설정된 `ACTIVE`, 두 형태를 보존할 수 있는 `DISABLED` 상태와 nullable 비밀번호 필드의 일관성 `CHECK`를 함께 생성한다. `account_credential_token`은 `INVITATION`·`RESET`, 64자 lowercase HMAC-SHA-256 hash, 대상·발급 계정, 최대 30분의 발급·만료 시각과 사용·무효 시각을 저장한다. 계정·목적별 미사용·미무효 token 한 건을 보장하는 부분 유일 인덱스는 V007에서 생성한다. V002 적용과 V007에 분리된 부분 유일성을 포함한 PostgreSQL DB 테스트 통과가 계정 생성·회원가입 초대·reset command의 출시 gate다. 원문 token은 관리자가 1회 표시 링크를 복사해 승인된 1:1 메신저로 전달하며, 운영 공개 base URL·HTTPS 승인은 별도 운영 gate다.
