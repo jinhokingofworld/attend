@@ -173,6 +173,57 @@
 		ORDER BY finalization_due_at, id
 	</select>
 
+	<select id="selectNextFinalizationActionAt" resultType="java.time.Instant">
+		SELECT min(
+			CASE
+				WHEN finalization_lease_until &gt; #{now}
+					THEN finalization_lease_until
+				ELSE COALESCE(finalization_next_attempt_at, finalization_due_at)
+			END)
+		FROM public.attendance_day
+		WHERE status = 'SCHEDULED'
+		  AND finalization_failure_count &lt; 6
+	</select>
+
+	<select id="selectReadyFinalizationDayIds" resultType="long">
+		SELECT id
+		FROM public.attendance_day
+		WHERE status = 'SCHEDULED'
+		  AND finalization_failure_count &lt; 6
+		  AND COALESCE(finalization_next_attempt_at, finalization_due_at) &lt;= #{now}
+		  AND (finalization_lease_until IS NULL OR finalization_lease_until &lt;= #{now})
+		ORDER BY COALESCE(finalization_next_attempt_at, finalization_due_at), id
+		LIMIT #{limit}
+	</select>
+
+	<select id="claimFinalizationDay"
+			resultType="com.example.attend.attendance.application.AttendanceFinalizationClaim"
+			affectData="true" flushCache="true">
+		UPDATE public.attendance_day
+		SET finalization_claim_version = finalization_claim_version + 1,
+			finalization_lease_until = #{leaseUntil}
+		WHERE id = #{attendanceDayId}
+		  AND status = 'SCHEDULED'
+		  AND finalization_failure_count &lt; 6
+		  AND COALESCE(finalization_next_attempt_at, finalization_due_at) &lt;= #{now}
+		  AND (finalization_lease_until IS NULL OR finalization_lease_until &lt;= #{now})
+		RETURNING id AS attendance_day_id,
+			finalization_failure_count AS failure_count,
+			finalization_claim_version AS claim_version
+	</select>
+
+	<update id="markFinalizationFailure">
+		UPDATE public.attendance_day
+		SET finalization_failure_count = #{failureCount},
+			finalization_next_attempt_at = #{nextAttemptAt},
+			finalization_lease_until = NULL,
+			finalization_last_error_code = #{errorCode},
+			finalization_last_failed_at = #{failedAt}
+		WHERE id = #{attendanceDayId}
+		  AND status = 'SCHEDULED'
+		  AND finalization_claim_version = #{claimVersion}
+	</update>
+
 	<insert id="insertMissingAbsences">
 		INSERT INTO public.attendance_record (
 			attendance_day_id,
@@ -204,7 +255,9 @@
 	<update id="finalizeDay">
 		UPDATE public.attendance_day
 		SET status = 'FINALIZED',
-			finalized_at = #{finalizedAt}
+			finalized_at = #{finalizedAt},
+			finalization_lease_until = NULL,
+			finalization_next_attempt_at = NULL
 		WHERE id = #{attendanceDayId}
 		  AND status = 'SCHEDULED'
 	</update>

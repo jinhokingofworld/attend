@@ -110,7 +110,7 @@ Attend MVP는 **단일 Spring Boot 애플리케이션으로 배포하는 모듈�
 | 보안 | Spring Security form login, 단일 filter chain |
 | 데이터 접근 | MyBatis interface + XML Mapper |
 | DB | PostgreSQL |
-| 스키마 변경 | Spring SQL 초기화 차단, Flyway V001~V011 명시 실행 |
+| 스키마 변경 | Spring SQL 초기화 차단, Flyway V001~V014 명시 실행 |
 | 펌웨어 | `RFID.ino`, MFRC522, WiFiNINA |
 | 테스트 | Spring context와 PostgreSQL 15 Testcontainers migration·제약 테스트 |
 
@@ -127,7 +127,7 @@ flowchart LR
     API --> S
     S --> M["MyBatis XML Mapper"]
     M --> LDB[("저장소 기준 레거시 PostgreSQL 스키마<br>4개 테이블")]
-    FLY["Flyway V001~V011<br>명시적 migration 실행"] --> TDB[("기존 member + 신규 목표 테이블")]
+    FLY["Flyway V001~V014<br>명시적 migration 실행"] --> TDB[("기존 member + 신규 목표 테이블")]
     LDB --- TDB
     NFC["Arduino 펌웨어"] -. "경로·본문·인증·응답 처리 불일치" .-> API
 ```
@@ -151,7 +151,7 @@ POST /api/attendance
 - 운영 classpath에서 파괴적 `schema.sql`, 샘플 `data.sql` 제거
 - `spring.sql.init.mode=never` 고정과 운영 프로필의 필수 DB 접속정보
 - 웹 runtime 기본 Flyway 비활성화와 테스트 프로필의 명시적 활성화
-- fresh·정확한 레거시 DB만 허용하는 Flyway V001~V011
+- fresh·정확한 레거시 DB만 허용하는 Flyway V001~V014
 - `member` 물리 삭제 API·Mapper와 `card_uid` 직접 수정 경로 제거
 - PostgreSQL 15에서 fresh, legacy, drift 거부, 부서 scope, 날짜–정책–구간–상태 복합 FK, 부분 unique, token·NULL 부정 제약 검증
 
@@ -750,8 +750,9 @@ check-in은 1번과 2번을 공유 잠금으로 읽고, 구성원·날짜·장�
 
 ```text
 AttendanceFinalizationScheduler
-→ 매일 자정 또는 ApplicationReadyEvent
-→ FinalizeAttendanceDayService.findPendingDayIds()
+→ ApplicationReadyEvent 또는 출석일 생성·정책 교체 commit
+→ DB에서 가장 이른 due·retry·lease 만료 시각을 조회해 단일 task 예약
+→ 실행 가능한 날짜를 claim version과 lease로 선점
 → 각 ID에 대해 FinalizeAttendanceDayService.finalizeDay(dayId)
 ```
 
@@ -759,7 +760,7 @@ AttendanceFinalizationScheduler
 
 1. 대상 날짜의 활성 `department` 행을 `FOR UPDATE`로 잠금
 2. `attendance_day FOR UPDATE`
-3. 여전히 마감 시각이 지난 `SCHEDULED`인지 재검증
+3. 여전히 `SCHEDULED`이고 저장된 마감 시각에 도달했는지 재검증
 4. `is_target = TRUE`이고 기록이 없는 대상자만 `ABSENT` 삽입
 5. 조건부 UPDATE로 `FINALIZED` 변경
 6. idempotency key가 있는 시스템 감사 로그 기록
@@ -770,7 +771,7 @@ AttendanceFinalizationScheduler
 
 Spring 내부 self-invocation으로 `@Transactional`이 무시되지 않도록 scheduler와 날짜별 finalization service를 별도 bean으로 둔다.
 
-스케줄러는 `Asia/Seoul` 기준 매일 자정에 모든 마감 대상 날짜를 처리한다. 또한 애플리케이션 준비 완료 시 동일한 조회를 한 번 실행해 서버 중단 중 놓친 미마감 날짜를 catch-up한다. 두 경로 모두 마감 예정 시각이 지났지만 여전히 `SCHEDULED`인 날짜 전체를 조회하며, 한 날짜의 실패를 기록한 뒤 나머지 날짜 처리를 계속한다.
+스케줄러는 고정 polling이나 자정 cron을 사용하지 않는다. 애플리케이션 시작 시와 출석일 생성·정책 교체 transaction commit 시 DB의 가장 이른 실행 시각을 동적으로 예약한다. 다중 인스턴스는 `claim_version`과 2분 lease로 같은 날짜를 선점하며, 늦은 worker의 실패 결과는 세대 조건으로 무시한다. 최초 마감 실패 뒤에는 DB에 실패 횟수와 다음 시각을 저장하고 1·2·4·8·16분 간격으로 다섯 번 재시도한다. 모두 실패하면 날짜는 `SCHEDULED`와 마감 지연 상태로 남고 자동 재시도 대상에서는 제외된다.
 
 ### 8.7 수동 등록·정정
 
@@ -838,8 +839,8 @@ PostgreSQL 기본 `READ COMMITTED`와 명시적 행 잠금·유일 제약을 사
 - 배포 전 별도 runner가 승인된 target version까지 migration
 - 웹 애플리케이션 DB 계정은 DDL 권한 없음
 - 애플리케이션 artifact에는 지원하는 최소·최대 schema version을 기록한다. MVP에서는 두 값을 같은 승인 target version으로 두고, runtime은 시작 시 `flyway_schema_history`에 대한 읽기 전용 검사로 일치 여부를 확인한다.
-- V011 release의 runtime 검사는 history 부재, `success = FALSE` 행, V001~V011 중 누락·중복·초과 version을 모두 실패로 판정한다.
-- version 문자열에 `MAX`를 사용하지 않고 Flyway `MigrationVersion`으로 해석한 적용 순서 전체를 artifact의 V001~V011 목록과 정확히 비교한다.
+- V014 release의 runtime 검사는 history 부재, `success = FALSE` 행, V001~V014 중 누락·중복·초과 version을 모두 실패로 판정한다.
+- version 문자열에 `MAX`를 사용하지 않고 Flyway `MigrationVersion`으로 해석한 적용 순서 전체를 artifact의 V001~V014 목록과 정확히 비교한다.
 - repeatable migration은 현재 version 계산에서 제외하고 checksum·누락 여부는 배포 runner의 `flyway validate`로 검증한다.
 - 위 조건이 맞지 않으면 readiness 경고만 내는 것이 아니라 쓰기 요청을 받을 수 없도록 기동을 실패한다.
 - Spring SQL init과 Flyway를 함께 사용하지 않음
@@ -951,7 +952,7 @@ MVP는 Spring Boot 애플리케이션 한 인스턴스를 기본으로 한다.
 - 최근 장치별 `last_seen_at`
 - 장치 인증 실패 수
 - 결과 코드별 최근 태깅 수와 처리 시간
-- 과거 미마감 `attendance_day` 수
+- 마감 시각 경과·미마감 `attendance_day` 수
 - 마지막 자동 마감 성공·실패
 - 마지막 백업 성공 시각과 복원 시험 기록
 
@@ -990,7 +991,7 @@ Spring Boot Actuator를 도입하면 health endpoint를 외부에 무제한 공�
 | MVC test | form validation, 오류 화면, PRG 흐름 |
 | device contract test | 요청·응답 schema, HTTP 코드, 최초 응답 재현 |
 | concurrency test | 동일 교사 동시 태깅, 같은 request ID 재시도, 태깅과 마감 경합 |
-| migration test | 빈 DB V001~V011, baseline 0 레거시 fixture, 두 번 재현 |
+| migration test | 빈 DB V001~V014, baseline 0 레거시 fixture, 두 번 재현 |
 | firmware integration | 실제 UID, timeout, 전체 응답 읽기, LED·부저 결과 |
 | performance check | 운영망에서 1초 간격 50회 태깅, p95 2초·전체 5초 기준 |
 | end-to-end pilot | 실제 장치부터 통계·마감·정정까지 전체 흐름 |
@@ -1008,7 +1009,7 @@ Spring Boot Actuator를 도입하면 health endpoint를 외부에 무제한 공�
 - 수동 출석 시각이 출석 날짜·소속 기간 밖인 요청과 상태·구간을 임의 지정한 요청
 - 기록이 있는 날짜 취소
 - 자동 마감 도중 강제 오류
-- 앱 재시작 뒤 과거 미마감 날짜 복구
+- 앱 재시작 뒤 마감 시각 경과·미마감 날짜 복구
 - 새 앱의 레거시 출석·로그 DML 시도
 
 현재 환경의 JDK 21과 PostgreSQL 15 Testcontainers에서 전체 자동 테스트가 통과한다. M2 통합 테스트는 교사·카드 등록, 정책 발행·불변성, 날짜·대상자 snapshot, 시작 전 대상 변경, 수동 판정, 자동 결석·멱등 마감, 통계, 메모 원천 보존과 부서 제외를 한 대표 흐름으로 검증한다. M3 통합 테스트는 활성 계정 로그인, 시스템·부서 역할 분리, CSRF, 장치 chain의 stateless availability 차단, 관리자 주요 화면 rendering과 초대·재설정 token의 hash 저장·재사용 거부·교체 무효화를 검증한다. M4 통합 테스트는 INACTIVE 차단, credential 시험, 활성화, 최초 NFC 출석, 동일 requestId의 canonical 응답 재현, UID 충돌, 새 requestId 재태깅 뒤 최초 기록·시각 유지, 서로 다른 장치의 code/key 혼합 인증 거부, 다른 부서 카드의 상세정보 비노출, 중복 JSON member와 1 KiB 본문 제한을 검증한다. 별도 PostgreSQL 동시성 테스트는 같은 날짜 자동 마감 2건에서 결석·상태·멱등 감사 중복이 없음을 검증한다. 로컬 HTTP 시뮬레이터도 두 부서의 실제 서버·DB를 대상으로 멱등성과 장치·카드 격리 계약을 반복한다. 아직 자동화하지 않은 전체 부정·경합 시나리오와 실제 Arduino 현장 연동까지 검증됐다는 의미는 아니다.

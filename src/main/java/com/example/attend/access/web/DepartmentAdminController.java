@@ -443,9 +443,9 @@ public final class DepartmentAdminController {
 			@RequestParam String name,
 			@RequestParam @DateTimeFormat(pattern = "HH:mm")
 					LocalTime checkInStartTime,
-			@RequestParam List<String> bandLabel,
-			@RequestParam List<AttendanceParentStatus> bandStatus,
-			@RequestParam @DateTimeFormat(pattern = "HH:mm")
+			@RequestParam(required = false) List<String> bandLabel,
+			@RequestParam(required = false) List<AttendanceParentStatus> bandStatus,
+			@RequestParam(required = false) @DateTimeFormat(pattern = "HH:mm")
 					List<LocalTime> bandUpperTime,
 			RedirectAttributes redirect) {
 		return command(
@@ -473,9 +473,9 @@ public final class DepartmentAdminController {
 			@RequestParam String name,
 			@RequestParam @DateTimeFormat(pattern = "HH:mm")
 					LocalTime checkInStartTime,
-			@RequestParam List<String> bandLabel,
-			@RequestParam List<AttendanceParentStatus> bandStatus,
-			@RequestParam @DateTimeFormat(pattern = "HH:mm")
+			@RequestParam(required = false) List<String> bandLabel,
+			@RequestParam(required = false) List<AttendanceParentStatus> bandStatus,
+			@RequestParam(required = false) @DateTimeFormat(pattern = "HH:mm")
 					List<LocalTime> bandUpperTime,
 			RedirectAttributes redirect) {
 		return command(
@@ -891,6 +891,9 @@ public final class DepartmentAdminController {
 			List<String> labels,
 			List<AttendanceParentStatus> statuses,
 			List<LocalTime> upperTimes) {
+		labels = labels == null ? List.of() : labels;
+		statuses = statuses == null ? List.of() : statuses;
+		upperTimes = upperTimes == null ? List.of() : upperTimes;
 		if (labels.size() != statuses.size()
 				|| labels.size() != upperTimes.size()) {
 			throw new IllegalArgumentException(

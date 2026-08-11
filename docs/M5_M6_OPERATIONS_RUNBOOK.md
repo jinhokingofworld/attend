@@ -28,7 +28,7 @@
   않는다.
 - migration 실행 시 승인값은 `MIGRATION_SOURCE_CLASS=NEW_OR_SAMPLE`로 주입한다.
   이 값은 저장소의 `.env`나 image에 고정하지 않고 배포 secret source에서 제공한다.
-- 읽기 전용 preflight 결과가 `FRESH`일 때만 V001~V012를 적용한다. Neon이 만든
+- 읽기 전용 preflight 결과가 `FRESH`일 때만 V001~V014를 적용한다. Neon이 만든
   기본 `public` 스키마에 사용자 객체가 하나라도 있어 `FRESH`가 아니면 자동 정리하지
   않고 새 DB 또는 새 branch를 준비한다.
 - 신규 공식 출석 통계는 운영 컷오버 이후 생성한 출석 날짜부터 시작한다.
@@ -49,7 +49,7 @@
    비밀번호는 각각 별도 환경변수로 주입한다. 현재 승인 방식에서는 결과가 반드시
    `FRESH`여야 한다.
 5. 운영 DB는 `ops/db/roles` 순서로 준비한 뒤 고정 image tag에서
-   `docker compose -f compose.migration.yaml run --rm migration`을 한 번 실행해 V012까지
+   `docker compose -f compose.migration.yaml run --rm migration`을 한 번 실행해 V014까지
    적용한다. 이 컨테이너에만 Neon direct URL과 migration 계정을 주입한다. role script의
    `retention_worker` credential은 web runtime과 다른 direct URL·비밀값으로 준비한다.
 6. runtime 계정에 DDL, `TEMP`, 레거시 DML 권한이 없는지 기존 DB 권한 검사를
@@ -70,7 +70,7 @@
 9. Caddy는 외부 `X-Forwarded-For`와 내부 token header를 upstream에서 덮어쓴다.
    앱은 token이 일치하는 단일 IP만 rate-limit source로 사용하며, app port를 host에
    publish하지 않는다.
-10. 관리자 운영 화면에 버전·시작 시각·세 flag·V012 상태가 표시되고 URL·비밀값이
+10. 관리자 운영 화면에 버전·시작 시각·세 flag·V014 상태가 표시되고 URL·비밀값이
    없는지 확인한다.
 
 ### 2.1 Oracle Linux 9 E2.1.Micro 파일럿

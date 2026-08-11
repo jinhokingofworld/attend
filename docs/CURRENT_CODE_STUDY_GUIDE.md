@@ -29,7 +29,7 @@ DB부터 시작하되, DB만 읽고 끝내면 안 된다. 부서 권한 재검�
 flowchart TD
     S0["0. 현재/레거시 경계 확정<br/>SecurityConfig · feature flags"]
     S1["1. 실행 구조 파악<br/>build.gradle · application.properties"]
-    S2["2. DB 스키마 파악<br/>Flyway V001~V008"]
+    S2["2. DB 스키마 파악<br/>Flyway V001~V014"]
     S3["3. 인증·권한 파악<br/>access + Security filter chain"]
     S4["4. 조직·카드 파악<br/>member · membership · card assignment"]
     S5["5. 정책·출석일 파악<br/>policy · day · target · record"]
@@ -160,7 +160,7 @@ flowchart TD
 
 확인할 질문:
 
-- 자동 결석은 왜 당일 마감 시각 직후가 아니라 다음 날짜부터 생성되는가?
+- 자동 결석은 왜 마지막 포함 상한과 같은 시각이 아니라 저장된 `finalization_due_at`부터 생성되는가?
 - 한 날짜의 마감 실패가 다른 날짜를 막지 않는 이유는 무엇인가?
 - 공식 통계가 `FINALIZED` 날짜만 집계하는 이유는 무엇인가?
 
@@ -743,18 +743,17 @@ sequenceDiagram
     participant Service as FinalizeAttendanceDayService
     participant DB as PostgreSQL
 
-    alt Asia/Seoul 기준 매일 자정
-        Scheduler->>Service: findPendingDayIds
-    else 애플리케이션 재기동 완료
-        Scheduler->>Service: findPendingDayIds
-    end
-    Service->>DB: finalization_due_at이 지난 SCHEDULED day 조회
-    loop 각 day를 독립 transaction으로 처리
+    Scheduler->>DB: 가장 이른 due·retry·lease 시각에 단일 task 예약
+    Scheduler->>DB: 실행 가능한 SCHEDULED day를 claim version·lease로 선점
+    loop 각 claim을 독립 transaction으로 처리
         Scheduler->>Service: finalizeDay(dayId)
         Service->>DB: department → day lock
         Service->>DB: target인데 record 없는 행에 AUTO_ABSENCE INSERT
         Service->>DB: day FINALIZED
         Service->>DB: idempotent system audit INSERT
+    end
+    opt 실패
+        Scheduler->>DB: 1·2·4·8·16분 retry 상태 저장
     end
 ```
 
@@ -789,7 +788,7 @@ flowchart TD
     Reject["REJECTED<br/>중단"]
     Approval["MIGRATION_SOURCE_CLASS와 대조"]
     Baseline["legacy만 baseline 0"]
-    Migrate["Flyway V001~V008"]
+    Migrate["Flyway V001~V014"]
     Validate["Flyway validate + exact version guard"]
     Grants["runtime 최소 권한 적용"]
     Start["prod app 시작<br/>Flyway auto-migrate=false"]

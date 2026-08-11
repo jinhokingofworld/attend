@@ -14,9 +14,7 @@ import java.time.Clock;
 import java.util.List;
 import java.util.Map;
 
-/**
- * 과거 SCHEDULED 날짜의 누락 기록을 결석으로 채우고 날짜를 마감한다.
- */
+/** due 시각에 도달한 SCHEDULED 날짜의 누락 기록을 결석으로 채우고 마감한다. */
 @Service
 public class FinalizeAttendanceDayService {
 
@@ -44,7 +42,7 @@ public class FinalizeAttendanceDayService {
 	}
 
 	/**
-	 * 일일 정기 마감과 재기동 catch-up 대상인 모든 미마감 날짜를 조회한다.
+	 * 저장된 마감 시각에 도달한 모든 미마감 날짜를 조회한다.
 	 *
 	 * @return 날짜·ID 오름차순의 출석일 ID
 	 */

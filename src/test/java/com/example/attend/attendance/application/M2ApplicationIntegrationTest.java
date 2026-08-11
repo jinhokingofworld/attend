@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.example.attend.access.api.AccountActor;
 import com.example.attend.attendance.domain.AttendanceParentStatus;
 import com.example.attend.attendance.domain.AttendanceStatus;
+import com.example.attend.attendance.infrastructure.mybatis.AttendanceDayMapper;
 import com.example.attend.common.error.BusinessRuleException;
 import com.example.attend.common.error.DepartmentAccessDeniedException;
 import com.example.attend.common.error.ResourceNotFoundException;
@@ -32,10 +33,12 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Clock;
 import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -87,6 +90,9 @@ class M2ApplicationIntegrationTest {
 	private FinalizeAttendanceDayService finalizationService;
 
 	@Autowired
+	private AttendanceDayMapper dayMapper;
+
+	@Autowired
 	private AttendanceStatisticsService statisticsService;
 
 	@Autowired
@@ -97,6 +103,139 @@ class M2ApplicationIntegrationTest {
 
 	@Autowired
 	private ApplicationContext applicationContext;
+
+	/** 생성과 정책 교체는 마지막 포함 상한의 정확히 1µs 뒤를 마감 경계로 고정한다. */
+	@Test
+	void snapshotsTheFirstMicrosecondAfterTheFinalPolicyBand() {
+		LocalDate attendanceDate = LocalDate.of(2026, 8, 20);
+		clock.setInstant(atSeoul(LocalDate.of(2026, 8, 1), LocalTime.of(8, 0)));
+		TestAuthority authority = createAuthority();
+		AccountActor actor = new AccountActor(authority.accountId());
+		long firstPolicyId = createPublishedPolicy(actor, authority.departmentId());
+		long dayId = dayService.createDay(
+				actor,
+				authority.departmentId(),
+				attendanceDate,
+				firstPolicyId);
+
+		assertThat(finalizationDueAtInSeoul(dayId))
+				.isEqualTo("2026-08-20 09:15:00.000001");
+
+		long replacementPolicyId = policyService.createDraft(
+				actor,
+				authority.departmentId(),
+				new PolicyDraftCommand(
+						"교체 마감 정책",
+						LocalTime.of(8, 30),
+						List.of(
+								new PolicyBandInput(
+										1,
+										"정상 출석",
+										AttendanceParentStatus.PRESENT,
+										LocalTime.of(9, 0)),
+								new PolicyBandInput(
+										2,
+										"1차 지각",
+										AttendanceParentStatus.LATE,
+										LocalTime.of(9, 30)))));
+		policyService.publish(actor, authority.departmentId(), replacementPolicyId);
+		dayService.changePolicy(
+				actor,
+				authority.departmentId(),
+				dayId,
+				replacementPolicyId);
+
+		assertThat(finalizationDueAtInSeoul(dayId))
+				.isEqualTo("2026-08-20 09:30:00.000001");
+
+		clock.setInstant(atSeoul(attendanceDate, LocalTime.of(9, 30)));
+		assertThat(finalizationService.findPendingDayIds()).doesNotContain(dayId);
+		assertThatThrownBy(() -> finalizationService.finalizeDay(dayId))
+				.isInstanceOf(BusinessRuleException.class)
+				.hasMessageContaining("not ready");
+
+		clock.setInstant(atSeoul(attendanceDate, LocalTime.of(9, 30))
+				.plus(1, ChronoUnit.MICROS));
+		assertThat(finalizationService.findPendingDayIds()).contains(dayId);
+		assertThat(finalizationService.finalizeDay(dayId)).isZero();
+		assertThat(queryString(
+				"SELECT status FROM public.attendance_day WHERE id = ?", dayId))
+				.isEqualTo("FINALIZED");
+	}
+
+	/** due 정각 claim, 세대 fencing과 다섯 번의 retry 소진을 실제 PostgreSQL로 검증한다. */
+	@Test
+	void persistsFinalizationClaimsAndExhaustsFiveRetries() {
+		LocalDate attendanceDate = LocalDate.of(2026, 9, 1);
+		clock.setInstant(atSeoul(LocalDate.of(2026, 8, 1), LocalTime.of(8, 0)));
+		TestAuthority authority = createAuthority();
+		AccountActor actor = new AccountActor(authority.accountId());
+		long policyId = createPublishedPolicy(actor, authority.departmentId());
+		long dayId = dayService.createDay(
+				actor, authority.departmentId(), attendanceDate, policyId);
+		Instant dueAt = atSeoul(attendanceDate, LocalTime.of(9, 15))
+				.plus(1, ChronoUnit.MICROS);
+
+		AttendanceFinalizationClaim claim = dayMapper.claimFinalizationDay(
+				dayId, dueAt, dueAt.plus(Duration.ofMinutes(2)));
+		assertThat(claim).isNotNull();
+		assertThat(claim.failureCount()).isZero();
+		assertThat(dayMapper.claimFinalizationDay(
+				dayId, dueAt, dueAt.plus(Duration.ofMinutes(2)))).isNull();
+
+		List<Duration> delays = List.of(
+				Duration.ofMinutes(1),
+				Duration.ofMinutes(2),
+				Duration.ofMinutes(4),
+				Duration.ofMinutes(8),
+				Duration.ofMinutes(16));
+		Instant failedAt = dueAt;
+		AttendanceFinalizationClaim firstClaim = claim;
+		for (int failureCount = 1; failureCount <= 6; failureCount++) {
+			Instant nextAttemptAt = failureCount <= delays.size()
+					? failedAt.plus(delays.get(failureCount - 1))
+					: null;
+			assertThat(dayMapper.markFinalizationFailure(
+					dayId,
+					claim.claimVersion(),
+					failureCount,
+					nextAttemptAt,
+					"TEST_FAILURE",
+					failedAt)).isEqualTo(1);
+			if (failureCount == 6) {
+				break;
+			}
+			assertThat(dayMapper.claimFinalizationDay(
+					dayId,
+					nextAttemptAt.minusNanos(1_000),
+					nextAttemptAt.plus(Duration.ofMinutes(2)))).isNull();
+			claim = dayMapper.claimFinalizationDay(
+					dayId,
+					nextAttemptAt,
+					nextAttemptAt.plus(Duration.ofMinutes(2)));
+			assertThat(claim.failureCount()).isEqualTo(failureCount);
+			if (failureCount == 1) {
+				assertThat(dayMapper.markFinalizationFailure(
+						dayId,
+						firstClaim.claimVersion(),
+						2,
+						nextAttemptAt,
+						"STALE_FAILURE",
+						nextAttemptAt)).isZero();
+			}
+			failedAt = nextAttemptAt;
+		}
+
+		assertThat(dayMapper.claimFinalizationDay(
+				dayId,
+				failedAt.plus(Duration.ofDays(1)),
+				failedAt.plus(Duration.ofDays(1)).plus(Duration.ofMinutes(2))))
+				.isNull();
+		assertThat(queryString(
+				"SELECT status || ':' || finalization_failure_count "
+						+ "FROM public.attendance_day WHERE id = ?",
+				dayId)).isEqualTo("SCHEDULED:6");
+	}
 
 	/** 신규·수정 command는 생일과 만 나이의 근거인 정확한 생년월일을 요구한다. */
 	@Test
@@ -811,6 +950,17 @@ class M2ApplicationIntegrationTest {
 	/** 단일 boolean SQL 결과를 읽는다. */
 	private boolean queryBoolean(String sql, Object... arguments) {
 		return jdbcTemplate.queryForObject(sql, Boolean.class, arguments);
+	}
+
+	/** 저장된 마감 시각을 서울 현지 마이크로초 문자열로 읽는다. */
+	private String finalizationDueAtInSeoul(long dayId) {
+		return queryString("""
+				SELECT to_char(
+				    finalization_due_at AT TIME ZONE 'Asia/Seoul',
+				    'YYYY-MM-DD HH24:MI:SS.US')
+				FROM public.attendance_day
+				WHERE id = ?
+				""", dayId);
 	}
 
 	/**

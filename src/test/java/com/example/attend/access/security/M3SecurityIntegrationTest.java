@@ -16,10 +16,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
-import com.example.attend.access.domain.AccountSystemRole;
+import com.example.attend.access.api.AccountActor;
 import com.example.attend.access.application.CredentialTokenService;
 import com.example.attend.access.application.IssuedCredentialLink;
 import com.example.attend.access.application.SystemAdministrationService;
+import com.example.attend.access.domain.AccountSystemRole;
 import com.example.attend.access.domain.CredentialTokenPurpose;
 import com.example.attend.common.error.BusinessRuleException;
 import com.example.attend.attendance.application.AttendanceDayService;
@@ -107,6 +108,100 @@ class M3SecurityIntegrationTest {
 	private long systemAccountId;
 	private long departmentAccountId;
 	private long departmentId;
+
+	/** 빈 초안은 웹에서도 저장 가능하며 첫 동적 행은 정상 출석으로 시작한다. */
+	@Test
+	void preservesAnEmptyPolicyDraftAndProvidesAFirstPresentBandTemplate()
+			throws Exception {
+		AccountPrincipal departmentPrincipal = (AccountPrincipal)
+				userDetailsService.loadUserByUsername(DEPARTMENT_USERNAME);
+
+		mockMvc.perform(post("/admin/departments/" + departmentId + "/policies")
+						.with(user(departmentPrincipal))
+						.with(csrf())
+						.param("name", "빈 정책 초안")
+						.param("checkInStartTime", "08:30"))
+				.andExpect(status().is3xxRedirection())
+				.andExpect(redirectedUrl(
+						"/admin/departments/" + departmentId + "/policies"));
+
+		long policyId = jdbcTemplate.queryForObject("""
+				SELECT id
+				FROM public.attendance_policy_version
+				WHERE department_id = ? AND name = '빈 정책 초안'
+				""", Long.class, departmentId);
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT count(*)
+				FROM public.attendance_band
+				WHERE policy_version_id = ?
+				""", Integer.class, policyId)).isZero();
+
+		mockMvc.perform(get("/admin/departments/" + departmentId
+						+ "/policies/" + policyId)
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(content().string(containsString(
+						"id=\"edit-band-template\"")))
+				.andExpect(content().string(containsString(
+						"const isFirstBand = !bands.querySelector")))
+				.andExpect(content().string(containsString(
+						"? \"PRESENT\"")));
+
+		mockMvc.perform(post("/admin/departments/" + departmentId
+						+ "/policies/" + policyId + "/replace")
+						.with(user(departmentPrincipal))
+						.with(csrf())
+						.param("name", "빈 정책 초안 수정")
+						.param("checkInStartTime", "08:40"))
+				.andExpect(status().is3xxRedirection());
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT count(*)
+				FROM public.attendance_band
+				WHERE policy_version_id = ?
+				""", Integer.class, policyId)).isZero();
+	}
+
+	/** 운영 집계는 오늘 날짜도 저장된 마감 시각이 지났으면 지연으로 표시한다. */
+	@Test
+	void countsDueSameDayAttendanceAsOverdueInSystemOperations()
+			throws Exception {
+		long policyId = insertAndReturnId("""
+				INSERT INTO public.attendance_policy_version (
+				    department_id, version_no, name, check_in_start_time,
+				    status, created_by_account_id, published_by_account_id,
+				    published_at)
+				VALUES (?, 1, '운영 집계 정책', TIME '08:30', 'PUBLISHED', ?, ?,
+				        CURRENT_TIMESTAMP)
+				RETURNING id
+				""", departmentId, systemAccountId, systemAccountId);
+		jdbcTemplate.update("""
+				INSERT INTO public.attendance_band (
+				    policy_version_id, sequence_no, label, parent_status, upper_time)
+				VALUES
+				    (?, 1, '정상 출석', 'PRESENT', TIME '09:00'),
+				    (?, 2, '1차 지각', 'LATE', TIME '09:15')
+				""", policyId, policyId);
+		jdbcTemplate.update("""
+				INSERT INTO public.attendance_day (
+				    department_id, attendance_date, policy_version_id, status,
+				    created_by_account_id, finalization_due_at)
+				VALUES (?, CURRENT_DATE, ?, 'SCHEDULED', ?,
+				        CURRENT_TIMESTAMP - INTERVAL '1 minute')
+				""", departmentId, policyId, systemAccountId);
+
+		Map<String, Object> operations = administrationService.operations(
+				new AccountActor(systemAccountId));
+		assertThat(((Number) operations.get("overdue_day_count")).longValue())
+				.isEqualTo(1L);
+
+		AccountPrincipal systemPrincipal = (AccountPrincipal)
+				userDetailsService.loadUserByUsername(SYSTEM_USERNAME);
+		mockMvc.perform(get("/admin/system/operations")
+						.with(user(systemPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(content().string(containsString(
+						"마감 시각 경과·미마감 출석 날짜")));
+	}
 
 	/**
 	 * 각 테스트가 독립된 활성 계정과 부서 역할을 사용하도록 기준 데이터를 만든다.
@@ -295,9 +390,25 @@ class M3SecurityIntegrationTest {
 										AttendanceParentStatus.LATE,
 										LocalTime.of(9, 30)))));
 		mockMvc.perform(get("/admin/departments/" + departmentId
+						+ "/policies")
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(content().string(containsString(
+						"마감 시간 (마지막 태깅 허용 시각)")))
+				.andExpect(content().string(containsString(
+						"1µs 후 미출석자는 결석 처리 대상")))
+				.andExpect(content().string(containsString(
+						"updateFinalizationLabels")));
+		mockMvc.perform(get("/admin/departments/" + departmentId
 						+ "/policies/" + policyId)
 						.with(user(departmentPrincipal)))
-				.andExpect(status().isOk());
+				.andExpect(status().isOk())
+				.andExpect(content().string(containsString(
+						"마감 시간 (마지막 태깅 허용 시각)")))
+				.andExpect(content().string(containsString(
+						"1µs 후 미출석자는 결석 처리 대상")))
+				.andExpect(content().string(containsString(
+						"updateEditFinalizationLabels")));
 		attendancePolicyService.publish(departmentActor, departmentId, policyId);
 		LocalDate today = LocalDate.now(clock);
 		long dashboardMemberId = insertAndReturnId("""

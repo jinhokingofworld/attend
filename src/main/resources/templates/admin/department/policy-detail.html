@@ -7,26 +7,48 @@
 <main>
     <h1 th:text="|v${policy.version_no} · ${policy.name}|">정책</h1>
     <p th:text="|상태 ${policy.status} · 태깅 시작 ${policy.check_in_start_time}|">상태</p>
+    <p class="policy-finalization-help">마감 시간까지 태깅을 허용하고, 1µs 후 미출석자는 결석 처리 대상이 됩니다.</p>
     <ol>
-        <li th:each="band : ${bands}"
-            th:text="|${band.label} · ${band.parent_status} · ${band.upper_time}까지|">단계</li>
+        <li th:each="band, bandStat : ${bands}"
+            th:classappend="${bandStat.last} ? 'policy-band--final' : ''">
+            <span th:text="|${band.label} · ${band.parent_status} · ${band.upper_time}까지|">단계</span>
+            <strong th:if="${bandStat.last}"> · 마감 시간 (마지막 태깅 허용 시각)</strong>
+        </li>
     </ol>
     <form th:if="${writeEnabled and policy.status == 'DRAFT'}" method="post"
           th:action="@{/admin/departments/{departmentId}/policies/{policyId}/replace(departmentId=${department.id},policyId=${policy.id})}">
         <label>정책 이름 <input name="name" th:value="${policy.name}" required></label>
         <label>태깅 시작 <input type="time" name="checkInStartTime"
                               th:value="${policy.check_in_start_time}" required></label>
-        <fieldset>
+        <fieldset id="edit-bands">
             <legend>출석 단계</legend>
-            <div th:each="band : ${bands}">
+            <div class="band-row" th:each="band, bandStat : ${bands}"
+                 th:classappend="${bandStat.last} ? 'band-row--final' : ''">
                 <input name="bandLabel" th:value="${band.label}" required>
                 <select name="bandStatus">
                     <option value="PRESENT" th:selected="${band.parent_status == 'PRESENT'}">정상</option>
                     <option value="LATE" th:selected="${band.parent_status == 'LATE'}">지각</option>
                 </select>
-                <input type="time" name="bandUpperTime" th:value="${band.upper_time}" required>
+                <label>
+                    <span class="band-time-label" th:text="${bandStat.last} ? '마감 시간 (마지막 태깅 허용 시각)' : '단계 종료 시간'">단계 종료 시간</span>
+                    <input type="time" name="bandUpperTime" th:value="${band.upper_time}" required>
+                </label>
             </div>
         </fieldset>
+        <template id="edit-band-template">
+            <div class="band-row">
+                <input name="bandLabel" maxlength="50" required>
+                <select name="bandStatus">
+                    <option value="PRESENT">정상</option>
+                    <option value="LATE">지각</option>
+                </select>
+                <label>
+                    <span class="band-time-label">마감 시간 (마지막 태깅 허용 시각)</span>
+                    <input type="time" name="bandUpperTime" required>
+                </label>
+            </div>
+        </template>
+        <button type="button" id="addEditBand">단계 추가</button>
         <button type="submit">초안 수정</button>
     </form>
     <form th:if="${writeEnabled and policy.status == 'DRAFT'}" method="post"
@@ -35,5 +57,33 @@
     </form>
     <a th:href="@{/admin/departments/{id}/policies(id=${department.id})}">정책 목록</a>
 </main>
+<script>
+const updateEditFinalizationLabels = () => {
+    const rows = [...document.querySelectorAll("#edit-bands .band-row")];
+    rows.forEach((row, index) => {
+        const isFinal = index === rows.length - 1;
+        row.classList.toggle("band-row--final", isFinal);
+        row.querySelector(".band-time-label").textContent = isFinal
+            ? "마감 시간 (마지막 태깅 허용 시각)"
+            : "단계 종료 시간";
+    });
+};
+
+document.getElementById("addEditBand")?.addEventListener("click", () => {
+    const bands = document.getElementById("edit-bands");
+    const isFirstBand = !bands.querySelector(".band-row");
+    const row = document.getElementById("edit-band-template")
+        .content.firstElementChild.cloneNode(true);
+    row.querySelector("input[name='bandLabel']").value = isFirstBand
+        ? "정상 출석"
+        : "";
+    row.querySelector("select[name='bandStatus']").value = isFirstBand
+        ? "PRESENT"
+        : "LATE";
+    bands.appendChild(row);
+    updateEditFinalizationLabels();
+});
+updateEditFinalizationLabels();
+</script>
 </body>
 </html>
