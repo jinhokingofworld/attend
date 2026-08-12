@@ -1,18 +1,23 @@
 package com.example.attend.attendance.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.example.attend.attendance.infrastructure.mybatis.AttendanceDayMapper;
 import com.example.attend.config.AttendanceFinalizationSchedulerProperties;
+import com.example.attend.operations.application.FinalizationOperationalIncidentCreated;
+import com.example.attend.operations.infrastructure.mybatis.FinalizationOperationalEventMapper;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 
 /** DB에 저장되는 마감 lease와 5회 backoff 경계를 검증한다. */
 class AttendanceFinalizationQueueServiceTest {
@@ -51,27 +56,101 @@ class AttendanceFinalizationQueueServiceTest {
 	@Test
 	void exhaustsAfterTheFifthRetryFailure() {
 		AttendanceDayMapper mapper = mock(AttendanceDayMapper.class);
-		AttendanceFinalizationQueueService service = service(mapper);
+		FinalizationOperationalEventMapper operationalEventMapper =
+				mock(FinalizationOperationalEventMapper.class);
+		ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+		AttendanceFinalizationQueueService service =
+				service(mapper, operationalEventMapper, eventPublisher);
 		AttendanceFinalizationClaim fifthRetry =
 				new AttendanceFinalizationClaim(42L, 5, 10L);
 		when(mapper.markFinalizationFailure(
 				42L, 10L, 6, null,
 				"IllegalArgumentException", NOW)).thenReturn(1);
+		when(operationalEventMapper.insertRetryExhaustedEvent(
+				42L, 10L, 6, "IllegalArgumentException", NOW)).thenReturn(51L);
 
 		assertThat(service.recordFailure(
 				fifthRetry, new IllegalArgumentException("persistent"))).isTrue();
 		verify(mapper).markFinalizationFailure(
 				42L, 10L, 6, null,
 				"IllegalArgumentException", NOW);
+		verify(operationalEventMapper).insertRetryExhaustedEvent(
+				42L, 10L, 6, "IllegalArgumentException", NOW);
+		verify(eventPublisher).publishEvent(
+				new FinalizationOperationalIncidentCreated(51L));
+	}
+
+	@Test
+	void failsTheTransactionBoundaryWhenTheOutboxEventCannotBePersisted() {
+		AttendanceDayMapper mapper = mock(AttendanceDayMapper.class);
+		FinalizationOperationalEventMapper operationalEventMapper =
+				mock(FinalizationOperationalEventMapper.class);
+		ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+		AttendanceFinalizationQueueService service =
+				service(mapper, operationalEventMapper, eventPublisher);
+		AttendanceFinalizationClaim fifthRetry =
+				new AttendanceFinalizationClaim(42L, 5, 10L);
+		when(mapper.markFinalizationFailure(
+				42L, 10L, 6, null,
+				"IllegalStateException", NOW)).thenReturn(1);
+		when(operationalEventMapper.insertRetryExhaustedEvent(
+				42L, 10L, 6, "IllegalStateException", NOW)).thenReturn(null);
+
+		assertThatThrownBy(() -> service.recordFailure(
+				fifthRetry, new IllegalStateException("persistent")))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("persist finalization retry exhaustion event");
+		verifyNoInteractions(eventPublisher);
+	}
+
+	@Test
+	void skipsTheOutboxWhenTheFinalizationClaimIsStale() {
+		AttendanceDayMapper mapper = mock(AttendanceDayMapper.class);
+		FinalizationOperationalEventMapper operationalEventMapper =
+				mock(FinalizationOperationalEventMapper.class);
+		ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+		AttendanceFinalizationQueueService service =
+				service(mapper, operationalEventMapper, eventPublisher);
+		AttendanceFinalizationClaim staleClaim =
+				new AttendanceFinalizationClaim(42L, 5, 10L);
+		when(mapper.markFinalizationFailure(
+				42L, 10L, 6, null,
+				"IllegalStateException", NOW)).thenReturn(0);
+
+		assertThat(service.recordFailure(
+				staleClaim, new IllegalStateException("stale"))).isFalse();
+		verify(mapper).markFinalizationFailure(
+				42L, 10L, 6, null,
+				"IllegalStateException", NOW);
+		verifyNoInteractions(operationalEventMapper, eventPublisher);
 	}
 
 	private static AttendanceFinalizationQueueService service(
 			AttendanceDayMapper mapper
 	) {
+		return service(mapper, mock(FinalizationOperationalEventMapper.class));
+	}
+
+	private static AttendanceFinalizationQueueService service(
+			AttendanceDayMapper mapper,
+			FinalizationOperationalEventMapper operationalEventMapper
+	) {
+		return service(mapper, operationalEventMapper, mock(ApplicationEventPublisher.class));
+	}
+
+	private static AttendanceFinalizationQueueService service(
+			AttendanceDayMapper mapper,
+			FinalizationOperationalEventMapper operationalEventMapper,
+			ApplicationEventPublisher eventPublisher
+	) {
 		AttendanceFinalizationSchedulerProperties properties =
 				new AttendanceFinalizationSchedulerProperties(
 						true, Duration.ofMinutes(2), Duration.ofMinutes(1), 20);
 		return new AttendanceFinalizationQueueService(
-				mapper, properties, Clock.fixed(NOW, ZoneOffset.UTC));
+				mapper,
+				properties,
+				operationalEventMapper,
+				eventPublisher,
+				Clock.fixed(NOW, ZoneOffset.UTC));
 	}
 }

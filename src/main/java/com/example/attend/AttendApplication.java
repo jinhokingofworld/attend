@@ -4,6 +4,7 @@ import com.example.attend.config.AttendanceProperties;
 import com.example.attend.config.AttendanceFinalizationSchedulerProperties;
 import com.example.attend.config.AdminSecurityProperties;
 import com.example.attend.config.DeviceApiProperties;
+import com.example.attend.config.OperationalTelegramProperties;
 import com.example.attend.config.TrustedProxyProperties;
 import com.example.attend.config.TelegramProperties;
 import org.springframework.boot.SpringApplication;
@@ -23,6 +24,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 		AttendanceFinalizationSchedulerProperties.class,
 		AdminSecurityProperties.class,
 		DeviceApiProperties.class,
+		OperationalTelegramProperties.class,
 		TrustedProxyProperties.class,
 		TelegramProperties.class
 })

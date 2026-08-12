@@ -18,6 +18,8 @@ public final class ProductionAdminSecurityGuard {
 	private final DeviceApiProperties deviceProperties;
 	private final TrustedProxyProperties proxyProperties;
 	private final TelegramProperties telegramProperties;
+	private final AttendanceFinalizationSchedulerProperties schedulerProperties;
+	private final OperationalTelegramProperties operationalTelegramProperties;
 
 	/**
 	 * 검증할 외부 관리자 보안 설정을 주입받는다.
@@ -30,11 +32,15 @@ public final class ProductionAdminSecurityGuard {
 			AdminSecurityProperties properties,
 			DeviceApiProperties deviceProperties,
 			TrustedProxyProperties proxyProperties,
-			TelegramProperties telegramProperties) {
+			TelegramProperties telegramProperties,
+			AttendanceFinalizationSchedulerProperties schedulerProperties,
+			OperationalTelegramProperties operationalTelegramProperties) {
 		this.properties = properties;
 		this.deviceProperties = deviceProperties;
 		this.proxyProperties = proxyProperties;
 		this.telegramProperties = telegramProperties;
+		this.schedulerProperties = schedulerProperties;
+		this.operationalTelegramProperties = operationalTelegramProperties;
 	}
 
 	/**
@@ -87,6 +93,27 @@ public final class ProductionAdminSecurityGuard {
 					|| linkPepper.getBytes(StandardCharsets.UTF_8).length < 32) {
 				throw new IllegalStateException(
 						"TELEGRAM_LINK_TOKEN_PEPPER must contain at least 32 bytes in prod");
+			}
+		}
+		if (schedulerProperties.enabled()
+				&& !operationalTelegramProperties.enabled()) {
+			throw new IllegalStateException(
+					"OPERATIONS_TELEGRAM_ENABLED must be true when automatic finalization is enabled in prod");
+		}
+		if (operationalTelegramProperties.enabled()) {
+			String operationsBotToken = operationalTelegramProperties.botToken();
+			requireTelegramValue(
+					operationsBotToken,
+					"OPERATIONS_TELEGRAM_BOT_TOKEN");
+			String attendanceBotToken = telegramProperties.botToken();
+			if (attendanceBotToken != null
+					&& operationsBotToken.equals(attendanceBotToken)) {
+				throw new IllegalStateException(
+						"OPERATIONS_TELEGRAM_BOT_TOKEN must use a separate Bot");
+			}
+			if (operationalTelegramProperties.chatId() == 0) {
+				throw new IllegalStateException(
+						"OPERATIONS_TELEGRAM_CHAT_ID is required when operations Telegram alerts are enabled");
 			}
 		}
 	}

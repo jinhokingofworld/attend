@@ -217,6 +217,8 @@
 		SET finalization_failure_count = #{failureCount},
 			finalization_next_attempt_at = #{nextAttemptAt},
 			finalization_lease_until = NULL,
+			finalization_first_failed_at = COALESCE(
+				finalization_first_failed_at, #{failedAt}),
 			finalization_last_error_code = #{errorCode},
 			finalization_last_failed_at = #{failedAt}
 		WHERE id = #{attendanceDayId}

@@ -47,7 +47,7 @@ public final class DatabaseMigrationCli {
                         connection.password());
         new DatabaseMigrationRunner().migrate(dataSource, sourceClass);
 
-        System.out.println("Database migration validated at target V015.");
+        System.out.println("Database migration validated at target V016.");
     }
 
     /**

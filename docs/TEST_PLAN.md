@@ -91,7 +91,7 @@ Attend MVP는 화면이 열리고 NFC 요청 한 건이 성공하는 것만으�
 | Security/MVC | MockMvc + 실제 security 설정 + Testcontainers | 두 filter chain, CSRF, 세션, IDOR, PRG | 실제 PostgreSQL |
 | Device contract | OpenAPI validation + HTTP integration | schema, status, header, body 제한, 재시도 계약 | 기동한 Spring Boot |
 | Concurrency | 두 개 이상의 독립 DB connection/transaction | 잠금 순서와 race condition | 실제 PostgreSQL |
-| Migration | 빈 DB·레거시 fixture·복원 DB | V001~V015, baseline 0, 권한, 재현성 | 별도 PostgreSQL |
+| Migration | 빈 DB·레거시 fixture·복원 DB | V001~V016, baseline 0, 권한, 재현성 | 별도 PostgreSQL |
 | Firmware integration | 실제 Arduino·NFC reader·운영 유사 네트워크 | UID, HTTP, timeout, LED·부저 | staging 서버 |
 | E2E·파일럿 | 실제 관리자·교사·장치 | 전체 업무 흐름과 운영 절차 | 운영 유사/실환경 |
 
@@ -379,6 +379,15 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | FIN-014 | 두 인스턴스가 같은 날짜를 동시에 조회 | 한 claim version만 선점하고 다른 인스턴스는 lease 만료 전 처리하지 않음 |
 | FIN-015 | 이전 lease worker가 새 claim 뒤 늦게 실패 | 이전 claim version의 실패 update는 0건이며 새 세대 상태를 덮지 않음 |
 | FIN-016 | 출석일 생성·정책 교체 transaction rollback | commit되지 않은 due event는 동적 task를 예약하지 않음 |
+| FIN-017 | 최초 실행과 다섯 retry가 모두 실패 | 같은 transaction에서 개인정보 없는 `FINALIZATION_RETRY_EXHAUSTED` 운영 이벤트 한 건 생성 |
+| FIN-018 | 같은 claim의 실패 결과가 중복 처리됨 | `(event_type, attendance_day_id, incident_claim_version)` 유일성으로 운영 이벤트 중복 없음 |
+| FIN-019 | 운영 Bot timeout·429·5xx·token 오류 | 이벤트를 버리지 않고 Telegram `retry_after` 또는 최대 1시간 capped backoff로 계속 재시도 |
+| FIN-020 | 이전 운영 알림 lease가 만료된 뒤 늦게 완료됨 | delivery claim version 불일치 update는 0건이며 새 전송 결과를 덮지 않음 |
+| FIN-021 | 6회차 실패 transaction commit | 반환된 outbox ID의 AFTER_COMMIT 사건을 전용 executor에 제출하고 자동 마감 scheduler thread에서는 Telegram을 호출하지 않음 |
+| FIN-022 | 운영 알림 즉시 제출 실패 또는 전송 중 프로세스 종료 | DB의 `PENDING` 또는 만료 `PROCESSING`을 시작 시와 60초 전달 polling이 복구 |
+| FIN-023 | 즉시 전송과 전달 polling이 같은 사건을 동시에 처리 | 한 delivery claim만 성공하며 각 완료 update는 claim version으로 fencing |
+| FIN-024 | V015에 이미 6회 소진된 날짜가 존재 | V016이 안전한 snapshot의 `PENDING` 사건을 backfill하고 앱 시작 시 전달 |
+| FIN-025 | Telegram 성공 직후 `SENT` 갱신 전에 프로세스 종료 | lease 만료 후 재전송될 수 있으며 추적 키로 at-least-once 중복을 식별 |
 
 ---
 
@@ -445,15 +454,27 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 
 계정 생성·회원가입 초대·reset command의 DB 출시 gate는 V002를 적용하고 V007에 분리된 활성 token 부분 유일성까지 반영한 실제 PostgreSQL에서 `DB-CST-024~026`의 정상·위반 조합을 모두 검증하는 것이다. 원문 token은 관리자가 1회 표시 링크를 복사해 승인된 1:1 메신저로 전달하며, 운영 공개 base URL과 HTTPS 정책의 승인은 이 DB gate와 별도로 추적한다.
 
+legacy preflight가 선존재를 거부할 신규 애플리케이션 테이블은 다음 20개로 고정한다.
+이 목록은 `MIGRATION_PLAN.md`와 runtime 권한 스크립트의 필수 테이블 목록을 변경할 때
+함께 갱신한다. 권한 스크립트의 전체 필수 목록은 이 신규 20개에 채택 테이블
+`member`와 Flyway 관리 테이블 `flyway_schema_history`를 더한 22개다.
+
+`department`, `account`, `account_credential_token`, `account_department_role`,
+`department_membership`, `nfc_card`, `nfc_card_assignment`, `device`,
+`attendance_policy_version`, `attendance_band`, `attendance_day`, `attendance_target`,
+`attendance_record`, `tag_event_log`, `audit_log`, `telegram_link_token`,
+`account_telegram_connection`, `telegram_webhook_update`,
+`attendance_notification_outbox`, `finalization_operational_event`
+
 | ID | 환경·작업 | 합격 기준 |
 |---|---|---|
-| MIG-FRESH-001 | 완전히 빈 DB에 V001~V015 적용 | baseline 행 없이 전체 목표 schema 생성 |
+| MIG-FRESH-001 | 완전히 빈 DB에 V001~V016 적용 | baseline 행 없이 전체 목표 schema 생성 |
 | MIG-FRESH-002 | 같은 migration 집합을 다시 실행하고 validate | 두 번째 schema·data 변경 없음 |
 | MIG-SAFE-001 | `NEW_OR_SAMPLE` DB에 baseline 시도 | baseline 금지, history·schema 변경 없음 |
 | MIG-SAFE-002 | 승인된 `LEGACY_OPERATIONAL` fixture | 사전조건 통과 후 명시적 version 0 `BASELINE` 정확히 한 행, PK·행·sequence 보존 |
 | MIG-SAFE-003 | `UNKNOWN` 분류 DB | 삭제·baseline·migration·이관 없이 중단 |
 | MIG-SAFE-004 | 기존 Flyway history가 있는 DB에서 새 baseline 시도 | 자동 추정하지 않고 중단, 기존 history 불변 |
-| MIG-SAFE-005 | 신규 15개 테이블·V008 또는 미적용 V009~V011 함수·이름 충돌 객체 중 하나 선존재 | baseline·migration 전 무변경 실패 |
+| MIG-SAFE-005 | 위에 명시한 신규 20개 테이블·V008 또는 미적용 V009~V011 함수·이름 충돌 객체 중 하나 선존재 | baseline·migration 전 무변경 실패 |
 | MIG-SAFE-006 | 레거시 네 테이블 누락, 제3의 `member` 구조 또는 활성 writer 존재 | 사전점검 실패, DDL·data 변경 없음 |
 | MIG-SAFE-007 | `baselineOnMigrate=true` 또는 version 0이 아닌 자동 baseline 설정 | 배포 설정 검사 실패 |
 | MIG-SAFE-008 | 제거된 기존 seed의 알려진 password-hash fingerprint가 사용자명·권한과 무관하게 존재 | 원문·hash 노출 없이 read-only preflight 거부, history·계정 행 불변; V001 직접 호출도 거부 |
@@ -462,7 +483,7 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | MIG-RUNNER-002 | 적용 파일 checksum 변경 | runner의 `flyway validate` 실패, 배포 중단 |
 | MIG-RUNNER-003 | pending·out-of-order·repeatable checksum 불일치 | runner의 `info`·`validate` gate 실패 |
 | MIG-RUNNER-004 | 운영 runner에서 `clean` 시도 | `cleanDisabled=true`로 거부 |
-| MIG-RUNTIME-001 | 성공한 versioned history가 V001~V015와 정확히 일치 | runtime 기동 허용 |
+| MIG-RUNTIME-001 | 성공한 versioned history가 V001~V016과 정확히 일치 | runtime 기동 허용 |
 | MIG-RUNTIME-002 | history 없음·실패 행·version 누락·V011 미만·승인 target 초과 각각 | runtime이 쓰기 받기 전에 fail fast |
 | MIG-RUNTIME-003 | `001` 같은 표시 형식과 숫자 version 비교 | 문자열 `MAX(version)`이 아니라 Flyway `MigrationVersion`으로 판정 |
 | MIG-RUNTIME-004 | `migration_owner` credential을 웹 runtime에 설정 | 설정 검증 실패 |

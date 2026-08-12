@@ -28,7 +28,7 @@
   않는다.
 - migration 실행 시 승인값은 `MIGRATION_SOURCE_CLASS=NEW_OR_SAMPLE`로 주입한다.
   이 값은 저장소의 `.env`나 image에 고정하지 않고 배포 secret source에서 제공한다.
-- 읽기 전용 preflight 결과가 `FRESH`일 때만 V001~V015를 적용한다. Neon이 만든
+- 읽기 전용 preflight 결과가 `FRESH`일 때만 V001~V016을 적용한다. Neon이 만든
   기본 `public` 스키마에 사용자 객체가 하나라도 있어 `FRESH`가 아니면 자동 정리하지
   않고 새 DB 또는 새 branch를 준비한다.
 - 신규 공식 출석 통계는 운영 컷오버 이후 생성한 출석 날짜부터 시작한다.
@@ -49,7 +49,7 @@
    비밀번호는 각각 별도 환경변수로 주입한다. 현재 승인 방식에서는 결과가 반드시
    `FRESH`여야 한다.
 5. 운영 DB는 `ops/db/roles` 순서로 준비한 뒤 고정 image tag에서
-   `docker compose -f compose.migration.yaml run --rm migration`을 한 번 실행해 V015까지
+   `docker compose -f compose.migration.yaml run --rm migration`을 한 번 실행해 V016까지
    적용한다. 이 컨테이너에만 Neon direct URL과 migration 계정을 주입한다. role script의
    `retention_worker` credential은 web runtime과 다른 direct URL·비밀값으로 준비한다.
 6. runtime 계정에 DDL, `TEMP`, 레거시 DML 권한이 없는지 기존 DB 권한 검사를
@@ -70,7 +70,7 @@
 9. Caddy는 외부 `X-Forwarded-For`와 내부 token header를 upstream에서 덮어쓴다.
    앱은 token이 일치하는 단일 IP만 rate-limit source로 사용하며, app port를 host에
    publish하지 않는다.
-10. 관리자 운영 화면에 버전·시작 시각·세 flag·V015 상태가 표시되고 URL·비밀값이
+10. 관리자 운영 화면에 버전·시작 시각·세 flag·V016 상태가 표시되고 URL·비밀값이
    없는지 확인한다.
 
 ### 2.1 Oracle Linux 9 E2.1.Micro 파일럿
@@ -192,7 +192,12 @@ DB가 아니면 중단한다. 복원 후에는 계정·교사·출석의 **건�
 3. `device-api=true`로 restart하고 시험 카드 한 장의 첫 check-in을 화면·DB와
    대사한다. 같은 requestId 재전송이 최초 canonical 응답인지 확인한다.
 4. 나머지 장치를 같은 절차로 활성화한다.
-5. 하루 마감과 수동 대사까지 확인한 뒤 마지막으로 `scheduler=true`를 켠다.
+5. 하루 마감과 수동 대사까지 확인한 뒤 별도 개발자 운영 Bot을 만들고 비공개 운영
+   채팅의 chat ID를 확보한다. 배포 secret에 `OPERATIONS_TELEGRAM_BOT_TOKEN`,
+   `OPERATIONS_TELEGRAM_CHAT_ID`, `OPERATIONS_TELEGRAM_ENABLED=true`를 등록하되
+   아직 `scheduler=false`로 재기동해 health와 시험 발송을 확인한다.
+6. 운영 알림 설정이 확인된 뒤 마지막으로 `scheduler=true`를 켠다. 운영 profile은
+   자동 마감만 켜고 운영 Telegram을 끈 조합의 기동을 거부한다.
 
 오류가 발생하면 scheduler → device API → admin write 역순으로 flag를 닫는다.
 DB migration을 되돌리거나 dump를 운영 DB 위에 덮어쓰지 않는다. 데이터 복구가
