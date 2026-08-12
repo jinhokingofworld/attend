@@ -64,6 +64,11 @@ public final class FinalizationOperationalAlertDispatcher {
         }
     }
 
+    /** 다음 retry 또는 처리 중 lease 만료 중 가장 이른 DB 시각을 반환한다. */
+    public Instant findNextActionAt() {
+        return mapper.selectNextDeliveryActionAt();
+    }
+
     private void deliver(FinalizationOperationalAlertJob job) {
         try {
             long messageId = telegramClient.sendMessage(

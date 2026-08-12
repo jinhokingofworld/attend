@@ -50,7 +50,7 @@ class ProductionAdminSecurityGuardTest {
 						false, null, null, null, null, 30_000, 10, 30),
 				new AttendanceFinalizationSchedulerProperties(
 						true, Duration.ofMinutes(2), Duration.ofMinutes(1), 20),
-				new OperationalTelegramProperties(false, null, 0, 10_000));
+				new OperationalTelegramProperties(false, null, 0));
 
 		assertThatThrownBy(guard::validate)
 				.isInstanceOf(IllegalStateException.class)
@@ -76,7 +76,7 @@ class ProductionAdminSecurityGuardTest {
 				new AttendanceFinalizationSchedulerProperties(
 						true, Duration.ofMinutes(2), Duration.ofMinutes(1), 20),
 				new OperationalTelegramProperties(
-						true, "operations-bot-token", -1001234567890L, 10_000));
+						true, "operations-bot-token", -1001234567890L));
 
 		assertThatCode(guard::validate).doesNotThrowAnyException();
 	}
@@ -100,7 +100,7 @@ class ProductionAdminSecurityGuardTest {
 				new AttendanceFinalizationSchedulerProperties(
 						true, Duration.ofMinutes(2), Duration.ofMinutes(1), 20),
 				new OperationalTelegramProperties(
-						true, "shared-bot-token", -1001234567890L, 60_000));
+						true, "shared-bot-token", -1001234567890L));
 
 		assertThatThrownBy(guard::validate)
 				.isInstanceOf(IllegalStateException.class)
@@ -115,6 +115,6 @@ class ProductionAdminSecurityGuardTest {
 				new TelegramProperties(false, null, null, null, null, 30_000, 10, 30),
 				new AttendanceFinalizationSchedulerProperties(
 						false, Duration.ofMinutes(2), Duration.ofMinutes(1), 20),
-				new OperationalTelegramProperties(false, null, 0, 10_000));
+				new OperationalTelegramProperties(false, null, 0));
 	}
 }

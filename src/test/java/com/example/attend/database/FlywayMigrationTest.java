@@ -2812,20 +2812,25 @@ class FlywayMigrationTest {
 			assertThat(duplicateEventId).isEqualTo(firstEventId);
 			assertThat(mapper.selectReadyEventIds(occurredAt, 20))
 					.contains(firstEventId);
+			assertThat(mapper.selectNextDeliveryActionAt()).isEqualTo(occurredAt);
 
 			Instant firstLeaseUntil = occurredAt.plus(Duration.ofMinutes(2));
 			FinalizationOperationalAlertJob firstClaim = mapper.claimEvent(
 					firstEventId, occurredAt, firstLeaseUntil);
 			assertThat(firstClaim).isNotNull();
 			assertThat(firstClaim.totalAttemptCount()).isEqualTo(6);
+			assertThat(mapper.selectNextDeliveryActionAt()).isEqualTo(firstLeaseUntil);
 			assertThat(mapper.recoverExpiredLeases(firstLeaseUntil)).isEqualTo(1);
+			assertThat(mapper.selectNextDeliveryActionAt()).isEqualTo(firstLeaseUntil);
 
+			Instant secondLeaseUntil = firstLeaseUntil.plus(Duration.ofMinutes(2));
 			FinalizationOperationalAlertJob secondClaim = mapper.claimEvent(
 					firstEventId,
 					firstLeaseUntil,
-					firstLeaseUntil.plus(Duration.ofMinutes(2)));
+					secondLeaseUntil);
 			assertThat(secondClaim.deliveryClaimVersion())
 					.isGreaterThan(firstClaim.deliveryClaimVersion());
+			assertThat(mapper.selectNextDeliveryActionAt()).isEqualTo(secondLeaseUntil);
 			Instant retryAt = firstLeaseUntil.plusSeconds(30);
 			assertThat(mapper.markRetry(
 					firstEventId,
@@ -2833,22 +2838,91 @@ class FlywayMigrationTest {
 					retryAt,
 					"RUNTIME_RETRY_TEST",
 					firstLeaseUntil)).isEqualTo(1);
+			assertThat(mapper.selectNextDeliveryActionAt()).isEqualTo(retryAt);
 
+			Instant thirdLeaseUntil = retryAt.plus(Duration.ofMinutes(2));
 			FinalizationOperationalAlertJob thirdClaim = mapper.claimEvent(
 					firstEventId,
 					retryAt,
-					retryAt.plus(Duration.ofMinutes(2)));
+					thirdLeaseUntil);
+			assertThat(mapper.selectNextDeliveryActionAt()).isEqualTo(thirdLeaseUntil);
 			assertThat(mapper.markSent(
 					firstEventId,
 					thirdClaim.deliveryClaimVersion(),
 					700L,
 					retryAt)).isEqualTo(1);
+			assertThat(mapper.selectNextDeliveryActionAt()).isNull();
+
+			Instant processingLeaseAt = occurredAt.plus(Duration.ofMinutes(10));
+			Instant globalRetryAt = occurredAt.plus(Duration.ofMinutes(20));
+			Instant globalPendingAt = occurredAt.plus(Duration.ofMinutes(30));
+			long processingEventId;
+			try (Connection migrationConnection = migrationDataSource.getConnection();
+				 Statement statement = migrationConnection.createStatement()) {
+				statement.execute("""
+						INSERT INTO public.finalization_operational_event (
+						    event_type, attendance_day_id, incident_claim_version,
+						    department_id, department_name, attendance_date,
+						    first_failed_at, occurred_at, total_attempt_count, error_code,
+						    status, delivery_attempt_count, delivery_claim_version,
+						    next_attempt_at, lease_until, telegram_message_id, sent_at)
+						SELECT
+						    'FINALIZATION_RETRY_EXHAUSTED', day.id,
+						    fixture.incident_claim_version,
+						    day.department_id, department.name, day.attendance_date,
+						    day.finalization_first_failed_at,
+						    TIMESTAMPTZ '2026-08-12 00:05:00Z',
+						    6, 'GLOBAL_NEXT_ACTION_TEST', fixture.status,
+						    fixture.delivery_attempt_count,
+						    fixture.delivery_claim_version,
+						    fixture.next_attempt_at, fixture.lease_until,
+						    fixture.telegram_message_id, fixture.sent_at
+						FROM public.attendance_day AS day
+						JOIN public.department AS department
+						  ON department.id = day.department_id
+						CROSS JOIN (VALUES
+						    (10::bigint, 'PENDING'::text, 0, 0::bigint,
+						     TIMESTAMPTZ '2026-08-12 00:35:00Z',
+						     NULL::timestamptz, NULL::bigint, NULL::timestamptz),
+						    (11::bigint, 'RETRY'::text, 1, 1::bigint,
+						     TIMESTAMPTZ '2026-08-12 00:25:00Z',
+						     NULL::timestamptz, NULL::bigint, NULL::timestamptz),
+						    (12::bigint, 'PROCESSING'::text, 1, 3::bigint,
+						     TIMESTAMPTZ '2026-08-12 00:05:00Z',
+						     TIMESTAMPTZ '2026-08-12 00:15:00Z',
+						     NULL::bigint, NULL::timestamptz),
+						    (13::bigint, 'SENT'::text, 1, 1::bigint,
+						     TIMESTAMPTZ '2026-08-12 00:06:00Z',
+						     NULL::timestamptz, 701::bigint,
+						     TIMESTAMPTZ '2026-08-12 00:06:00Z')
+						) AS fixture(
+						    incident_claim_version, status, delivery_attempt_count,
+						    delivery_claim_version, next_attempt_at, lease_until,
+						    telegram_message_id, sent_at)
+						WHERE day.id = %d
+						""".formatted(exhaustedDayId));
+				processingEventId = queryLong(statement, """
+						SELECT id
+						FROM public.finalization_operational_event
+						WHERE attendance_day_id = %d
+						  AND incident_claim_version = 12
+						""".formatted(exhaustedDayId));
+			}
+			session.clearCache();
+			assertThat(mapper.selectNextDeliveryActionAt())
+					.isEqualTo(processingLeaseAt);
+			assertThat(mapper.markSent(
+					processingEventId, 3L, 702L, processingLeaseAt)).isEqualTo(1);
+			assertThat(mapper.selectNextDeliveryActionAt())
+					.isEqualTo(globalRetryAt)
+					.isBefore(globalPendingAt);
 		}
 		try (Connection migrationConnection = migrationDataSource.getConnection()) {
 			assertThat(queryInt(migrationConnection, """
 					SELECT count(*)
 					FROM public.finalization_operational_event
 					WHERE attendance_day_id = %d
+					  AND incident_claim_version = 9
 					""".formatted(exhaustedDayId))).isEqualTo(1);
 		}
 		try (Connection migrationConnection = migrationDataSource.getConnection();

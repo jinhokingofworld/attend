@@ -44,9 +44,12 @@ Actuator, 로그, Git과 Docker image에 포함하지 않는다.
 - 6회차 실패 상태와 `PENDING` outbox는 하나의 DB transaction으로 commit한다.
 - commit 직후 `AFTER_COMMIT` listener가 전용 단일-thread executor에 즉시 전송을
   제출한다. Telegram 네트워크 호출은 자동 마감 scheduler thread에서 실행하지 않는다.
-- 애플리케이션 시작 시 만료 lease와 ready outbox를 복구하고, 이후 60초마다 같은
-  전달 복구를 실행한다. 이 polling은 이미 생성된 운영 문자의 전달만 담당하며,
-  놓친 출석일 마감을 찾는 finalization reconciliation이 아니다.
+- 애플리케이션 시작 시 만료 lease와 ready outbox를 복구한다. 각 worker 실행 뒤에는
+  `PENDING`·`RETRY.next_attempt_at`과 `PROCESSING.lease_until` 중 가장 이른 DB 시각을
+  읽고 그 시각에 일회성 task 하나만 예약한다. 처리할 행이 없으면 예약과 주기 DB
+  조회를 모두 멈춘다.
+- executor 제출이나 다음 시각 조회가 실패했을 때만 1분 뒤 일회성 인프라 복구 task를
+  예약한다. 이는 정상 상태에서 반복되는 polling이 아니다.
 - worker는 2분 lease와 delivery claim version으로 여러 인스턴스의 결과를 fencing한다.
 - 성공한 Telegram HTTP 응답의 양수 message ID를 저장한 뒤 `SENT`로 전환한다.
 - 429는 Telegram `retry_after`, 그 밖의 timeout·4xx·5xx·설정 오류는 30초부터
@@ -64,6 +67,12 @@ V016 이전에는 최초 실패 시각을 따로 저장하지 않았다. upgrade
 6회 소진된 행은 알 수 있는 마지막 실패 시각을 최초 시각으로도 보정하며, 시각 자체가
 없던 V015-valid 행은 migration transaction 시각을 사용한다. 기존 6회 소진 사건은
 `PENDING` outbox로 backfill되어 업그레이드된 앱의 startup 복구에서 발송된다.
+
+동적 wake-up은 현재 단일 애플리케이션 인스턴스와 프로세스 자동 재기동을 전제로 한다.
+delivery claim version과 lease는 여러 worker가 함께 깨어났을 때 결과를 fencing하지만,
+JVM의 `AFTER_COMMIT` 사건과 일회성 task 자체는 다른 인스턴스로 전달되지 않는다.
+다중 인스턴스에서 producer만 종료된 뒤 다른 인스턴스가 새 outbox를 즉시 발견해야
+한다면 PostgreSQL `LISTEN/NOTIFY` 같은 공유 wake-up을 별도로 추가해야 한다.
 
 Telegram 플랫폼 전체 장애는 출석 관리자 Bot과 운영 Bot에 동시에 영향을 줄 수 있다.
 이 위험을 제거하려면 후속으로 Sentry·PagerDuty 등 다른 provider를 같은 outbox의

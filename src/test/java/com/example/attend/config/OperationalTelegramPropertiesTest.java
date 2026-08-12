@@ -9,11 +9,11 @@ import org.junit.jupiter.api.Test;
 class OperationalTelegramPropertiesTest {
 
     @Test
-    void defaultsDeliveryRecoveryToSixtySeconds() {
+    void normalizesAnUnconfiguredBotToken() {
         OperationalTelegramProperties properties =
-                new OperationalTelegramProperties(false, null, 0, 0);
+                new OperationalTelegramProperties(false, "  ", 0);
 
-        assertThat(properties.dispatchFixedDelayMs()).isEqualTo(60_000);
+        assertThat(properties.botToken()).isNull();
     }
 
     @Test

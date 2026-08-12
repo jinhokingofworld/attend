@@ -1,5 +1,6 @@
 package com.example.attend.operations.scheduler;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -81,6 +82,15 @@ class FinalizationOperationalAlertDispatcherTest {
                 .sendMessage("operations-token", -100123L, "safe message");
     }
 
+    @Test
+    void readsTheExactNextDeliveryOrLeaseTimeFromTheOutbox() {
+        Fixture fixture = fixture();
+        Instant nextActionAt = NOW.plusSeconds(45);
+        when(fixture.mapper().selectNextDeliveryActionAt()).thenReturn(nextActionAt);
+
+        assertThat(fixture.dispatcher().findNextActionAt()).isEqualTo(nextActionAt);
+    }
+
     private static Fixture fixture() {
         FinalizationOperationalEventMapper mapper =
                 mock(FinalizationOperationalEventMapper.class);
@@ -90,7 +100,7 @@ class FinalizationOperationalAlertDispatcherTest {
         when(formatter.format(job())).thenReturn("safe message");
         OperationalTelegramProperties properties =
                 new OperationalTelegramProperties(
-                        true, "operations-token", -100123L, 60_000);
+                        true, "operations-token", -100123L);
         return new Fixture(
                 mapper,
                 client,

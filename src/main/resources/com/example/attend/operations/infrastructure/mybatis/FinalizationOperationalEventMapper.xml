@@ -49,6 +49,27 @@
         LIMIT #{limit}
     </select>
 
+    <select id="selectNextDeliveryActionAt" resultType="java.time.Instant">
+        SELECT MIN(candidate.action_at)
+        FROM (
+            (
+                SELECT next_attempt_at AS action_at
+                FROM public.finalization_operational_event
+                WHERE status IN ('PENDING', 'RETRY')
+                ORDER BY next_attempt_at, id
+                LIMIT 1
+            )
+            UNION ALL
+            (
+                SELECT lease_until AS action_at
+                FROM public.finalization_operational_event
+                WHERE status = 'PROCESSING'
+                ORDER BY lease_until, id
+                LIMIT 1
+            )
+        ) AS candidate
+    </select>
+
     <select id="claimEvent"
             resultType="com.example.attend.operations.domain.FinalizationOperationalAlertJob"
             affectData="true" flushCache="true">
