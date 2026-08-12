@@ -454,6 +454,18 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 
 계정 생성·회원가입 초대·reset command의 DB 출시 gate는 V002를 적용하고 V007에 분리된 활성 token 부분 유일성까지 반영한 실제 PostgreSQL에서 `DB-CST-024~026`의 정상·위반 조합을 모두 검증하는 것이다. 원문 token은 관리자가 1회 표시 링크를 복사해 승인된 1:1 메신저로 전달하며, 운영 공개 base URL과 HTTPS 정책의 승인은 이 DB gate와 별도로 추적한다.
 
+legacy preflight가 선존재를 거부할 신규 애플리케이션 테이블은 다음 20개로 고정한다.
+이 목록은 `MIGRATION_PLAN.md`와 runtime 권한 스크립트의 필수 테이블 목록을 변경할 때
+함께 갱신한다. 권한 스크립트의 전체 필수 목록은 이 신규 20개에 채택 테이블
+`member`와 Flyway 관리 테이블 `flyway_schema_history`를 더한 22개다.
+
+`department`, `account`, `account_credential_token`, `account_department_role`,
+`department_membership`, `nfc_card`, `nfc_card_assignment`, `device`,
+`attendance_policy_version`, `attendance_band`, `attendance_day`, `attendance_target`,
+`attendance_record`, `tag_event_log`, `audit_log`, `telegram_link_token`,
+`account_telegram_connection`, `telegram_webhook_update`,
+`attendance_notification_outbox`, `finalization_operational_event`
+
 | ID | 환경·작업 | 합격 기준 |
 |---|---|---|
 | MIG-FRESH-001 | 완전히 빈 DB에 V001~V016 적용 | baseline 행 없이 전체 목표 schema 생성 |
@@ -462,7 +474,7 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | MIG-SAFE-002 | 승인된 `LEGACY_OPERATIONAL` fixture | 사전조건 통과 후 명시적 version 0 `BASELINE` 정확히 한 행, PK·행·sequence 보존 |
 | MIG-SAFE-003 | `UNKNOWN` 분류 DB | 삭제·baseline·migration·이관 없이 중단 |
 | MIG-SAFE-004 | 기존 Flyway history가 있는 DB에서 새 baseline 시도 | 자동 추정하지 않고 중단, 기존 history 불변 |
-| MIG-SAFE-005 | 신규 15개 테이블·V008 또는 미적용 V009~V011 함수·이름 충돌 객체 중 하나 선존재 | baseline·migration 전 무변경 실패 |
+| MIG-SAFE-005 | 위에 명시한 신규 20개 테이블·V008 또는 미적용 V009~V011 함수·이름 충돌 객체 중 하나 선존재 | baseline·migration 전 무변경 실패 |
 | MIG-SAFE-006 | 레거시 네 테이블 누락, 제3의 `member` 구조 또는 활성 writer 존재 | 사전점검 실패, DDL·data 변경 없음 |
 | MIG-SAFE-007 | `baselineOnMigrate=true` 또는 version 0이 아닌 자동 baseline 설정 | 배포 설정 검사 실패 |
 | MIG-SAFE-008 | 제거된 기존 seed의 알려진 password-hash fingerprint가 사용자명·권한과 무관하게 존재 | 원문·hash 노출 없이 read-only preflight 거부, history·계정 행 불변; V001 직접 호출도 거부 |

@@ -100,6 +100,7 @@ public class AttendanceFinalizationQueueService {
 			Long eventId = operationalEventMapper.insertRetryExhaustedEvent(
 					claim.attendanceDayId(),
 					claim.claimVersion(),
+					newFailureCount,
 					errorCode,
 					failedAt);
 			if (eventId == null || eventId <= 0) {

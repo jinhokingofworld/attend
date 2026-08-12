@@ -26,14 +26,14 @@
             day.attendance_date,
             day.finalization_first_failed_at,
             #{occurredAt},
-            6,
+            #{totalAttemptCount},
             #{errorCode},
             #{occurredAt}
         FROM public.attendance_day AS day
         JOIN public.department AS department ON department.id = day.department_id
         WHERE day.id = #{attendanceDayId}
           AND day.status = 'SCHEDULED'
-          AND day.finalization_failure_count = 6
+          AND day.finalization_failure_count = #{totalAttemptCount}
           AND day.finalization_claim_version = #{incidentClaimVersion}
         ON CONFLICT (event_type, attendance_day_id, incident_claim_version)
         DO UPDATE SET updated_at = finalization_operational_event.updated_at

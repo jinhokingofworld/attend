@@ -101,9 +101,16 @@ public final class ProductionAdminSecurityGuard {
 					"OPERATIONS_TELEGRAM_ENABLED must be true when automatic finalization is enabled in prod");
 		}
 		if (operationalTelegramProperties.enabled()) {
+			String operationsBotToken = operationalTelegramProperties.botToken();
 			requireTelegramValue(
-					operationalTelegramProperties.botToken(),
+					operationsBotToken,
 					"OPERATIONS_TELEGRAM_BOT_TOKEN");
+			String attendanceBotToken = telegramProperties.botToken();
+			if (attendanceBotToken != null
+					&& operationsBotToken.equals(attendanceBotToken)) {
+				throw new IllegalStateException(
+						"OPERATIONS_TELEGRAM_BOT_TOKEN must use a separate Bot");
+			}
 			if (operationalTelegramProperties.chatId() == 0) {
 				throw new IllegalStateException(
 						"OPERATIONS_TELEGRAM_CHAT_ID is required when operations Telegram alerts are enabled");

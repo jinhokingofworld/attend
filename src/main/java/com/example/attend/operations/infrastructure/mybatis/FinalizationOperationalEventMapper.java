@@ -13,6 +13,7 @@ public interface FinalizationOperationalEventMapper {
     Long insertRetryExhaustedEvent(
             @Param("attendanceDayId") long attendanceDayId,
             @Param("incidentClaimVersion") long incidentClaimVersion,
+            @Param("totalAttemptCount") int totalAttemptCount,
             @Param("errorCode") String errorCode,
             @Param("occurredAt") Instant occurredAt);
 

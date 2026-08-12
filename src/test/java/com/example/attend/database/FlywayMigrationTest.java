@@ -134,7 +134,8 @@ class FlywayMigrationTest {
                     FROM information_schema.tables
                     WHERE table_schema = 'public'
                       AND table_type = 'BASE TABLE'
-                    """)).contains(
+                    """)).containsExactlyInAnyOrder(
+                    "flyway_schema_history",
                     "member",
                     "department",
                     "account",
@@ -150,8 +151,74 @@ class FlywayMigrationTest {
                     "attendance_target",
                     "attendance_record",
                     "tag_event_log",
-                    "audit_log"
+                    "audit_log",
+                    "telegram_link_token",
+                    "account_telegram_connection",
+                    "telegram_webhook_update",
+                    "attendance_notification_outbox",
+                    "finalization_operational_event"
             );
+
+            assertThat(queryStrings(connection, """
+                    SELECT column_name || ':' || data_type || ':' || is_nullable
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'attendance_day'
+                      AND column_name IN (
+                          'finalization_first_failed_at',
+                          'finalization_last_failed_at'
+                      )
+                    """)).containsExactlyInAnyOrder(
+                    "finalization_first_failed_at:timestamp with time zone:YES",
+                    "finalization_last_failed_at:timestamp with time zone:YES");
+            assertThat(queryString(connection, """
+                    SELECT convalidated::text || ':' || pg_get_constraintdef(oid)
+                    FROM pg_constraint
+                    WHERE conrelid = 'public.attendance_day'::regclass
+                      AND conname =
+                          'ck_attendance_day_finalization_failure_timestamps'
+                    """))
+                    .startsWith("true:CHECK")
+                    .contains(
+                            "finalization_failure_count",
+                            "finalization_first_failed_at",
+                            "finalization_last_failed_at");
+            assertThat(queryString(connection, """
+                    SELECT contype::text || ':' || pg_get_constraintdef(oid)
+                    FROM pg_constraint
+                    WHERE conrelid =
+                          'public.finalization_operational_event'::regclass
+                      AND conname =
+                          'uq_finalization_operational_event_incident'
+                    """))
+                    .startsWith("u:UNIQUE")
+                    .contains(
+                            "event_type",
+                            "attendance_day_id",
+                            "incident_claim_version");
+            assertThat(queryString(connection, """
+                    SELECT indexdef
+                    FROM pg_indexes
+                    WHERE schemaname = 'public'
+                      AND indexname =
+                          'idx_finalization_operational_event_dispatch'
+                    """))
+                    .contains(
+                            "(next_attempt_at, id)",
+                            "WHERE",
+                            "'PENDING'",
+                            "'RETRY'");
+            assertThat(queryString(connection, """
+                    SELECT indexdef
+                    FROM pg_indexes
+                    WHERE schemaname = 'public'
+                      AND indexname =
+                          'idx_finalization_operational_event_lease'
+                    """))
+                    .contains(
+                            "(lease_until, id)",
+                            "WHERE",
+                            "'PROCESSING'");
 
             assertThat(queryInt(connection, """
                     SELECT count(*)
@@ -2734,10 +2801,13 @@ class FlywayMigrationTest {
 			FinalizationOperationalEventMapper mapper =
 					session.getMapper(FinalizationOperationalEventMapper.class);
 			Instant occurredAt = Instant.parse("2026-08-12T00:05:00Z");
+			assertThat(mapper.insertRetryExhaustedEvent(
+					exhaustedDayId, 9L, 5, "RUNTIME_PERMISSION_TEST", occurredAt))
+					.isNull();
 			Long firstEventId = mapper.insertRetryExhaustedEvent(
-					exhaustedDayId, 9L, "RUNTIME_PERMISSION_TEST", occurredAt);
+					exhaustedDayId, 9L, 6, "RUNTIME_PERMISSION_TEST", occurredAt);
 			Long duplicateEventId = mapper.insertRetryExhaustedEvent(
-					exhaustedDayId, 9L, "RUNTIME_PERMISSION_TEST", occurredAt);
+					exhaustedDayId, 9L, 6, "RUNTIME_PERMISSION_TEST", occurredAt);
 			assertThat(firstEventId).isPositive();
 			assertThat(duplicateEventId).isEqualTo(firstEventId);
 			assertThat(mapper.selectReadyEventIds(occurredAt, 20))
@@ -2747,6 +2817,7 @@ class FlywayMigrationTest {
 			FinalizationOperationalAlertJob firstClaim = mapper.claimEvent(
 					firstEventId, occurredAt, firstLeaseUntil);
 			assertThat(firstClaim).isNotNull();
+			assertThat(firstClaim.totalAttemptCount()).isEqualTo(6);
 			assertThat(mapper.recoverExpiredLeases(firstLeaseUntil)).isEqualTo(1);
 
 			FinalizationOperationalAlertJob secondClaim = mapper.claimEvent(

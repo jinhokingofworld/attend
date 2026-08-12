@@ -56,7 +56,7 @@
 
 | 기술 주체 | 사용 시점 | 허용 범위 | 금지 |
 |---|---|---|---|
-| `app_runtime` | 운영 Spring Boot process | 신규 15개 테이블의 필요한 DML, `member` 허용 컬럼, sequence 사용, Flyway history 읽기 | DDL, Flyway history 변경, `member` 삭제, 레거시 3개 테이블 DML |
+| `app_runtime` | 운영 Spring Boot process | 현재 애플리케이션 테이블의 필요한 DML, `member` 허용 컬럼, sequence 사용, Flyway history 읽기 | DDL, Flyway history 변경, `member` 삭제, 레거시 3개 테이블 DML |
 | `migration_owner` | 배포 전 고정 Flyway runner | 승인 migration, schema·history 관리, `info`·`validate` | 웹 runtime 사용, 평상시 애플리케이션 접속 |
 | `cutover_writer` | 승인된 컷오버 시간 | bootstrap·importer의 최소 DML | DDL, 레거시 출석·로그 DML, 컷오버 후 로그인 |
 | `legacy_writer` | 안전 릴리스와 승인된 rollback 시간 | 기존 앱에 필요한 제한 DML | `member.card_uid` 변경, `member` 삭제, 컷오버 후 상시 로그인 |

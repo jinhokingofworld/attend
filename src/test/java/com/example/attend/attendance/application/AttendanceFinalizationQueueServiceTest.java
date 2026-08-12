@@ -67,7 +67,7 @@ class AttendanceFinalizationQueueServiceTest {
 				42L, 10L, 6, null,
 				"IllegalArgumentException", NOW)).thenReturn(1);
 		when(operationalEventMapper.insertRetryExhaustedEvent(
-				42L, 10L, "IllegalArgumentException", NOW)).thenReturn(51L);
+				42L, 10L, 6, "IllegalArgumentException", NOW)).thenReturn(51L);
 
 		assertThat(service.recordFailure(
 				fifthRetry, new IllegalArgumentException("persistent"))).isTrue();
@@ -75,7 +75,7 @@ class AttendanceFinalizationQueueServiceTest {
 				42L, 10L, 6, null,
 				"IllegalArgumentException", NOW);
 		verify(operationalEventMapper).insertRetryExhaustedEvent(
-				42L, 10L, "IllegalArgumentException", NOW);
+				42L, 10L, 6, "IllegalArgumentException", NOW);
 		verify(eventPublisher).publishEvent(
 				new FinalizationOperationalIncidentCreated(51L));
 	}
@@ -93,12 +93,36 @@ class AttendanceFinalizationQueueServiceTest {
 		when(mapper.markFinalizationFailure(
 				42L, 10L, 6, null,
 				"IllegalStateException", NOW)).thenReturn(1);
+		when(operationalEventMapper.insertRetryExhaustedEvent(
+				42L, 10L, 6, "IllegalStateException", NOW)).thenReturn(null);
 
 		assertThatThrownBy(() -> service.recordFailure(
 				fifthRetry, new IllegalStateException("persistent")))
 				.isInstanceOf(IllegalStateException.class)
 				.hasMessageContaining("persist finalization retry exhaustion event");
 		verifyNoInteractions(eventPublisher);
+	}
+
+	@Test
+	void skipsTheOutboxWhenTheFinalizationClaimIsStale() {
+		AttendanceDayMapper mapper = mock(AttendanceDayMapper.class);
+		FinalizationOperationalEventMapper operationalEventMapper =
+				mock(FinalizationOperationalEventMapper.class);
+		ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+		AttendanceFinalizationQueueService service =
+				service(mapper, operationalEventMapper, eventPublisher);
+		AttendanceFinalizationClaim staleClaim =
+				new AttendanceFinalizationClaim(42L, 5, 10L);
+		when(mapper.markFinalizationFailure(
+				42L, 10L, 6, null,
+				"IllegalStateException", NOW)).thenReturn(0);
+
+		assertThat(service.recordFailure(
+				staleClaim, new IllegalStateException("stale"))).isFalse();
+		verify(mapper).markFinalizationFailure(
+				42L, 10L, 6, null,
+				"IllegalStateException", NOW);
+		verifyNoInteractions(operationalEventMapper, eventPublisher);
 	}
 
 	private static AttendanceFinalizationQueueService service(

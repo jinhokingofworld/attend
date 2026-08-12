@@ -33,7 +33,7 @@ MVP의 데이터베이스 변경 도구는 **Flyway**로 통일한다.
 ### 1.1 목적
 
 - 애플리케이션 재시작으로 운영 데이터가 삭제되는 위험을 제거한다.
-- 기존 `member` 1개를 채택하고 신규 15개 테이블을 재현 가능하고 검증 가능한 순서로 생성한다.
+- 기존 `member` 1개를 채택하고 명시된 신규 애플리케이션 테이블을 재현 가능하고 검증 가능한 순서로 생성한다.
 - 레거시 데이터의 의미를 왜곡하지 않고 보존한다.
 - 신규 애플리케이션 전환 실패 시 복구 가능한 지점을 만든다.
 - 개발, 테스트, 운영 DB가 같은 초기화 방식을 공유하지 않게 한다.
@@ -281,7 +281,22 @@ FROM public.flyway_schema_history
 ORDER BY installed_rank;
 ```
 
-합격값은 `version = '0'`, `type = 'BASELINE'`, `success = TRUE`다. 이미 history 테이블이 있거나 신규 15개 테이블 또는 `attend_set_updated_at()` 함수가 하나라도 있으면 자동으로 처리하지 않고 작업을 중단한다.
+합격값은 `version = '0'`, `type = 'BASELINE'`, `success = TRUE`다. 이미 history
+테이블이 있거나 다음 신규 애플리케이션 테이블 또는 `attend_set_updated_at()` 함수가
+하나라도 있으면 자동으로 처리하지 않고 작업을 중단한다.
+
+`department`, `account`, `account_credential_token`, `account_department_role`,
+`department_membership`, `nfc_card`, `nfc_card_assignment`, `device`,
+`attendance_policy_version`, `attendance_band`, `attendance_day`, `attendance_target`,
+`attendance_record`, `tag_event_log`, `audit_log`, `telegram_link_token`,
+`account_telegram_connection`, `telegram_webhook_update`,
+`attendance_notification_outbox`, `finalization_operational_event`
+
+이 20개 목록은 `ops/db/roles/003_grant_application_privileges.sql`의 필수 runtime
+테이블 목록과 함께 변경한다. 권한 스크립트의 전체 필수 목록은 이 신규 20개에 채택
+테이블 `member`와 Flyway 관리 테이블 `flyway_schema_history`를 더한 22개다. 실제
+V001 preflight는 개수만 비교하지 않고 레거시 네 테이블 외의 예상하지 않은
+`public` relation도 거부한다.
 
 ### 5.4 트랜잭션과 인덱스
 
@@ -527,7 +542,7 @@ baseline 전에 다음 조건을 추가로 확인한다.
 
 - `member`, `authentications`, `attendance`, `attendance_log` 네 기존 테이블이 모두 `public`에 존재한다.
 - `member`는 현재 코드의 컬럼·타입·PK·`member_id_seq`·`card_uid` unique 구조와 정확히 일치하고 아직 `active`, `updated_at`이 없다.
-- 신규 15개 테이블은 하나도 존재하지 않는다.
+- 5.3에 명시한 신규 애플리케이션 테이블 20개는 하나도 존재하지 않는다.
 - 신규 migration과 이름이 충돌하는 함수·trigger·index가 없다.
 - history 테이블이 이미 있으면 새 baseline을 만들지 않고 기존 이력을 별도로 조사한다.
 - 애플리케이션, 테스트 프로세스와 관리 도구가 같은 DB를 사용하고 있지 않다.
@@ -652,8 +667,8 @@ cluster-global 역할 백업에는 비밀번호 해시가 포함될 수 있으�
 |---|---|
 | `migration_owner` | Flyway history와 신규 schema DDL. 웹 애플리케이션에서 사용 금지 |
 | `legacy_writer` | 안전 릴리스가 실제 사용하는 기존 테이블 최소 DML과 sequence 권한. `member`는 전체 SELECT, `name`·`age`·`phone`·`birth`의 column-level INSERT·UPDATE만 허용하고 `card_uid` UPDATE와 물리 DELETE는 금지. 컷오버 시 로그인 또는 쓰기 권한 차단 |
-| `cutover_writer` | bootstrap·importer용 신규 15개 테이블 DML, 신규 identity sequence와 `member_id_seq`의 `USAGE`, 승인 이관에 필요한 `member` 최소 SELECT 및 `active` UPDATE. 레거시 출석·로그 DML과 DDL 금지, 컷오버 후 회수 |
-| `app_runtime` | 신규 15개 테이블의 최소 DML, 신규 identity sequence와 `member_id_seq`의 `USAGE`, `member` 허용 컬럼의 최소 SELECT·INSERT·UPDATE, schema 호환성 확인용 `flyway_schema_history` SELECT. DDL, history 변경, `member` DELETE와 세 레거시 테이블 DML 금지 |
+| `cutover_writer` | bootstrap·importer용 현재 애플리케이션 테이블 DML, 신규 identity sequence와 `member_id_seq`의 `USAGE`, 승인 이관에 필요한 `member` 최소 SELECT 및 `active` UPDATE. 레거시 출석·로그 DML과 DDL 금지, 컷오버 후 회수 |
+| `app_runtime` | 현재 애플리케이션 테이블의 최소 DML, 신규 identity sequence와 `member_id_seq`의 `USAGE`, `member` 허용 컬럼의 최소 SELECT·INSERT·UPDATE, schema 호환성 확인용 `flyway_schema_history` SELECT. DDL, history 변경, `member` DELETE와 세 레거시 테이블 DML 금지 |
 
 재현 가능한 역할 생성·migration 준비·runtime grant SQL과 실행 순서는
 [`ops/db/roles`](../ops/db/roles/README.md)에 둔다. SQL에는 비밀번호를 넣지 않으며
