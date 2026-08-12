@@ -384,10 +384,11 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | FIN-019 | 운영 Bot timeout·429·5xx·token 오류 | 이벤트를 버리지 않고 Telegram `retry_after` 또는 최대 1시간 capped backoff로 계속 재시도 |
 | FIN-020 | 이전 운영 알림 lease가 만료된 뒤 늦게 완료됨 | delivery claim version 불일치 update는 0건이며 새 전송 결과를 덮지 않음 |
 | FIN-021 | 6회차 실패 transaction commit | 반환된 outbox ID의 AFTER_COMMIT 사건을 전용 executor에 제출하고 자동 마감 scheduler thread에서는 Telegram을 호출하지 않음 |
-| FIN-022 | 운영 알림 즉시 제출 실패 또는 전송 중 프로세스 종료 | DB의 `PENDING` 또는 만료 `PROCESSING`을 시작 시와 60초 전달 polling이 복구 |
-| FIN-023 | 즉시 전송과 전달 polling이 같은 사건을 동시에 처리 | 한 delivery claim만 성공하며 각 완료 update는 claim version으로 fencing |
+| FIN-022 | 운영 알림 즉시 제출 실패 또는 전송 중 프로세스 종료 | 제출 실패는 1분 뒤 일회성 복구 task, 프로세스 종료는 재기동 startup이 DB의 `PENDING` 또는 만료 `PROCESSING`을 복구 |
+| FIN-023 | 즉시 전송과 동적 wake-up이 같은 사건을 동시에 처리 | 한 delivery claim만 성공하며 각 완료 update는 claim version으로 fencing |
 | FIN-024 | V015에 이미 6회 소진된 날짜가 존재 | V016이 안전한 snapshot의 `PENDING` 사건을 backfill하고 앱 시작 시 전달 |
 | FIN-025 | Telegram 성공 직후 `SENT` 갱신 전에 프로세스 종료 | lease 만료 후 재전송될 수 있으며 추적 키로 at-least-once 중복을 식별 |
+| FIN-026 | ready·retry·processing 운영 outbox가 없거나 미래 시각만 존재 | 빈 DB에는 task·주기 조회가 없고, 미래 `next_attempt_at`·`lease_until` 중 최솟값에 일회성 task 하나만 예약 |
 
 ---
 

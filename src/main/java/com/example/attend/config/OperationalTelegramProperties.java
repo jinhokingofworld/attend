@@ -7,14 +7,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record OperationalTelegramProperties(
         boolean enabled,
         String botToken,
-        long chatId,
-        long dispatchFixedDelayMs) {
+        long chatId) {
 
     public OperationalTelegramProperties {
         botToken = normalize(botToken);
-        if (dispatchFixedDelayMs <= 0) {
-            dispatchFixedDelayMs = 60_000;
-        }
     }
 
     private static String normalize(String value) {

@@ -2,14 +2,20 @@ package com.example.attend.operations.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.example.attend.operations.application.FinalizationOperationalIncidentCreated;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ScheduledFuture;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +23,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.TaskExecutor;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -50,7 +57,7 @@ class FinalizationOperationalAlertTransactionIntegrationTest {
         assertThat(executor.tasks()).hasSize(1);
         verifyNoInteractions(dispatcher);
         executor.tasks().getFirst().run();
-        verify(dispatcher).dispatchById(51L);
+        verify(dispatcher).recoverAndDispatchReady();
     }
 
     @Test
@@ -85,8 +92,25 @@ class FinalizationOperationalAlertTransactionIntegrationTest {
         @Bean
         FinalizationOperationalAlertTrigger trigger(
                 FinalizationOperationalAlertDispatcher dispatcher,
-                RecordingTaskExecutor executor) {
-            return new FinalizationOperationalAlertTrigger(dispatcher, executor);
+                RecordingTaskExecutor executor,
+                TaskScheduler taskScheduler) {
+            return new FinalizationOperationalAlertTrigger(
+                    dispatcher,
+                    executor,
+                    taskScheduler,
+                    Clock.fixed(
+                            Instant.parse("2026-08-12T01:00:00Z"),
+                            ZoneOffset.UTC));
+        }
+
+        @Bean
+        TaskScheduler taskScheduler() {
+            TaskScheduler scheduler = mock(TaskScheduler.class);
+            @SuppressWarnings("unchecked")
+            ScheduledFuture<Object> future = mock(ScheduledFuture.class);
+            doReturn(future).when(scheduler)
+                    .schedule(any(Runnable.class), any(Instant.class));
+            return scheduler;
         }
 
         @Bean

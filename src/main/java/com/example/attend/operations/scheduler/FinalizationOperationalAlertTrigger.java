@@ -1,7 +1,11 @@
 package com.example.attend.operations.scheduler;
 
 import com.example.attend.operations.application.FinalizationOperationalIncidentCreated;
-import java.util.concurrent.atomic.AtomicBoolean;
+import jakarta.annotation.PreDestroy;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.concurrent.ScheduledFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -9,102 +13,243 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.task.TaskExecutor;
-import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
-/** 즉시 전송과 영속 복구를 운영 알림 전용 executor에 제출한다. */
+/** DB의 다음 전달·lease 시각에 운영 알림 전용 단일 wake-up을 예약한다. */
 @Component
 @ConditionalOnProperty(
         name = "attendance.operations.telegram.enabled", havingValue = "true")
 public final class FinalizationOperationalAlertTrigger {
     private static final Logger log =
             LoggerFactory.getLogger(FinalizationOperationalAlertTrigger.class);
+    private static final Duration INFRASTRUCTURE_RECOVERY_DELAY =
+            Duration.ofMinutes(1);
 
     private final FinalizationOperationalAlertDispatcher dispatcher;
     private final TaskExecutor executor;
-    private final AtomicBoolean recoveryQueuedOrRunning = new AtomicBoolean();
+    private final TaskScheduler taskScheduler;
+    private final Clock clock;
+    private final Object monitor = new Object();
+
+    private boolean stopped;
+    private boolean workerActive;
+    private boolean workRequested;
+    private long scheduleGeneration;
+    private Instant scheduledAt;
+    private ScheduledFuture<?> scheduledTask;
 
     public FinalizationOperationalAlertTrigger(
             FinalizationOperationalAlertDispatcher dispatcher,
-            @Qualifier("finalizationOperationalAlertExecutor") TaskExecutor executor) {
+            @Qualifier("finalizationOperationalAlertExecutor") TaskExecutor executor,
+            @Qualifier("finalizationOperationalAlertTaskScheduler")
+                    TaskScheduler taskScheduler,
+            Clock clock) {
         this.dispatcher = dispatcher;
         this.executor = executor;
+        this.taskScheduler = taskScheduler;
+        this.clock = clock;
     }
 
-    /** 사건 transaction이 commit된 뒤 해당 outbox를 즉시 전송하도록 요청한다. */
+    /** 사건 transaction이 commit된 뒤 ready outbox 처리를 즉시 요청한다. */
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onIncidentCreated(FinalizationOperationalIncidentCreated event) {
-        submit(
-                () -> dispatcher.dispatchById(event.eventId()),
-                "after-commit",
-                event.eventId());
+        requestWorker("after-commit", event.eventId());
     }
 
-    /** 재기동으로 중단된 lease와 아직 보내지 못한 outbox를 즉시 복구한다. */
+    /** 재기동 시 ready outbox와 아직 유효한 lease의 다음 시각을 복구한다. */
     @EventListener(ApplicationReadyEvent.class)
     public void startAfterApplicationReady() {
-        submitRecovery("startup");
+        requestWorker("startup", null);
     }
 
-    /** 즉시 시도에서 누락된 outbox 전달만 60초마다 복구한다. */
-    @Scheduled(
-            fixedDelayString =
-                    "${attendance.operations.telegram.dispatch-fixed-delay-ms:60000}",
-            initialDelayString =
-                    "${attendance.operations.telegram.dispatch-fixed-delay-ms:60000}")
-    public void recoverAndDispatchOnSchedule() {
-        submitRecovery("poll");
-    }
-
-    private void submitRecovery(String trigger) {
-        if (!recoveryQueuedOrRunning.compareAndSet(false, true)) {
-            return;
+    private void requestWorker(String trigger, Long eventId) {
+        synchronized (monitor) {
+            if (stopped) {
+                return;
+            }
+            workRequested = true;
+            if (workerActive) {
+                return;
+            }
+            workerActive = true;
         }
-        submit(
-                dispatcher::recoverAndDispatchReady,
-                trigger,
-                null,
-                recoveryQueuedOrRunning);
-    }
 
-    private void submit(Runnable task, String trigger, Long eventId) {
-        submit(task, trigger, eventId, null);
-    }
-
-    private void submit(
-            Runnable task,
-            String trigger,
-            Long eventId,
-            AtomicBoolean completionFlag) {
         try {
-            executor.execute(() -> {
-                try {
-                    runSafely(task, trigger, eventId);
-                } finally {
-                    if (completionFlag != null) {
-                        completionFlag.set(false);
-                    }
-                }
-            });
+            executor.execute(this::runWorker);
         } catch (RuntimeException exception) {
-            if (completionFlag != null) {
-                completionFlag.set(false);
+            synchronized (monitor) {
+                workerActive = false;
             }
             log.error(
                     "Operational alert dispatch submission rejected. trigger={}, eventId={}",
                     trigger, eventId, exception);
+            scheduleInfrastructureRecovery("executor-recovery");
         }
     }
 
-    private void runSafely(Runnable task, String trigger, Long eventId) {
+    private void runWorker() {
+        boolean completedNormally = false;
         try {
-            task.run();
+            while (true) {
+                synchronized (monitor) {
+                    if (stopped) {
+                        workRequested = false;
+                        completedNormally = true;
+                        return;
+                    }
+                    workRequested = false;
+                }
+
+                try {
+                    dispatcher.recoverAndDispatchReady();
+                    refreshScheduleOrRecover("dispatch-complete");
+                } catch (RuntimeException exception) {
+                    log.error("Operational alert dispatch failed.", exception);
+                    scheduleInfrastructureRecovery("dispatch-recovery");
+                }
+
+                synchronized (monitor) {
+                    if (stopped) {
+                        workRequested = false;
+                        completedNormally = true;
+                        return;
+                    }
+                    if (workRequested) {
+                        continue;
+                    }
+                    completedNormally = true;
+                    return;
+                }
+            }
+        } finally {
+            boolean resubmit = false;
+            boolean recover = false;
+            synchronized (monitor) {
+                workerActive = false;
+                if (stopped) {
+                    workRequested = false;
+                } else if (!completedNormally) {
+                    workRequested = true;
+                    recover = true;
+                } else if (workRequested) {
+                    resubmit = true;
+                }
+            }
+            if (recover) {
+                scheduleInfrastructureRecovery("worker-abnormal-exit");
+            } else if (resubmit) {
+                requestWorker("worker-exit-race", null);
+            }
+        }
+    }
+
+    private void refreshScheduleOrRecover(String trigger) {
+        try {
+            replaceSchedule(dispatcher.findNextActionAt(), trigger);
         } catch (RuntimeException exception) {
             log.error(
-                    "Operational alert dispatch failed. trigger={}, eventId={}",
-                    trigger, eventId, exception);
+                    "Could not refresh next operational alert delivery time. trigger={}",
+                    trigger, exception);
+            scheduleInfrastructureRecovery("schedule-refresh-recovery");
+        }
+    }
+
+    private void replaceSchedule(Instant requestedAt, String trigger) {
+        synchronized (monitor) {
+            if (stopped) {
+                return;
+            }
+            if (requestedAt == null) {
+                ++scheduleGeneration;
+                cancelScheduledTask();
+                return;
+            }
+            Instant effectiveAt = clampToNow(requestedAt);
+            if (effectiveAt.equals(scheduledAt)) {
+                return;
+            }
+            replaceScheduledTask(effectiveAt, trigger);
+        }
+    }
+
+    private void scheduleInfrastructureRecovery(String trigger) {
+        try {
+            scheduleIfEarlier(
+                    clock.instant().plus(INFRASTRUCTURE_RECOVERY_DELAY), trigger);
+        } catch (RuntimeException exception) {
+            log.error(
+                    "Could not schedule one-time operational alert recovery. trigger={}",
+                    trigger, exception);
+        }
+    }
+
+    private void scheduleIfEarlier(Instant requestedAt, String trigger) {
+        synchronized (monitor) {
+            if (stopped) {
+                return;
+            }
+            Instant effectiveAt = clampToNow(requestedAt);
+            if (scheduledAt != null && !scheduledAt.isAfter(effectiveAt)) {
+                return;
+            }
+            replaceScheduledTask(effectiveAt, trigger);
+        }
+    }
+
+    private void replaceScheduledTask(Instant effectiveAt, String trigger) {
+        long acceptedGeneration = scheduleGeneration + 1;
+        ScheduledFuture<?> acceptedTask = taskScheduler.schedule(
+                () -> wakeUp(acceptedGeneration), effectiveAt);
+        if (acceptedTask == null) {
+            throw new IllegalStateException(
+                    "TaskScheduler rejected operational alert task: " + trigger);
+        }
+
+        ScheduledFuture<?> previousTask = scheduledTask;
+        scheduledTask = acceptedTask;
+        scheduledAt = effectiveAt;
+        scheduleGeneration = acceptedGeneration;
+        if (previousTask != null) {
+            previousTask.cancel(false);
+        }
+    }
+
+    private void wakeUp(long generation) {
+        synchronized (monitor) {
+            if (stopped || generation != scheduleGeneration) {
+                return;
+            }
+            ++scheduleGeneration;
+            scheduledTask = null;
+            scheduledAt = null;
+        }
+        requestWorker("scheduled-wake-up", null);
+    }
+
+    private Instant clampToNow(Instant requestedAt) {
+        Instant now = clock.instant();
+        return requestedAt.isBefore(now) ? now : requestedAt;
+    }
+
+    private void cancelScheduledTask() {
+        if (scheduledTask != null) {
+            scheduledTask.cancel(false);
+        }
+        scheduledTask = null;
+        scheduledAt = null;
+    }
+
+    /** 애플리케이션 종료 시 로컬 wake-up을 취소하고 늦은 callback을 무효화한다. */
+    @PreDestroy
+    public void stop() {
+        synchronized (monitor) {
+            stopped = true;
+            workRequested = false;
+            ++scheduleGeneration;
+            cancelScheduledTask();
         }
     }
 }

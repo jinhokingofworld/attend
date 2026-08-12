@@ -21,6 +21,8 @@ public interface FinalizationOperationalEventMapper {
             @Param("now") Instant now,
             @Param("limit") int limit);
 
+    Instant selectNextDeliveryActionAt();
+
     FinalizationOperationalAlertJob claimEvent(
             @Param("id") long id,
             @Param("now") Instant now,
