@@ -60,30 +60,38 @@ jobs:
           unzip -p "${retention_artifact_path}" META-INF/MANIFEST.MF \
             | grep -F 'Start-Class: com.example.attend.retention.AuditLogRetentionCli'
 
-          jar tf "${artifact_path}" > build/jar-contents.txt
+          for packaged_artifact in \
+            "${artifact_path}" \
+            "${migration_artifact_path}" \
+            "${retention_artifact_path}"; do
+            jar tf "${packaged_artifact}" > build/jar-contents.txt
 
-          for version in 001 002 003 004 005 006 007 008 009 010 011 012 013 014 015 016; do
-            grep -Eq "BOOT-INF/classes/db/migration/V${version}__.+[.]sql$" build/jar-contents.txt
+            for version in 001 002 003 004 005 006 007 008 009 010 011 012 013 014 015 016 017; do
+              grep -Eq "BOOT-INF/classes/db/migration/V${version}__.+[.]sql$" build/jar-contents.txt
+            done
+
+            migration_count="$(
+              grep -Ec 'BOOT-INF/classes/db/migration/V[0-9]+__.+[.]sql$' build/jar-contents.txt
+            )"
+            test "${migration_count}" -eq 17
+            grep -Fxq \
+              'BOOT-INF/classes/db/migration/V015__add_attendance_finalization_dispatch_index.sql.conf' \
+              build/jar-contents.txt
+            grep -Fxq \
+              'BOOT-INF/classes/db/migration/V017__add_attendance_notification_lease_index.sql.conf' \
+              build/jar-contents.txt
+            if grep -Fxq \
+              'BOOT-INF/classes/db/migration/V014__add_attendance_finalization_retry_state.sql.conf' \
+              build/jar-contents.txt; then
+              echo "Transactional V014 must not carry a non-transactional override."
+              exit 1
+            fi
+
+            if grep -Eq 'BOOT-INF/classes/(schema|data)[.]sql$' build/jar-contents.txt; then
+              echo "Destructive legacy SQL initialization resource found in packaged JAR."
+              exit 1
+            fi
           done
-
-          migration_count="$(
-            grep -Ec 'BOOT-INF/classes/db/migration/V[0-9]+__.+[.]sql$' build/jar-contents.txt
-          )"
-          test "${migration_count}" -eq 16
-          grep -Fxq \
-            'BOOT-INF/classes/db/migration/V015__add_attendance_finalization_dispatch_index.sql.conf' \
-            build/jar-contents.txt
-          if grep -Fxq \
-            'BOOT-INF/classes/db/migration/V014__add_attendance_finalization_retry_state.sql.conf' \
-            build/jar-contents.txt; then
-            echo "Transactional V014 must not carry a non-transactional override."
-            exit 1
-          fi
-
-          if grep -Eq 'BOOT-INF/classes/(schema|data)[.]sql$' build/jar-contents.txt; then
-            echo "Destructive legacy SQL initialization resource found in the application JAR."
-            exit 1
-          fi
 
       - name: Validate runtime Compose without migration credentials
         env:

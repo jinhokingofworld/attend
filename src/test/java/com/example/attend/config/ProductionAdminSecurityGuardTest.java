@@ -47,7 +47,7 @@ class ProductionAdminSecurityGuardTest {
 				new TrustedProxyProperties(
 						"proxy-token-that-is-at-least-32-bytes"),
 				new TelegramProperties(
-						false, null, null, null, null, 30_000, 10, 30),
+						false, null, null, null, null, 10, 30),
 				new AttendanceFinalizationSchedulerProperties(
 						true, Duration.ofMinutes(2), Duration.ofMinutes(1), 20),
 				new OperationalTelegramProperties(false, null, 0));
@@ -70,7 +70,6 @@ class ProductionAdminSecurityGuardTest {
 						"attendance_bot",
 						"webhook-secret",
 						"telegram-link-pepper-at-least-32-bytes",
-						30_000,
 						10,
 						30),
 				new AttendanceFinalizationSchedulerProperties(
@@ -94,7 +93,6 @@ class ProductionAdminSecurityGuardTest {
 						"attendance_bot",
 						"webhook-secret",
 						"telegram-link-pepper-at-least-32-bytes",
-						30_000,
 						10,
 						30),
 				new AttendanceFinalizationSchedulerProperties(
@@ -112,7 +110,7 @@ class ProductionAdminSecurityGuardTest {
 				ADMIN_PROPERTIES,
 				DEVICE_PROPERTIES,
 				new TrustedProxyProperties(proxyToken),
-				new TelegramProperties(false, null, null, null, null, 30_000, 10, 30),
+				new TelegramProperties(false, null, null, null, null, 10, 30),
 				new AttendanceFinalizationSchedulerProperties(
 						false, Duration.ofMinutes(2), Duration.ofMinutes(1), 20),
 				new OperationalTelegramProperties(false, null, 0));

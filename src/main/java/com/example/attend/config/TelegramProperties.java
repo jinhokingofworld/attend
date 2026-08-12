@@ -10,7 +10,6 @@ public record TelegramProperties(
         String botUsername,
         String webhookSecret,
         String linkTokenPepper,
-        long dispatchFixedDelayMs,
         int maxAttempts,
         int maxListedMembers) {
 
@@ -19,9 +18,6 @@ public record TelegramProperties(
         botUsername = normalize(botUsername);
         webhookSecret = normalize(webhookSecret);
         linkTokenPepper = normalize(linkTokenPepper);
-        if (dispatchFixedDelayMs <= 0) {
-            dispatchFixedDelayMs = 30_000;
-        }
         if (maxAttempts <= 0) {
             maxAttempts = 10;
         }

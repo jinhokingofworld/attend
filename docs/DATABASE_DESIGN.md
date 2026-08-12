@@ -352,6 +352,15 @@ MVP에서 `device.department_id`는 생성 후 불변이다. 다른 부서로 �
 
 `attendance_day.status`에는 `SCHEDULED`, `FINALIZED`, `CANCELED`만 저장한다. `OPEN`은 저장하지 않는다.
 
+`attendance_notification_outbox`는 마감 또는 시험 메시지 transaction과 함께 저장하고
+commit 뒤 전용 executor로 즉시 전달한다. 앱 시작 시와 각 batch 완료 뒤에는
+`PENDING`·`RETRY.next_attempt_at`과 `PROCESSING.lease_until`의 최솟값에 일회성 task
+하나만 예약하며, ready backlog는 현재 worker가 계속 처리한다. 빈 outbox에는 task나
+주기 polling을 남기지 않는다. `claim_version`은 만료 worker의 늦은 결과를 막고,
+outbox 작업은 최대 시도 횟수까지 at-least-once로 처리한다. 성공 발송 자체는 보장하지
+않으며 Telegram 성공과 `SENT` 저장 사이 중단 시 성공한 호출이 드물게 중복될 수 있다.
+로컬 commit 사건과 timer는 단일 인스턴스 전제이며 분산 wake-up은 아니다.
+
 `attendance_day.finalization_due_at`은 고정 정책의 마지막 포함 상한보다 정확히
 1µs 뒤다. 최초 실패와 다섯 번의 retry는 `finalization_failure_count` 0~6과
 `finalization_next_attempt_at`으로 구분한다. 1~5이면 다음 retry 시각이 필수이고

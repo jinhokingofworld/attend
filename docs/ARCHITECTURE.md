@@ -110,7 +110,7 @@ Attend MVP는 **단일 Spring Boot 애플리케이션으로 배포하는 모듈�
 | 보안 | Spring Security form login, 단일 filter chain |
 | 데이터 접근 | MyBatis interface + XML Mapper |
 | DB | PostgreSQL |
-| 스키마 변경 | Spring SQL 초기화 차단, Flyway V001~V016 명시 실행 |
+| 스키마 변경 | Spring SQL 초기화 차단, Flyway V001~V017 명시 실행 |
 | 펌웨어 | `RFID.ino`, MFRC522, WiFiNINA |
 | 테스트 | Spring context와 PostgreSQL 15 Testcontainers migration·제약 테스트 |
 
@@ -127,7 +127,7 @@ flowchart LR
     API --> S
     S --> M["MyBatis XML Mapper"]
     M --> LDB[("저장소 기준 레거시 PostgreSQL 스키마<br>4개 테이블")]
-    FLY["Flyway V001~V016<br>명시적 migration 실행"] --> TDB[("기존 member + 신규 목표 테이블")]
+    FLY["Flyway V001~V017<br>명시적 migration 실행"] --> TDB[("기존 member + 신규 목표 테이블")]
     LDB --- TDB
     NFC["Arduino 펌웨어"] -. "경로·본문·인증·응답 처리 불일치" .-> API
 ```
@@ -151,7 +151,7 @@ POST /api/attendance
 - 운영 classpath에서 파괴적 `schema.sql`, 샘플 `data.sql` 제거
 - `spring.sql.init.mode=never` 고정과 운영 프로필의 필수 DB 접속정보
 - 웹 runtime 기본 Flyway 비활성화와 테스트 프로필의 명시적 활성화
-- fresh·정확한 레거시 DB만 허용하는 Flyway V001~V016
+- fresh·정확한 레거시 DB만 허용하는 Flyway V001~V017
 - `member` 물리 삭제 API·Mapper와 `card_uid` 직접 수정 경로 제거
 - PostgreSQL 15에서 fresh, legacy, drift 거부, 부서 scope, 날짜–정책–구간–상태 복합 FK, 부분 unique, token·NULL 부정 제약 검증
 
@@ -771,7 +771,21 @@ AttendanceFinalizationScheduler
 
 Spring 내부 self-invocation으로 `@Transactional`이 무시되지 않도록 scheduler와 날짜별 finalization service를 별도 bean으로 둔다.
 
-스케줄러는 출석일 마감을 찾기 위한 고정 polling이나 자정 cron을 사용하지 않는다. 애플리케이션 시작 시와 출석일 생성·정책 교체 transaction commit 시 DB의 가장 이른 실행 시각을 동적으로 예약한다. 다중 인스턴스는 `claim_version`과 2분 lease로 같은 날짜를 선점하며, 늦은 worker의 실패 결과는 세대 조건으로 무시한다. 최초 마감 실패 뒤에는 DB에 실패 횟수와 다음 시각을 저장하고 1·2·4·8·16분 간격으로 다섯 번 재시도한다. 모두 실패하면 날짜는 `SCHEDULED`와 마감 지연 상태로 남고 자동 재시도 대상에서는 제외되며, 같은 transaction에서 `FINALIZATION_RETRY_EXHAUSTED` 운영 이벤트를 한 번만 생성한다. commit 직후 전용 executor가 출석 알림 Bot과 분리된 개발자 Telegram Bot으로 개인정보 없는 사고 메타데이터를 즉시 보낸다. 앱 시작 시와 각 전송 완료 뒤에는 운영 outbox의 다음 재시도 시각 또는 처리 중 lease 만료 시각 중 가장 이른 값에 일회성 task 하나만 예약하며, 처리할 행이 없으면 task와 DB polling을 남기지 않는다. 전송 실패는 DB lease와 claim version으로 fencing한다. Telegram `retry_after`가 있으면 그 값을 따르고, 그 밖의 오류는 최대 1시간 backoff로 재시도한다. 운영 알림의 로컬 wake-up은 단일 인스턴스 전제이며 다중 인스턴스 공유 신호가 필요하면 DB notification을 별도로 추가한다.
+스케줄러는 출석일 마감을 찾기 위한 고정 polling이나 자정 cron을 사용하지 않는다. 애플리케이션 시작 시와 출석일 생성·정책 교체 transaction commit 시 DB의 가장 이른 실행 시각을 동적으로 예약한다. 우발적으로 여러 worker가 실행돼도 `claim_version`과 2분 lease로 결과를 fencing하며, 늦은 worker의 실패 결과는 세대 조건으로 무시한다. 이 장치는 분산 wake-up을 제공하지 않으며 실제 wake-up은 단일 인스턴스 전제다. 최초 마감 실패 뒤에는 DB에 실패 횟수와 다음 시각을 저장하고 1·2·4·8·16분 간격으로 다섯 번 재시도한다. 모두 실패하면 날짜는 `SCHEDULED`와 마감 지연 상태로 남고 자동 재시도 대상에서는 제외되며, 같은 transaction에서 `FINALIZATION_RETRY_EXHAUSTED` 운영 이벤트를 한 번만 생성한다. commit 직후 전용 executor가 출석 알림 Bot과 분리된 개발자 Telegram Bot으로 개인정보 없는 사고 메타데이터를 즉시 보낸다. 앱 시작 시와 각 전송 완료 뒤에는 운영 outbox의 다음 재시도 시각 또는 처리 중 lease 만료 시각 중 가장 이른 값에 일회성 task 하나만 예약하며, 처리할 행이 없으면 task와 DB polling을 남기지 않는다. 전송 실패는 DB lease와 claim version으로 fencing한다. Telegram `retry_after`가 있으면 그 값을 따르고, 그 밖의 오류는 최대 1시간 backoff로 재시도한다. 운영 알림의 로컬 wake-up은 단일 인스턴스 전제이며 다중 인스턴스 공유 신호가 필요하면 DB notification을 별도로 추가한다.
+
+관리자에게 보내는 일반 출석 Telegram outbox도 30초 고정 polling을 사용하지 않는다.
+마감·시험 메시지 transaction commit 뒤 전용 executor가 즉시 처리하고, 시작 시와 각
+batch 완료 뒤 `PENDING`·`RETRY.next_attempt_at`과 `PROCESSING.lease_until`의 가장
+이른 시각에 일반 알림 전용 일회성 task 하나만 둔다. ready backlog는 현재 worker가
+계속 drain하므로 zero-delay timer race가 없고, 빈 outbox에는 timer나 DB 주기 조회가
+없다. 관리자 활성 상태·부서 권한·현재 Telegram 연결은 claim UPDATE에서 다시
+검증하며 결과 update는 claim version으로 fencing한다. 일반 알림과 운영 알림은 각각
+독립된 executor와 전용 TaskScheduler를 사용한다. 일반 알림 전용 scheduler가 1분
+인프라 복구 예약까지 거절한 경우에만 공용 scheduler에 해당 실패 cycle의 5분 단발
+fallback 하나를 예약하며, callback은 네트워크 호출 없이 전용 executor만 깨운다. 일반 알림의 commit
+사건과 timer는 단일 인스턴스 로컬 신호다. outbox 작업은 최대 시도 횟수까지
+at-least-once로 처리하지만 성공 발송은 보장하지 않으며, 성공한 호출은 `SENT` 저장 전
+중단 시 중복될 수 있다.
 
 ### 8.7 수동 등록·정정
 
@@ -839,8 +853,8 @@ PostgreSQL 기본 `READ COMMITTED`와 명시적 행 잠금·유일 제약을 사
 - 배포 전 별도 runner가 승인된 target version까지 migration
 - 웹 애플리케이션 DB 계정은 DDL 권한 없음
 - 애플리케이션 artifact에는 지원하는 최소·최대 schema version을 기록한다. MVP에서는 두 값을 같은 승인 target version으로 두고, runtime은 시작 시 `flyway_schema_history`에 대한 읽기 전용 검사로 일치 여부를 확인한다.
-- V016 release의 runtime 검사는 history 부재, `success = FALSE` 행, V001~V016 중 누락·중복·초과 version을 모두 실패로 판정한다.
-- version 문자열에 `MAX`를 사용하지 않고 Flyway `MigrationVersion`으로 해석한 적용 순서 전체를 artifact의 V001~V016 목록과 정확히 비교한다.
+- V017 release의 runtime 검사는 history 부재, `success = FALSE` 행, V001~V017 중 누락·중복·초과 version을 모두 실패로 판정한다.
+- version 문자열에 `MAX`를 사용하지 않고 Flyway `MigrationVersion`으로 해석한 적용 순서 전체를 artifact의 V001~V017 목록과 정확히 비교한다.
 - repeatable migration은 현재 version 계산에서 제외하고 checksum·누락 여부는 배포 runner의 `flyway validate`로 검증한다.
 - 위 조건이 맞지 않으면 readiness 경고만 내는 것이 아니라 쓰기 요청을 받을 수 없도록 기동을 실패한다.
 - Spring SQL init과 Flyway를 함께 사용하지 않음
@@ -911,6 +925,8 @@ MVP는 Spring Boot 애플리케이션 한 인스턴스를 기본으로 한다.
 
 - scheduler leader election을 추가하지 않는다.
 - DB 행 잠금과 멱등성은 유지해 재기동과 우발적인 중복 실행에도 안전하게 한다.
+- 자동 마감과 Telegram outbox의 JVM-local commit 사건·일회성 timer는 다른 실행 중
+  인스턴스를 깨우지 않는다. 다중 인스턴스 전에는 DB 기반 공유 wake-up을 추가한다.
 - 향후 여러 인스턴스로 늘리더라도 먼저 DB 기반 동시성 테스트를 통과해야 한다.
 - 현재 규모에서 Redis distributed lock은 필요하지 않다.
 
@@ -991,7 +1007,7 @@ Spring Boot Actuator를 도입하면 health endpoint를 외부에 무제한 공�
 | MVC test | form validation, 오류 화면, PRG 흐름 |
 | device contract test | 요청·응답 schema, HTTP 코드, 최초 응답 재현 |
 | concurrency test | 동일 교사 동시 태깅, 같은 request ID 재시도, 태깅과 마감 경합 |
-| migration test | 빈 DB V001~V016, baseline 0 레거시 fixture, 두 번 재현 |
+| migration test | 빈 DB V001~V017, baseline 0 레거시 fixture, 두 번 재현 |
 | firmware integration | 실제 UID, timeout, 전체 응답 읽기, LED·부저 결과 |
 | performance check | 운영망에서 1초 간격 50회 태깅, p95 2초·전체 5초 기준 |
 | end-to-end pilot | 실제 장치부터 통계·마감·정정까지 전체 흐름 |

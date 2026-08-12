@@ -182,7 +182,7 @@ MVP에서는 플랫폼 운영자와 부서 관리자만 웹 계정을 사용한�
 - 등록된 장치를 다른 부서로 재배정하는 기능
 - 3대 이상의 NFC 단말기 일괄 설정·모니터링
 - 네트워크 단절 중 단말기 로컬 저장과 자동 재전송
-- 이메일·문자·메신저 알림
+- 이메일·문자 알림과 Telegram 외 추가 메신저 채널
 - 흔한·유출 비밀번호 목록 기반의 비밀번호 차단
 - 월간 보고서 자동 생성
 
@@ -517,7 +517,7 @@ X-Device-Key: <device-secret>
 | NFR-14 | 관측성 | 서버 오류, DB 연결 실패, 장치 인증 실패 및 최근 장치 통신 상태를 운영자가 확인할 수 있어야 한다. |
 | NFR-15 | 사용성 | 성공, 지각, 중복, 미등록, 통신 실패를 텍스트와 장치 신호로 명확히 구분한다. |
 | NFR-16 | 배포 | 배포 전 백업, 배포 후 실제 태깅 확인과 문제 발생 시 이전 버전으로 복귀하는 절차를 문서화한다. |
-| NFR-17 | 자동 마감 | Spring 스케줄러는 마감 reconciliation polling 없이 DB의 가장 이른 마감·재시도 시각을 동적으로 예약하고, 재기동 시 미마감 작업을 복구한다. 최초 실패 뒤 1·2·4·8·16분 간격으로 다섯 번 재시도하며, 다중 인스턴스는 DB claim version과 lease를 공유한다. NFC 출석 저장과 날짜별 결석 생성·마감은 같은 출석 날짜 행 잠금과 유일 제약을 사용하며, 각 출석 날짜의 자동 마감은 서로 독립된 하나의 멱등 트랜잭션으로 처리한다. 재시도 소진 운영 알림은 같은 transaction의 DB outbox, commit 직후 전용 executor 즉시 시도, DB의 다음 `next_attempt_at`·`lease_until` 최솟값에 대한 단일 일회성 task와 delivery claim version·lease를 사용한다. 처리할 운영 알림이 없으면 주기 DB polling을 하지 않는다. Telegram 전달은 at-least-once이며 `retry_after` 또는 capped backoff로 재시도한다. 운영 알림 wake-up은 단일 인스턴스 전제이고 다중 인스턴스 공유 신호는 후속 범위다. |
+| NFR-17 | 자동 마감 | Spring 스케줄러는 마감 reconciliation polling 없이 DB의 가장 이른 마감·재시도 시각을 동적으로 예약하고, 재기동 시 미마감 작업을 복구한다. 최초 실패 뒤 1·2·4·8·16분 간격으로 다섯 번 재시도하며, 다중 worker 결과는 DB claim version과 lease로 fencing한다. NFC 출석 저장과 날짜별 결석 생성·마감은 같은 출석 날짜 행 잠금과 유일 제약을 사용하며, 각 출석 날짜의 자동 마감은 서로 독립된 하나의 멱등 트랜잭션으로 처리한다. 관리자 출석 결과와 재시도 소진 운영 알림은 각각 같은 transaction의 DB outbox, commit 직후 전용 executor 즉시 시도, DB의 다음 `next_attempt_at`·`lease_until` 최솟값에 대한 단일 일회성 task를 사용한다. 처리할 알림이 없으면 주기 DB polling을 하지 않는다. 일반 출석 알림 outbox는 설정된 최대 시도 횟수까지 at-least-once로 처리하고 이후 `DEAD`로 종료하며, 운영 사고 알림 outbox는 성공할 때까지 `RETRY`한다. 둘 다 `retry_after` 또는 capped backoff를 사용하고 성공한 호출은 상태 저장 전 중단 시 중복될 수 있다. 로컬 wake-up은 단일 인스턴스 전제이고 다중 인스턴스 공유 신호는 후속 범위다. |
 
 ---
 

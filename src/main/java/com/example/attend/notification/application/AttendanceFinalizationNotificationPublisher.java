@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
 /** 마감 트랜잭션 안에서 Telegram 발송 작업의 snapshot만 생성한다. */
@@ -20,14 +21,17 @@ public final class AttendanceFinalizationNotificationPublisher {
     private final TelegramProperties properties;
     private final AdminSecurityProperties adminProperties;
     private final TelegramNotificationMapper mapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     public AttendanceFinalizationNotificationPublisher(
             TelegramProperties properties,
             AdminSecurityProperties adminProperties,
-            TelegramNotificationMapper mapper) {
+            TelegramNotificationMapper mapper,
+            ApplicationEventPublisher eventPublisher) {
         this.properties = properties;
         this.adminProperties = adminProperties;
         this.mapper = mapper;
+        this.eventPublisher = eventPublisher;
     }
 
     /** 연결된 활성 부서 관리자별로 하나의 멱등 outbox 작업을 만든다. */
@@ -40,10 +44,15 @@ public final class AttendanceFinalizationNotificationPublisher {
             throw new IllegalStateException("finalized attendance day was not found");
         }
         String message = format(data, mapper.selectFinalizationMembers(attendanceDayId));
+        int insertedCount = 0;
         for (long accountId : mapper.selectConnectedActiveDepartmentAdminAccountIds(
                 data.departmentId())) {
-            mapper.insertFinalizationOutbox(
+            insertedCount += mapper.insertFinalizationOutbox(
                     attendanceDayId, data.departmentId(), accountId, message);
+        }
+        if (insertedCount > 0) {
+            eventPublisher.publishEvent(
+                    new AttendanceTelegramOutboxChanged(insertedCount));
         }
     }
 

@@ -46,7 +46,9 @@
 
 Telegram `sendMessage`에는 호출자용 idempotency key가 없다. 전송 성공 뒤 응답을
 저장하기 전에 프로세스가 중단되면 드물게 같은 메시지가 다시 전송될 수 있다.
-따라서 이 설계의 보장은 **최소 한 번 발송, 드문 중복 가능**이다.
+따라서 이 설계는 outbox 작업을 **최소 한 번 처리 시도**하지만, 최대 시도 횟수에
+도달하면 `DEAD`로 종료하므로 Telegram 성공 발송 자체를 보장하지는 않는다. 성공한
+호출은 `SENT` 저장 전 중단 시 드물게 중복될 수 있다.
 
 ## 3. 마감 규칙 변경
 
@@ -85,9 +87,9 @@ status = SCHEDULED AND finalization_due_at <= now
 
 기존 `FinalizeAttendanceDayService`의 잠금 순서와 멱등성은 유지한다.
 
-V014는 claim version과 lease를 DB에 저장하고 최초 실패 뒤 1·2·4·8·16분에
-다섯 번 재시도한다. 이전 lease의 늦은 실패 update는 현재 claim version과 달라
-반영되지 않는다.
+V014는 claim version과 lease를 DB에 저장하고 출석일 마감 트랜잭션 자체의 최초
+실패 뒤 1·2·4·8·16분에 다섯 번 재시도한다. 이는 Telegram 전송 backoff와 별개다.
+이전 lease의 늦은 실패 update는 현재 claim version과 달라 반영되지 않는다.
 
 ```text
 department 잠금 → attendance_day 잠금 → 누락 대상 결석 생성
@@ -279,9 +281,20 @@ Telegram webhook은 HTTPS endpoint와 secret token header를 지원한다.
 
 ### 7.1 작업 claim
 
-worker는 `PENDING` 또는 재시도 시각이 지난 `RETRY` 작업을 batch로 고른다.
-`FOR UPDATE SKIP LOCKED`와 `lease_until`을 사용해 향후 다중 인스턴스가 되어도 같은
-작업을 동시에 보내지 않는다. DB 잠금은 HTTP 호출 전에 해제한다.
+마감 알림 또는 시험 메시지 outbox가 저장된 transaction이 commit되면 로컬
+`AFTER_COMMIT` 사건이 전용 executor를 즉시 깨운다. worker는 상태가 `PENDING` 또는
+`RETRY`이면서 `next_attempt_at <= now`인 ID만 batch로 고른 뒤 각 행을 조건부
+UPDATE로 claim한다.
+`claim_version`과 `lease_until`은 우발적으로 여러 worker가 깨어나도 같은 결과를
+덮지 못하게 하며, DB 잠금은 HTTP 호출 전에 해제한다.
+
+앱 시작 시에는 만료된 `PROCESSING` lease와 ready 행을 복구한다. 각 batch 완료 뒤
+`PENDING`·`RETRY.next_attempt_at`과 `PROCESSING.lease_until`의 전역 최솟값을 DB에서
+읽어 그 정확한 시각에 일회성 task 하나만 예약한다. 이미 실행 시각이 지난 작업은
+zero-delay timer를 만들지 않고 현재 worker가 계속 drain한다. 행이 없으면 timer와
+주기 DB polling을 모두 남기지 않는다. executor·DB·timer 인프라 오류에만 1분 뒤
+일회성 복구 task를 둔다. 전용 TaskScheduler가 이 복구 예약까지 거절하면 공용
+TaskScheduler에 해당 실패 cycle의 5분 뒤 시각으로 단발 fallback 하나만 예약한다.
 
 ### 7.2 발송 전 재검증
 
@@ -300,16 +313,24 @@ outbox가 생성된 뒤에도 다음을 다시 확인한다.
 | --- | --- |
 | Telegram 2xx | `SENT`, `message_id`, `sent_at` 저장 |
 | HTTP 429 | `retry_after`에 맞춰 `RETRY` |
-| timeout·네트워크 오류·5xx | 지수 backoff와 jitter로 `RETRY` |
+| timeout·네트워크 오류·5xx | 30초부터 최대 1시간 지수 backoff로 `RETRY` |
 | 차단·유효하지 않은 chat 같은 영구 4xx | 연결 삭제, `DEAD` |
-| 재시도 최대 횟수 초과 | `DEAD`와 운영 경고 |
+| 최대 시도 횟수 도달 | `DEAD` |
 
 Telegram API는 실패 응답에 `retry_after`를 포함할 수 있다.
 [Telegram Bot API](https://core.telegram.org/bots/api)
 
 Telegram 네트워크 오류는 출석일 `FINALIZED` 상태나 결석 기록을 롤백하지 않는다.
 다만 outbox를 같은 트랜잭션에서 생성하므로 DB 수준에서 이벤트 누락 없이 다시
-시도할 수 있다.
+시도할 수 있다. 429는 Telegram의 `retry_after`를 그대로 따르고, 그 밖의 재시도는
+저장된 `next_attempt_at`의 정확한 시각에 일회성으로 예약한다.
+
+이 wake-up은 단일 애플리케이션 인스턴스와 애플리케이션 경로를 통한 outbox 쓰기를
+전제로 한다. 다른 인스턴스나 직접 SQL이 만든 행을 실행 중인 JVM에 전달하는 공유
+신호는 아니다. 다중 인스턴스로 전환할 때는 PostgreSQL notification 같은 분산
+wake-up을 추가해야 한다. Telegram 성공 뒤 `SENT` 저장 전에 중단되면 재전송될 수
+있다. 즉 outbox 작업은 at-least-once로 처리 시도하지만 성공 발송은 보장하지 않고,
+성공한 Telegram 호출은 드물게 중복될 수 있다.
 
 ## 8. 관리자 Telegram 연동 프론트엔드 계획
 
@@ -463,13 +484,16 @@ success/error message로 전달한다. 오류 메시지에는 Telegram 원문 �
 notification/
   application/AttendanceFinalizationNotificationPublisher
   application/TelegramConnectionService
-  application/TelegramNotificationDispatcher
-  domain/NotificationStatus
-  domain/AttendanceNotificationPayload
-  infrastructure/mybatis/AttendanceNotificationMapper
+  application/AttendanceTelegramOutboxChanged
+  domain/FinalizationNotificationData
+  domain/FinalizationNotificationMember
+  domain/TelegramDispatchJob
+  infrastructure/mybatis/TelegramNotificationMapper
   infrastructure/telegram/TelegramBotClient
   web/TelegramWebhookController
-  scheduler/TelegramNotificationScheduler
+  scheduler/TelegramNotificationDispatcher
+  scheduler/TelegramNotificationTrigger
+  config/AttendanceTelegramDeliveryConfiguration
 ```
 
 `FinalizeAttendanceDayService`는 마감과 같은 트랜잭션에서
@@ -486,7 +510,6 @@ attendance.telegram.bot-token=${TELEGRAM_BOT_TOKEN:}
 attendance.telegram.bot-username=${TELEGRAM_BOT_USERNAME:}
 attendance.telegram.webhook-secret=${TELEGRAM_WEBHOOK_SECRET:}
 attendance.telegram.link-token-pepper=${TELEGRAM_LINK_TOKEN_PEPPER:}
-attendance.telegram.dispatch-fixed-delay-ms=30000
 attendance.telegram.max-attempts=10
 attendance.telegram.max-listed-members=30
 ```
@@ -557,7 +580,13 @@ bot token, webhook secret, chat ID, 메시지 원문은 화면과 운영 로그�
 - webhook secret 오류와 private chat이 아닌 요청을 거부한다.
 - 연결 token 만료·재사용·중복 webhook을 안전하게 처리한다.
 - 200, 429, 영구 4xx, 5xx, timeout에 따른 상태·재시도 시각이 정확하다.
-- 권한 회수·계정 비활성화·연결 해제 뒤에는 발송하지 않는다.
+- 시작·commit 직후 처리와 DB의 정확한 다음 시각 단발 예약을 검증하고, 빈 outbox에는
+  timer와 polling이 남지 않는다.
+- executor·DB 조회·TaskScheduler 실패와 worker 비정상 종료는 1분 일회성 복구로
+  다시 시도하고, 전용 scheduler가 그 예약을 거절하면 공용 scheduler의 5분 시각으로
+  해당 실패 cycle에 한 번만 fallback한다.
+- 일반·운영 Telegram과 공용 scheduler가 서로 다른 thread와 bean을 사용한다.
+- claim 시점 전에 권한 회수·계정 비활성화·연결 해제가 완료되면 발송하지 않는다.
 - Telegram 장애 중에도 출석일 마감은 완료된다.
 - 운영 설정이 비활성화되면 Telegram worker·webhook 연결 기능이 동작하지 않는다.
 

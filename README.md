@@ -420,13 +420,13 @@ docs                             # 프로젝트 기준 문서
 - DB URL, 사용자명과 비밀번호를 분리하고 secret source에서 주입합니다.
 - 최초 migration은 읽기 전용 `dbPreflight`가 `FRESH`로 판정한 빈 Neon DB에만 적용합니다.
 - migration 계정과 애플리케이션 runtime 계정의 권한을 분리합니다.
-- 현재 자동 마감 scheduler는 **단일 애플리케이션 인스턴스** 운영만 지원합니다. DB claim과
-  lease는 중복 처리를 막지만, 여러 인스턴스 사이에서 새 due를 깨우는 분산 알림은 제공하지
-  않습니다. 다중 인스턴스 전환 전에는 DB notification/outbox 또는 주기적 reconciliation을
-  추가해야 합니다.
+- 현재 자동 마감 scheduler와 두 Telegram outbox의 동적 wake-up은 **단일 애플리케이션
+  인스턴스** 운영만 지원합니다. DB claim과 lease는 중복 처리를 막지만, 여러 인스턴스
+  사이에서 새 due·outbox를 깨우는 분산 알림은 제공하지 않습니다. 다중 인스턴스 전환
+  전에는 DB notification 같은 공유 wake-up을 추가해야 합니다.
 - 운영 중 `attendance_day`를 포함한 업무 DB 쓰기는 애플리케이션 경로로만 수행합니다.
-  애플리케이션 기동 뒤 직접 SQL, 외부 importer나 별도 writer가 행을 추가·수정하는 운영은
-  지원하지 않습니다.
+  애플리케이션 기동 뒤 직접 SQL, 외부 importer나 별도 writer가 출석일 또는 Telegram
+  outbox를 추가·수정하는 운영은 로컬 wake-up을 만들지 않으므로 지원하지 않습니다.
 - V014~V015 migration은 maintenance window에서 애플리케이션을 중지하고 기존 DB 연결을
   종료한 뒤 실행합니다. V014 transaction 동안 `attendance_day` 접근이 차단될 수 있으며,
   이 release는 migration과 동시에 읽기·쓰기를 계속하는 online 배포를 지원하지 않습니다.
