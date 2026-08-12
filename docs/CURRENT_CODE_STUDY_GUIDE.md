@@ -29,7 +29,7 @@ DB부터 시작하되, DB만 읽고 끝내면 안 된다. 부서 권한 재검�
 flowchart TD
     S0["0. 현재/레거시 경계 확정<br/>SecurityConfig · feature flags"]
     S1["1. 실행 구조 파악<br/>build.gradle · application.properties"]
-    S2["2. DB 스키마 파악<br/>Flyway V001~V016"]
+    S2["2. DB 스키마 파악<br/>Flyway V001~V017"]
     S3["3. 인증·권한 파악<br/>access + Security filter chain"]
     S4["4. 조직·카드 파악<br/>member · membership · card assignment"]
     S5["5. 정책·출석일 파악<br/>policy · day · target · record"]
@@ -741,6 +741,7 @@ flowchart TD
 sequenceDiagram
     participant Scheduler as AttendanceFinalizationScheduler
     participant Service as FinalizeAttendanceDayService
+    participant Telegram as TelegramNotificationTrigger
     participant DB as PostgreSQL
 
     Scheduler->>DB: 가장 이른 due·retry·lease 시각에 단일 task 예약
@@ -753,6 +754,9 @@ sequenceDiagram
         Service->>DB: idempotent system audit INSERT
         Service->>DB: Telegram notification outbox INSERT
     end
+    DB-->>Telegram: transaction commit 뒤 로컬 사건
+    Telegram->>DB: ready batch 전달 후 next_attempt_at·lease_until 최솟값 조회
+    Telegram->>Telegram: 정확한 시각에 전용 one-shot task 예약
     opt 실패
         Scheduler->>DB: 1·2·4·8·16분 retry 상태 저장
     end
@@ -789,7 +793,7 @@ flowchart TD
     Reject["REJECTED<br/>중단"]
     Approval["MIGRATION_SOURCE_CLASS와 대조"]
     Baseline["legacy만 baseline 0"]
-    Migrate["Flyway V001~V016"]
+    Migrate["Flyway V001~V017"]
     Validate["Flyway validate + exact version guard"]
     Grants["runtime 최소 권한 적용"]
     Start["prod app 시작<br/>Flyway auto-migrate=false"]

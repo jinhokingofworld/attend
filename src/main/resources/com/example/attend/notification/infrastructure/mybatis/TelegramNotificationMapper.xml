@@ -125,6 +125,13 @@
 
     <delete id="deleteConnection">DELETE FROM public.account_telegram_connection WHERE account_id = #{accountId}</delete>
 
+    <delete id="deleteConnectionIfUnchanged">
+        DELETE FROM public.account_telegram_connection
+        WHERE account_id = #{accountId}
+          AND chat_id = #{chatId}
+          AND updated_at = #{connectionUpdatedAt}
+    </delete>
+
     <update id="cancelPendingAccountOutbox">
         UPDATE public.attendance_notification_outbox
         SET status = 'CANCELED', updated_at = #{updatedAt}, lease_until = NULL
@@ -150,6 +157,46 @@
           AND outbox.next_attempt_at &lt;= #{now}
         ORDER BY outbox.next_attempt_at, outbox.id
         LIMIT #{limit}
+    </select>
+
+    <!-- Each normal-state branch can use its matching partial B-tree before
+         candidate timestamps are compared. The final branch repairs the
+         V012-valid but malformed PROCESSING-without-lease edge. -->
+    <select id="selectNextDispatchActionAt" resultType="java.time.Instant">
+        SELECT min(candidate.action_at)
+        FROM (
+            (
+                SELECT next_attempt_at AS action_at
+                FROM public.attendance_notification_outbox
+                WHERE status = 'PENDING'
+                ORDER BY next_attempt_at, id
+                LIMIT 1
+            )
+            UNION ALL
+            (
+                SELECT next_attempt_at AS action_at
+                FROM public.attendance_notification_outbox
+                WHERE status = 'RETRY'
+                ORDER BY next_attempt_at, id
+                LIMIT 1
+            )
+            UNION ALL
+            (
+                SELECT lease_until AS action_at
+                FROM public.attendance_notification_outbox
+                WHERE status = 'PROCESSING' AND lease_until IS NOT NULL
+                ORDER BY lease_until, id
+                LIMIT 1
+            )
+            UNION ALL
+            (
+                SELECT next_attempt_at AS action_at
+                FROM public.attendance_notification_outbox
+                WHERE status = 'PROCESSING' AND lease_until IS NULL
+                ORDER BY next_attempt_at, id
+                LIMIT 1
+            )
+        ) AS candidate
     </select>
 
     <!-- The UPDATE itself rechecks the account, role, and current chat. A row
@@ -179,6 +226,7 @@
                 AND role_assignment.role = 'DEPARTMENT_ADMIN'
                 AND role_assignment.revoked_at IS NULL))
         RETURNING outbox.id, outbox.account_id, connection.chat_id,
+                  connection.updated_at AS connection_updated_at,
                   outbox.message_text, outbox.attempt_count, outbox.claim_version
     </select>
 
@@ -226,6 +274,7 @@
         UPDATE public.attendance_notification_outbox
         SET status = 'RETRY', lease_until = NULL, next_attempt_at = #{now},
             last_error_code = 'TELEGRAM_LEASE_EXPIRED', updated_at = #{now}
-        WHERE status = 'PROCESSING' AND lease_until &lt; #{now}
+        WHERE status = 'PROCESSING'
+          AND (lease_until IS NULL OR lease_until &lt;= #{now})
     </update>
 </mapper>

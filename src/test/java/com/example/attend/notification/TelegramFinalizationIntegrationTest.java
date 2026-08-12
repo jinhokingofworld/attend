@@ -1,13 +1,18 @@
 package com.example.attend.notification;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.verify;
 
 import com.example.attend.attendance.application.FinalizeAttendanceDayService;
 import com.example.attend.notification.application.TelegramConnectionService;
 import com.example.attend.notification.domain.TelegramDispatchJob;
 import com.example.attend.notification.infrastructure.mybatis.TelegramNotificationMapper;
+import com.example.attend.notification.scheduler.TelegramNotificationDispatcher;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +20,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -47,8 +53,12 @@ class TelegramFinalizationIntegrationTest {
     @Autowired
     private TelegramNotificationMapper notificationMapper;
 
+    @MockitoBean
+    private TelegramNotificationDispatcher telegramNotificationDispatcher;
+
     @BeforeEach
     void clear() {
+        reset(telegramNotificationDispatcher);
         jdbcTemplate.update("DELETE FROM public.attendance_notification_outbox");
         jdbcTemplate.update("DELETE FROM public.account_telegram_connection");
         jdbcTemplate.update("DELETE FROM public.telegram_link_token");
@@ -80,6 +90,19 @@ class TelegramFinalizationIntegrationTest {
                 INSERT INTO public.account_telegram_connection(account_id, chat_id, telegram_user_id)
                 VALUES (?, 123456789, 987654321)
                 """, accountId);
+        long secondAccountId = insert("""
+                INSERT INTO public.account(username, password_hash, status, password_changed_at)
+                VALUES ('telegram-admin-2', 'test-password-hash', 'ACTIVE', CURRENT_TIMESTAMP)
+                RETURNING id
+                """);
+        jdbcTemplate.update("""
+                INSERT INTO public.account_department_role(account_id, department_id, role)
+                VALUES (?, ?, 'DEPARTMENT_ADMIN')
+                """, secondAccountId, departmentId);
+        jdbcTemplate.update("""
+                INSERT INTO public.account_telegram_connection(account_id, chat_id, telegram_user_id)
+                VALUES (?, 123456790, 987654322)
+                """, secondAccountId);
         long policyId = insert("""
                 INSERT INTO public.attendance_policy_version(
                     department_id, version_no, name, check_in_start_time, status,
@@ -107,6 +130,12 @@ class TelegramFinalizationIntegrationTest {
                 """, String.class, dayId, accountId);
         assertThat(message).contains("출석 마감 완료", "부서: 유치부", "지각\n• 없음", "결석\n• 없음");
         assertThat(message).doesNotContain("123456789", "987654321", "test-password-hash");
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT count(*) FROM public.attendance_notification_outbox
+                WHERE attendance_day_id = ?
+                """, Integer.class, dayId)).isEqualTo(2);
+        verify(telegramNotificationDispatcher, timeout(2_000))
+                .recoverAndDispatchReady();
     }
 
     @Test
@@ -124,6 +153,8 @@ class TelegramFinalizationIntegrationTest {
         assertThat(connectionService.view(accountId).state()).isEqualTo("LINKED");
 
         connectionService.requestTestMessage(accountId);
+        verify(telegramNotificationDispatcher, timeout(2_000))
+                .recoverAndDispatchReady();
         assertThat(jdbcTemplate.queryForObject("""
                 SELECT count(*) FROM public.attendance_notification_outbox
                 WHERE account_id = ? AND notification_type = 'TELEGRAM_CONNECTION_TEST'
@@ -184,6 +215,103 @@ class TelegramFinalizationIntegrationTest {
         assertThat(notificationMapper.claimDispatchJob(
                 outboxId, Instant.parse("2026-08-01T00:00:00Z"),
                 Instant.parse("2026-08-01T00:02:00Z"))).isNull();
+    }
+
+    @Test
+    void selectsTheGlobalNextRetryOrLeaseAndRecoversAtTheInclusiveBoundary() {
+        long accountId = insertActiveConnectedAccount("telegram-next-action-admin");
+        Instant pendingAt = Instant.parse("2026-08-12T01:30:00Z");
+        Instant retryAt = Instant.parse("2026-08-12T01:20:00Z");
+        Instant leaseAt = Instant.parse("2026-08-12T01:10:00Z");
+        jdbcTemplate.update("""
+                INSERT INTO public.attendance_notification_outbox(
+                    notification_type, account_id, message_text, status,
+                    attempt_count, claim_version, next_attempt_at, lease_until,
+                    telegram_message_id, sent_at)
+                VALUES
+                    ('TELEGRAM_CONNECTION_TEST', ?, 'pending', 'PENDING',
+                     0, 0, ?, NULL, NULL, NULL),
+                    ('TELEGRAM_CONNECTION_TEST', ?, 'retry', 'RETRY',
+                     1, 1, ?, NULL, NULL, NULL),
+                    ('TELEGRAM_CONNECTION_TEST', ?, 'processing', 'PROCESSING',
+                     1, 3, ?, ?, NULL, NULL),
+                    ('TELEGRAM_CONNECTION_TEST', ?, 'sent', 'SENT',
+                     1, 1, ?, NULL, 901, ?)
+                """,
+                accountId, pendingAt.atOffset(ZoneOffset.UTC),
+                accountId, retryAt.atOffset(ZoneOffset.UTC),
+                accountId, OffsetDateTime.parse("2026-08-12T01:00:00Z"),
+                leaseAt.atOffset(ZoneOffset.UTC),
+                accountId, OffsetDateTime.parse("2026-08-12T01:01:00Z"),
+                OffsetDateTime.parse("2026-08-12T01:01:00Z"));
+
+        assertThat(notificationMapper.selectNextDispatchActionAt()).isEqualTo(leaseAt);
+        assertThat(notificationMapper.recoverExpiredDispatchLeases(leaseAt)).isEqualTo(1);
+        assertThat(notificationMapper.selectNextDispatchActionAt()).isEqualTo(leaseAt);
+        assertThat(notificationMapper.selectReadyDispatchJobIds(leaseAt, 20)).hasSize(1);
+    }
+
+    @Test
+    void anOldPermanentResultCannotDeleteAConnectionThatWasRelinked() {
+        long accountId = insertActiveConnectedAccount("telegram-relinked-admin");
+        notificationMapper.insertTestOutbox(accountId, "relink fencing");
+        long outboxId = insert("""
+                SELECT id FROM public.attendance_notification_outbox
+                WHERE account_id = ?
+                """, accountId);
+        Instant claimedAt = Instant.parse("2030-08-12T01:00:00Z");
+        TelegramDispatchJob job = notificationMapper.claimDispatchJob(
+                outboxId, claimedAt, claimedAt.plusSeconds(120));
+        assertThat(job).isNotNull();
+        Instant relinkedAt = job.connectionUpdatedAt().plusSeconds(1);
+        jdbcTemplate.update("""
+                UPDATE public.account_telegram_connection
+                SET updated_at = ?
+                WHERE account_id = ?
+                """, relinkedAt.atOffset(ZoneOffset.UTC), accountId);
+
+        assertThat(notificationMapper.deleteConnectionIfUnchanged(
+                job.accountId(), job.chatId(), job.connectionUpdatedAt())).isZero();
+        assertThat(notificationMapper.selectConnection(accountId)).isNotNull();
+    }
+
+    @Test
+    void aPermanentResultCanDeleteTheExactConnectionItClaimed() {
+        long accountId = insertActiveConnectedAccount("telegram-unchanged-admin");
+        notificationMapper.insertTestOutbox(accountId, "unchanged connection");
+        long outboxId = insert("""
+                SELECT id FROM public.attendance_notification_outbox
+                WHERE account_id = ?
+                """, accountId);
+        Instant claimedAt = Instant.parse("2030-08-12T01:00:00Z");
+        TelegramDispatchJob job = notificationMapper.claimDispatchJob(
+                outboxId, claimedAt, claimedAt.plusSeconds(120));
+        assertThat(job).isNotNull();
+
+        assertThat(notificationMapper.deleteConnectionIfUnchanged(
+                job.accountId(), job.chatId(), job.connectionUpdatedAt())).isEqualTo(1);
+        assertThat(notificationMapper.selectConnection(accountId)).isNull();
+    }
+
+    @Test
+    void startupRecoveryAlsoRepairsALegacyProcessingRowWithoutALease() {
+        long accountId = insertActiveConnectedAccount("telegram-null-lease-admin");
+        notificationMapper.insertTestOutbox(accountId, "legacy null lease");
+        Instant originalAttemptAt = Instant.parse("2030-08-12T01:00:00Z");
+        jdbcTemplate.update("""
+                UPDATE public.attendance_notification_outbox
+                SET status = 'PROCESSING', attempt_count = 1, claim_version = 1,
+                    next_attempt_at = ?, lease_until = NULL
+                WHERE account_id = ?
+                """, originalAttemptAt.atOffset(ZoneOffset.UTC), accountId);
+
+        assertThat(notificationMapper.selectNextDispatchActionAt())
+                .isEqualTo(originalAttemptAt);
+        Instant recoveredAt = Instant.parse("2026-08-12T01:00:00Z");
+        assertThat(notificationMapper.recoverExpiredDispatchLeases(recoveredAt))
+                .isEqualTo(1);
+        assertThat(notificationMapper.selectNextDispatchActionAt())
+                .isEqualTo(recoveredAt);
     }
 
     private long insertActiveConnectedAccount(String username) {

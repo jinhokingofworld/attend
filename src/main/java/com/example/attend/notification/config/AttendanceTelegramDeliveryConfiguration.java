@@ -1,4 +1,4 @@
-package com.example.attend.operations.config;
+package com.example.attend.notification.config;
 
 import java.util.concurrent.ThreadPoolExecutor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -7,39 +7,31 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
-/** 운영 Telegram의 네트워크 작업과 일회성 wake-up을 공용 scheduler에서 격리한다. */
+/** 일반 출석 Telegram의 네트워크 작업과 단발 wake-up을 각각 격리한다. */
 @Configuration(proxyBeanMethods = false)
-@ConditionalOnProperty(
-        name = "attendance.operations.telegram.enabled", havingValue = "true")
-public class FinalizationOperationalAlertConfiguration {
+@ConditionalOnProperty(name = "attendance.telegram.enabled", havingValue = "true")
+public class AttendanceTelegramDeliveryConfiguration {
 
-    @Bean(name = "finalizationOperationalAlertExecutor")
-    ThreadPoolTaskExecutor finalizationOperationalAlertExecutor() {
+    @Bean(name = "attendanceTelegramExecutor")
+    ThreadPoolTaskExecutor attendanceTelegramExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(1);
         executor.setMaxPoolSize(1);
         executor.setQueueCapacity(100);
-        executor.setThreadNamePrefix("finalization-operational-alert-");
+        executor.setThreadNamePrefix("attendance-telegram-delivery-");
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
-        executor.setWaitForTasksToCompleteOnShutdown(true);
-        executor.setAwaitTerminationSeconds(25);
+        // 진행 중 전송은 DB lease가 재기동 뒤 복구하므로 종료를 오래 막지 않는다.
+        executor.setWaitForTasksToCompleteOnShutdown(false);
+        executor.setAwaitTerminationSeconds(5);
         return executor;
     }
 
-    /**
-     * 운영 알림 wake-up 전용 scheduler다.
-     *
-     * <p>{@code defaultCandidate=false}는 Spring Boot의 공용 {@code taskScheduler}
-     * 자동설정을 유지한다. 일반 출석 Telegram도 별도 scheduler를 사용하므로 어느
-     * 네트워크 worker도 이 scheduler의 정확한 wake-up을 지연시킬 수 없다.</p>
-     */
-    @Bean(
-            name = "finalizationOperationalAlertTaskScheduler",
-            defaultCandidate = false)
-    ThreadPoolTaskScheduler finalizationOperationalAlertTaskScheduler() {
+    /** 공용 scheduler와 개발자 운영 알림 scheduler를 대체하지 않는 전용 timer다. */
+    @Bean(name = "attendanceTelegramTaskScheduler", defaultCandidate = false)
+    ThreadPoolTaskScheduler attendanceTelegramTaskScheduler() {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
         scheduler.setPoolSize(1);
-        scheduler.setThreadNamePrefix("finalization-operational-alert-wake-");
+        scheduler.setThreadNamePrefix("attendance-telegram-wake-");
         scheduler.setRemoveOnCancelPolicy(true);
         scheduler.setContinueExistingPeriodicTasksAfterShutdownPolicy(false);
         scheduler.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);

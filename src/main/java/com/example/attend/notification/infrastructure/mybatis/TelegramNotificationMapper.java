@@ -53,6 +53,11 @@ public interface TelegramNotificationMapper {
 
     int deleteConnection(@Param("accountId") long accountId);
 
+    int deleteConnectionIfUnchanged(
+            @Param("accountId") long accountId,
+            @Param("chatId") long chatId,
+            @Param("connectionUpdatedAt") Instant connectionUpdatedAt);
+
     int cancelPendingAccountOutbox(@Param("accountId") long accountId, @Param("updatedAt") Instant updatedAt);
 
     int insertTestOutbox(@Param("accountId") long accountId, @Param("messageText") String messageText);
@@ -62,6 +67,8 @@ public interface TelegramNotificationMapper {
     List<Long> selectReadyDispatchJobIds(
             @Param("now") Instant now,
             @Param("limit") int limit);
+
+    Instant selectNextDispatchActionAt();
 
     TelegramDispatchJob claimDispatchJob(
             @Param("id") long id,

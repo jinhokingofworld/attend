@@ -19,6 +19,7 @@ import java.util.Map;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,6 +31,7 @@ public class TelegramConnectionService {
     private final AdminWriteGate writeGate;
     private final TelegramNotificationMapper mapper;
     private final AuditLogWriter auditLogWriter;
+    private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -38,11 +40,13 @@ public class TelegramConnectionService {
             AdminWriteGate writeGate,
             TelegramNotificationMapper mapper,
             AuditLogWriter auditLogWriter,
+            ApplicationEventPublisher eventPublisher,
             Clock clock) {
         this.properties = properties;
         this.writeGate = writeGate;
         this.mapper = mapper;
         this.auditLogWriter = auditLogWriter;
+        this.eventPublisher = eventPublisher;
         this.clock = clock;
     }
 
@@ -81,7 +85,10 @@ public class TelegramConnectionService {
         Instant now = clock.instant();
         mapper.deleteConnection(accountId);
         mapper.revokeActiveLinkTokens(accountId, now);
-        mapper.cancelPendingAccountOutbox(accountId, now);
+        int canceled = mapper.cancelPendingAccountOutbox(accountId, now);
+        if (canceled > 0) {
+            eventPublisher.publishEvent(new AttendanceTelegramOutboxChanged(canceled));
+        }
         auditLogWriter.writeAccount(null, new AccountActor(accountId), null,
                 "TELEGRAM_DISCONNECTED", "ACCOUNT", Long.toString(accountId),
                 Map.of("telegramConnected", true), Map.of("telegramConnected", false), null);
@@ -93,8 +100,12 @@ public class TelegramConnectionService {
         if (mapper.selectConnection(accountId) == null) {
             throw new IllegalStateException("Telegram is not connected");
         }
-        mapper.insertTestOutbox(accountId,
+        int inserted = mapper.insertTestOutbox(accountId,
                 "[시험] 출석 알림 Telegram 연결이 정상입니다.\n실제 출석 정보는 포함되지 않습니다.");
+        if (inserted != 1) {
+            throw new IllegalStateException("Could not persist Telegram test notification");
+        }
+        eventPublisher.publishEvent(new AttendanceTelegramOutboxChanged(1));
     }
 
     /** Telegram webhook에서 검증된 개인 채팅의 /start token을 소비한다. */

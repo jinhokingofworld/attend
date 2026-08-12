@@ -1,4 +1,4 @@
--- Post-migration grants for the V016 schema. Run as migration_owner or an
+-- Post-migration grants for the V017 schema. Run as migration_owner or an
 -- equivalent owner after guarded dbMigrate succeeds.
 --
 -- This script is intentionally explicit. A future migration that adds a table,
@@ -43,18 +43,25 @@ BEGIN
 
     IF missing_tables IS NOT NULL THEN
         RAISE EXCEPTION
-            'Runtime grants require the complete V016 schema; missing: %',
+            'Runtime grants require the complete V017 schema; missing: %',
             missing_tables;
     END IF;
 
     IF NOT EXISTS (
         SELECT 1
         FROM public.flyway_schema_history
-        WHERE version = '016'
+        WHERE version = '017'
           AND success
     ) THEN
         RAISE EXCEPTION
-            'Runtime grants require successful Flyway migration V016';
+            'Runtime grants require successful Flyway migration V017';
+    END IF;
+
+    IF pg_catalog.to_regclass(
+            'public.idx_notification_outbox_lease'
+       ) IS NULL THEN
+        RAISE EXCEPTION
+            'Runtime grants require the V017 notification lease index';
     END IF;
 
     IF pg_catalog.to_regprocedure(

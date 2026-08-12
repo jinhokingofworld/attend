@@ -2,6 +2,8 @@ package com.example.attend.database;
 
 import com.example.attend.operations.domain.FinalizationOperationalAlertJob;
 import com.example.attend.operations.infrastructure.mybatis.FinalizationOperationalEventMapper;
+import com.example.attend.notification.domain.TelegramDispatchJob;
+import com.example.attend.notification.infrastructure.mybatis.TelegramNotificationMapper;
 import com.example.attend.retention.RetentionDatabasePrivilegeGuard;
 import org.apache.ibatis.session.SqlSession;
 import org.apache.ibatis.session.SqlSessionFactory;
@@ -42,7 +44,7 @@ import static com.example.attend.database.DatabasePreflightInspector.PreflightSt
 import static com.example.attend.database.DatabasePreflightInspector.PreflightStatus.REJECTED;
 
 /**
- * 실제 PostgreSQL 15에서 V001~V016 migration의 안전성과 핵심 제약조건을 검증한다.
+ * 실제 PostgreSQL 15에서 V001~V017 migration의 안전성과 핵심 제약조건을 검증한다.
  *
  * <p>H2 같은 대체 DB로는 PostgreSQL catalog, partial unique index, 복합 외래 키,
  * SQLSTATE가 실제 운영 DB와 같다고 보장할 수 없다. 따라서 Testcontainers로
@@ -68,7 +70,7 @@ class FlywayMigrationTest {
             new PostgreSQLContainer<>("postgres:15-alpine");
 
     /**
-     * 빈 DB가 올바르게 분류되고 V016까지 정확히 한 번 적용되는지 검증한다.
+     * 빈 DB가 올바르게 분류되고 V017까지 정확히 한 번 적용되는지 검증한다.
      *
      * <p>잘못된 운영자 승인값에서는 history조차 만들지 않아야 하며, 같은
      * migration을 다시 실행해도 결과가 바뀌지 않는 멱등성도 함께 확인한다.</p>
@@ -111,7 +113,17 @@ class FlywayMigrationTest {
                     FROM public.flyway_schema_history
                     WHERE success
                       AND version IS NOT NULL
-                    """ )).isEqualTo(16);
+                    """ )).isEqualTo(17);
+
+            assertThat(queryString(connection, """
+                    SELECT indisvalid::text || ':' || indisready::text || ':' || pg_get_indexdef(indexrelid)
+                    FROM pg_index
+                    WHERE indexrelid = 'public.idx_notification_outbox_lease'::regclass
+                    """))
+                    .startsWith("true:true:")
+                    .contains(
+                            "(lease_until, id)",
+                            "WHERE (status = 'PROCESSING'::text)");
 
             assertThat(queryInt(connection, """
                     SELECT count(*)
@@ -548,11 +560,11 @@ class FlywayMigrationTest {
         }
     }
 
-    /** V016이 적용되지 않은 DB에는 현재 release의 runtime 권한을 부여하지 않는다. */
+    /** V017이 적용되지 않은 DB에는 현재 release의 runtime 권한을 부여하지 않는다. */
     @Test
-    void rejectsRuntimePrivilegeGrantsBeforeV016IsApplied()
+    void rejectsRuntimePrivilegeGrantsBeforeV017IsApplied()
             throws Exception {
-        Database database = createDatabase("v016_grant_guard");
+        Database database = createDatabase("v017_grant_guard");
         Flyway.configure()
                 .configuration(Map.of(
                         "flyway.postgresql.transactional.lock", "false"))
@@ -560,7 +572,7 @@ class FlywayMigrationTest {
                 .locations(MIGRATION_LOCATION)
                 .defaultSchema("public")
                 .schemas("public")
-                .target(MigrationVersion.fromVersion("15"))
+                .target(MigrationVersion.fromVersion("16"))
                 .validateOnMigrate(true)
                 .cleanDisabled(true)
                 .outOfOrder(false)
@@ -576,7 +588,50 @@ class FlywayMigrationTest {
                     "ops/db/roles/003_grant_application_privileges.sql"
             ))
                     .isInstanceOf(SQLException.class)
-                    .hasMessageContaining("complete V016 schema");
+                    .hasMessageContaining("successful Flyway migration V017");
+        }
+    }
+
+    /** V017은 중단된 concurrent index 잔여물을 제거하고 정확한 정의로 재생성한다. */
+    @Test
+    void replacesAStaleAttendanceNotificationLeaseIndexDuringV017Upgrade()
+            throws Exception {
+        Database database = createDatabase("v017_notification_lease_index");
+        Flyway.configure()
+                .configuration(Map.of(
+                        "flyway.postgresql.transactional.lock", "false"))
+                .dataSource(database.dataSource())
+                .locations(MIGRATION_LOCATION)
+                .defaultSchema("public")
+                .schemas("public")
+                .target(MigrationVersion.fromVersion("16"))
+                .validateOnMigrate(true)
+                .cleanDisabled(true)
+                .outOfOrder(false)
+                .load()
+                .migrate();
+        try (Connection connection = database.connect();
+             Statement statement = connection.createStatement()) {
+            statement.execute("""
+                    CREATE INDEX idx_notification_outbox_lease
+                    ON public.attendance_notification_outbox(id)
+                    WHERE status = 'PROCESSING'
+                    """);
+        }
+
+        new DatabaseMigrationRunner().migrate(
+                database.dataSource(), NEW_OR_SAMPLE);
+
+        try (Connection connection = database.connect()) {
+            assertThat(queryString(connection, """
+                    SELECT indisvalid::text || ':' || indisready::text || ':' || pg_get_indexdef(indexrelid)
+                    FROM pg_index
+                    WHERE indexrelid = 'public.idx_notification_outbox_lease'::regclass
+                    """))
+                    .startsWith("true:true:")
+                    .contains(
+                            "(lease_until, id)",
+                            "WHERE (status = 'PROCESSING'::text)");
         }
     }
 
@@ -2189,7 +2244,7 @@ class FlywayMigrationTest {
                     FROM public.flyway_schema_history
                     WHERE success
                       AND version IS NOT NULL
-                    """)).isEqualTo(17);
+                    """)).isEqualTo(18);
             assertThat(queryInt(connection, """
                     SELECT count(*)
                     FROM public.flyway_schema_history
@@ -2622,7 +2677,7 @@ class FlywayMigrationTest {
     }
 
     /**
-     * 애플리케이션 시작 검사가 정확히 성공한 V001~V016만 허용하는지 검증한다.
+     * 애플리케이션 시작 검사가 정확히 성공한 V001~V017만 허용하는지 검증한다.
      *
      * <p>history 없음, 구버전, 실패 처리된 migration, 애플리케이션보다 앞선
      * 버전을 모두 거부하고 정확한 버전 목록만 통과시킨다.</p>
@@ -2665,7 +2720,7 @@ class FlywayMigrationTest {
             statement.executeUpdate("""
                     UPDATE public.flyway_schema_history
                     SET success = FALSE
-                    WHERE version = '016'
+                    WHERE version = '017'
                     """);
             assertThatThrownBy(() ->
                     SchemaVersionGuard.verify(exact.dataSource()))
@@ -2675,8 +2730,8 @@ class FlywayMigrationTest {
             statement.executeUpdate("""
                     UPDATE public.flyway_schema_history
                     SET success = TRUE,
-                        version = '017'
-                    WHERE version = '016'
+                        version = '018'
+                    WHERE version = '017'
                     """);
             assertThatThrownBy(() ->
                     SchemaVersionGuard.verify(exact.dataSource()))
@@ -2688,7 +2743,7 @@ class FlywayMigrationTest {
     /**
      * migration 계정과 웹 runtime 계정의 실제 PostgreSQL 권한이 분리되는지 검증한다.
      *
-     * <p>한 테스트 안에서 역할 생성, 레거시 migration, V016 이후 grant와 runtime
+     * <p>한 테스트 안에서 역할 생성, 레거시 migration, V017 이후 grant와 runtime
      * guard를 모두 실행한다. runtime의 교사 등록·조회·수정은 실제 사용 컬럼까지
      * 허용하면서 DDL, Flyway history 변경, 교사 삭제·card_uid 접근과 레거시
      * 출석 쓰기는 권한 오류로 막아야 한다.</p>
@@ -2758,14 +2813,20 @@ class FlywayMigrationTest {
         RuntimeDatabasePrivilegeGuard.verify(runtimeDataSource);
 
 		long exhaustedDayId;
+		long runtimeAccountId;
 		try (Connection migrationConnection = migrationDataSource.getConnection();
 			 Statement statement = migrationConnection.createStatement()) {
-			long accountId = queryLong(statement, """
+			runtimeAccountId = queryLong(statement, """
 					INSERT INTO public.account (
 					    username, password_hash, status, password_changed_at)
 					VALUES ('runtime-outbox-admin', 'test-hash', 'ACTIVE', CURRENT_TIMESTAMP)
 					RETURNING id
 					""");
+			statement.execute("""
+					INSERT INTO public.account_telegram_connection(
+					    account_id, chat_id, telegram_user_id)
+					VALUES (%d, 700001, 800001)
+					""".formatted(runtimeAccountId));
 			long departmentId = queryLong(statement, """
 					INSERT INTO public.department (name)
 					VALUES ('runtime outbox 권한 부서')
@@ -2777,7 +2838,7 @@ class FlywayMigrationTest {
 					    status, created_by_account_id)
 					VALUES (%d, 1, 'runtime outbox 정책', TIME '08:30', 'DRAFT', %d)
 					RETURNING id
-					""".formatted(departmentId, accountId));
+					""".formatted(departmentId, runtimeAccountId));
 			exhaustedDayId = queryLong(statement, """
 					INSERT INTO public.attendance_day (
 					    department_id, attendance_date, policy_version_id,
@@ -2793,7 +2854,7 @@ class FlywayMigrationTest {
 					    TIMESTAMPTZ '2026-08-12 00:00:00Z',
 					    TIMESTAMPTZ '2026-08-12 00:05:00Z')
 					RETURNING id
-					""".formatted(departmentId, policyId, accountId));
+					""".formatted(departmentId, policyId, runtimeAccountId));
 		}
 
 		SqlSessionFactory runtimeMapperFactory = mapperFactory(runtimeDataSource);
@@ -2916,6 +2977,37 @@ class FlywayMigrationTest {
 			assertThat(mapper.selectNextDeliveryActionAt())
 					.isEqualTo(globalRetryAt)
 					.isBefore(globalPendingAt);
+
+			TelegramNotificationMapper notificationMapper =
+					session.getMapper(TelegramNotificationMapper.class);
+			assertThat(notificationMapper.insertTestOutbox(
+					runtimeAccountId, "runtime Telegram mapper test")).isEqualTo(1);
+			Instant claimAt = Instant.parse("2030-08-12T01:00:00Z");
+			long notificationId = notificationMapper
+					.selectReadyDispatchJobIds(claimAt, 20).getFirst();
+			Instant leaseUntil = claimAt.plus(Duration.ofMinutes(2));
+			TelegramDispatchJob notificationClaim =
+					notificationMapper.claimDispatchJob(
+						notificationId, claimAt, leaseUntil);
+			assertThat(notificationClaim).isNotNull();
+			assertThat(notificationMapper.selectNextDispatchActionAt())
+					.isEqualTo(leaseUntil);
+			assertThat(notificationMapper.recoverExpiredDispatchLeases(leaseUntil))
+					.isEqualTo(1);
+			assertThat(notificationMapper.selectNextDispatchActionAt())
+					.isEqualTo(leaseUntil);
+			TelegramDispatchJob recoveredClaim =
+					notificationMapper.claimDispatchJob(
+						notificationId, leaseUntil,
+						leaseUntil.plus(Duration.ofMinutes(2)));
+			assertThat(recoveredClaim.claimVersion())
+					.isGreaterThan(notificationClaim.claimVersion());
+			assertThat(notificationMapper.markSent(
+					notificationId,
+					recoveredClaim.claimVersion(),
+					900L,
+					leaseUntil)).isEqualTo(1);
+			assertThat(notificationMapper.selectNextDispatchActionAt()).isNull();
 		}
 		try (Connection migrationConnection = migrationDataSource.getConnection()) {
 			assertThat(queryInt(migrationConnection, """
@@ -3868,9 +3960,13 @@ class FlywayMigrationTest {
             throws Exception {
         SqlSessionFactoryBean factoryBean = new SqlSessionFactoryBean();
         factoryBean.setDataSource(dataSource);
-        factoryBean.setMapperLocations(new ClassPathResource(
-                "com/example/attend/operations/infrastructure/mybatis/"
-                        + "FinalizationOperationalEventMapper.xml"));
+        factoryBean.setMapperLocations(
+                new ClassPathResource(
+                        "com/example/attend/operations/infrastructure/mybatis/"
+                                + "FinalizationOperationalEventMapper.xml"),
+                new ClassPathResource(
+                        "com/example/attend/notification/infrastructure/mybatis/"
+                                + "TelegramNotificationMapper.xml"));
         org.apache.ibatis.session.Configuration configuration =
                 new org.apache.ibatis.session.Configuration();
         configuration.setMapUnderscoreToCamelCase(true);

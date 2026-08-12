@@ -91,7 +91,7 @@ Attend MVP는 화면이 열리고 NFC 요청 한 건이 성공하는 것만으�
 | Security/MVC | MockMvc + 실제 security 설정 + Testcontainers | 두 filter chain, CSRF, 세션, IDOR, PRG | 실제 PostgreSQL |
 | Device contract | OpenAPI validation + HTTP integration | schema, status, header, body 제한, 재시도 계약 | 기동한 Spring Boot |
 | Concurrency | 두 개 이상의 독립 DB connection/transaction | 잠금 순서와 race condition | 실제 PostgreSQL |
-| Migration | 빈 DB·레거시 fixture·복원 DB | V001~V016, baseline 0, 권한, 재현성 | 별도 PostgreSQL |
+| Migration | 빈 DB·레거시 fixture·복원 DB | V001~V017, baseline 0, 권한, 재현성 | 별도 PostgreSQL |
 | Firmware integration | 실제 Arduino·NFC reader·운영 유사 네트워크 | UID, HTTP, timeout, LED·부저 | staging 서버 |
 | E2E·파일럿 | 실제 관리자·교사·장치 | 전체 업무 흐름과 운영 절차 | 운영 유사/실환경 |
 
@@ -390,6 +390,21 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | FIN-025 | Telegram 성공 직후 `SENT` 갱신 전에 프로세스 종료 | lease 만료 후 재전송될 수 있으며 추적 키로 at-least-once 중복을 식별 |
 | FIN-026 | ready·retry·processing 운영 outbox가 없거나 미래 시각만 존재 | 빈 DB에는 task·주기 조회가 없고, 미래 `next_attempt_at`·`lease_until` 중 최솟값에 일회성 task 하나만 예약 |
 
+### 9.3 관리자 출석 Telegram 전달
+
+| ID | 시나리오 | 기대 결과 |
+|---|---|---|
+| TEL-DLV-001 | 마감 또는 시험 outbox transaction commit·rollback | commit 뒤에만 전용 executor를 즉시 깨우고 listener thread에서 HTTP를 호출하지 않음 |
+| TEL-DLV-002 | 앱 시작 시 ready·retry·processing 행 혼재 | 만료 lease를 포함 경계에서 복구하고 현재 batch를 처리한 뒤 전역 최솟값에 단발 예약 |
+| TEL-DLV-003 | outbox가 비어 있음 | timer·`@Scheduled`·주기 DB 조회가 남지 않음 |
+| TEL-DLV-004 | 처리 중 commit 사건 또는 다음 시각 조회 경합 | 작업 신호를 병합하되 더 이른 DB 작업을 유실하지 않음 |
+| TEL-DLV-005 | ready 작업이 batch 한도를 초과 | 현재 worker가 overdue 작업을 계속 drain하고 zero-delay timer를 만들지 않음 |
+| TEL-DLV-006 | executor·DB·TaskScheduler 실패 또는 worker 비정상 종료 | 상태 고착 없이 1분 뒤 일회성 인프라 복구 또는 다음 사건에서 재실행 |
+| TEL-DLV-007 | `retry_after` 없는 일시 실패와 429, 첫 실패부터 최대 시도까지 | 일반 오류는 30초 시작·최대 1시간 backoff, 429는 서버 지정 시각, 정확한 최대 시도 횟수 후 `DEAD` |
+| TEL-DLV-008 | 이전 claim의 영구 실패 뒤 관리자가 재연결 | stale 결과가 새 claim 상태나 새 Telegram 연결을 삭제하지 않음 |
+| TEL-DLV-009 | 일반·운영 Telegram을 동시에 활성화 | 두 전용 executor·TaskScheduler와 공용 scheduler가 서로 다른 bean·thread 사용 |
+| TEL-DLV-010 | Telegram 성공 뒤 `SENT` 저장 전 중단 | outbox는 최대 시도까지 at-least-once로 처리되며 성공 호출의 드문 중복 가능성을 명시 |
+
 ---
 
 ## 10. DB·Mapper 테스트
@@ -469,7 +484,7 @@ legacy preflight가 선존재를 거부할 신규 애플리케이션 테이블�
 
 | ID | 환경·작업 | 합격 기준 |
 |---|---|---|
-| MIG-FRESH-001 | 완전히 빈 DB에 V001~V016 적용 | baseline 행 없이 전체 목표 schema 생성 |
+| MIG-FRESH-001 | 완전히 빈 DB에 V001~V017 적용 | baseline 행 없이 전체 목표 schema 생성 |
 | MIG-FRESH-002 | 같은 migration 집합을 다시 실행하고 validate | 두 번째 schema·data 변경 없음 |
 | MIG-SAFE-001 | `NEW_OR_SAMPLE` DB에 baseline 시도 | baseline 금지, history·schema 변경 없음 |
 | MIG-SAFE-002 | 승인된 `LEGACY_OPERATIONAL` fixture | 사전조건 통과 후 명시적 version 0 `BASELINE` 정확히 한 행, PK·행·sequence 보존 |
@@ -484,7 +499,7 @@ legacy preflight가 선존재를 거부할 신규 애플리케이션 테이블�
 | MIG-RUNNER-002 | 적용 파일 checksum 변경 | runner의 `flyway validate` 실패, 배포 중단 |
 | MIG-RUNNER-003 | pending·out-of-order·repeatable checksum 불일치 | runner의 `info`·`validate` gate 실패 |
 | MIG-RUNNER-004 | 운영 runner에서 `clean` 시도 | `cleanDisabled=true`로 거부 |
-| MIG-RUNTIME-001 | 성공한 versioned history가 V001~V016과 정확히 일치 | runtime 기동 허용 |
+| MIG-RUNTIME-001 | 성공한 versioned history가 V001~V017과 정확히 일치 | runtime 기동 허용 |
 | MIG-RUNTIME-002 | history 없음·실패 행·version 누락·V011 미만·승인 target 초과 각각 | runtime이 쓰기 받기 전에 fail fast |
 | MIG-RUNTIME-003 | `001` 같은 표시 형식과 숫자 version 비교 | 문자열 `MAX(version)`이 아니라 Flyway `MigrationVersion`으로 판정 |
 | MIG-RUNTIME-004 | `migration_owner` credential을 웹 runtime에 설정 | 설정 검증 실패 |
