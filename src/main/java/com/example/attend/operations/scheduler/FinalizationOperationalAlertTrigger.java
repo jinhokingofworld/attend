@@ -44,7 +44,8 @@ public final class FinalizationOperationalAlertTrigger {
     public FinalizationOperationalAlertTrigger(
             FinalizationOperationalAlertDispatcher dispatcher,
             @Qualifier("finalizationOperationalAlertExecutor") TaskExecutor executor,
-            TaskScheduler taskScheduler,
+            @Qualifier("finalizationOperationalAlertTaskScheduler")
+                    TaskScheduler taskScheduler,
             Clock clock) {
         this.dispatcher = dispatcher;
         this.executor = executor;
@@ -90,35 +91,57 @@ public final class FinalizationOperationalAlertTrigger {
     }
 
     private void runWorker() {
-        while (true) {
-            synchronized (monitor) {
-                if (stopped) {
-                    workerActive = false;
+        boolean completedNormally = false;
+        try {
+            while (true) {
+                synchronized (monitor) {
+                    if (stopped) {
+                        workRequested = false;
+                        completedNormally = true;
+                        return;
+                    }
                     workRequested = false;
+                }
+
+                try {
+                    dispatcher.recoverAndDispatchReady();
+                    refreshScheduleOrRecover("dispatch-complete");
+                } catch (RuntimeException exception) {
+                    log.error("Operational alert dispatch failed.", exception);
+                    scheduleInfrastructureRecovery("dispatch-recovery");
+                }
+
+                synchronized (monitor) {
+                    if (stopped) {
+                        workRequested = false;
+                        completedNormally = true;
+                        return;
+                    }
+                    if (workRequested) {
+                        continue;
+                    }
+                    completedNormally = true;
                     return;
                 }
-                workRequested = false;
             }
-
-            try {
-                dispatcher.recoverAndDispatchReady();
-                refreshScheduleOrRecover("dispatch-complete");
-            } catch (RuntimeException exception) {
-                log.error("Operational alert dispatch failed.", exception);
-                scheduleInfrastructureRecovery("dispatch-recovery");
-            }
-
+        } finally {
+            boolean resubmit = false;
+            boolean recover = false;
             synchronized (monitor) {
-                if (stopped) {
-                    workerActive = false;
-                    workRequested = false;
-                    return;
-                }
-                if (workRequested) {
-                    continue;
-                }
                 workerActive = false;
-                return;
+                if (stopped) {
+                    workRequested = false;
+                } else if (!completedNormally) {
+                    workRequested = true;
+                    recover = true;
+                } else if (workRequested) {
+                    resubmit = true;
+                }
+            }
+            if (recover) {
+                scheduleInfrastructureRecovery("worker-abnormal-exit");
+            } else if (resubmit) {
+                requestWorker("worker-exit-race", null);
             }
         }
     }

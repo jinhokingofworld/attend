@@ -2,6 +2,7 @@ package com.example.attend.operations.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -22,6 +23,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -351,6 +353,27 @@ class FinalizationOperationalAlertTriggerTest {
     }
 
     @Test
+    void releasesTheWorkerAndSchedulesRecoveryAfterAnAbnormalError() {
+        Fixture fixture = fixture();
+        AssertionError failure = new AssertionError("worker failed abnormally");
+        doThrow(failure)
+                .doNothing()
+                .when(fixture.dispatcher()).recoverAndDispatchReady();
+
+        fixture.trigger().startAfterApplicationReady();
+
+        assertThatThrownBy(() -> fixture.executor().run(0)).isSameAs(failure);
+        verify(fixture.taskScheduler()).schedule(
+                any(Runnable.class), eq(NOW.plus(Duration.ofMinutes(1))));
+
+        fixture.trigger().onIncidentCreated(
+                new FinalizationOperationalIncidentCreated(56L));
+        assertThat(fixture.executor().tasks()).hasSize(2);
+        assertThatCode(() -> fixture.executor().run(1)).doesNotThrowAnyException();
+        verify(fixture.dispatcher(), times(2)).recoverAndDispatchReady();
+    }
+
+    @Test
     void cancelsThePendingWakeUpAndIgnoresItAfterShutdown() {
         Fixture fixture = fixture();
         when(fixture.dispatcher().findNextActionAt())
@@ -422,7 +445,8 @@ class FinalizationOperationalAlertTriggerTest {
     }
 
     private static final class RecordingTaskExecutor implements TaskExecutor {
-        private final List<Runnable> tasks = new ArrayList<>();
+        private final List<Runnable> tasks =
+                Collections.synchronizedList(new ArrayList<>());
 
         @Override
         public void execute(Runnable task) {
@@ -430,11 +454,17 @@ class FinalizationOperationalAlertTriggerTest {
         }
 
         List<Runnable> tasks() {
-            return List.copyOf(tasks);
+            synchronized (tasks) {
+                return List.copyOf(tasks);
+            }
         }
 
         void run(int index) {
-            tasks.get(index).run();
+            Runnable task;
+            synchronized (tasks) {
+                task = tasks.get(index);
+            }
+            task.run();
         }
     }
 }

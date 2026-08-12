@@ -48,8 +48,9 @@ Actuator, 로그, Git과 Docker image에 포함하지 않는다.
   `PENDING`·`RETRY.next_attempt_at`과 `PROCESSING.lease_until` 중 가장 이른 DB 시각을
   읽고 그 시각에 일회성 task 하나만 예약한다. 처리할 행이 없으면 예약과 주기 DB
   조회를 모두 멈춘다.
-- executor 제출이나 다음 시각 조회가 실패했을 때만 1분 뒤 일회성 인프라 복구 task를
-  예약한다. 이는 정상 상태에서 반복되는 polling이 아니다.
+- executor 제출 실패, dispatcher 실행 실패, 다음 시각 조회 실패, DB 시각에 대한
+  일회성 wake-up 예약 거절 또는 worker 비정상 종료 때만 1분 뒤 일회성 인프라 복구
+  task를 예약한다. 이는 정상 상태에서 반복되는 polling이 아니다.
 - worker는 2분 lease와 delivery claim version으로 여러 인스턴스의 결과를 fencing한다.
 - 성공한 Telegram HTTP 응답의 양수 message ID를 저장한 뒤 `SENT`로 전환한다.
 - 429는 Telegram `retry_after`, 그 밖의 timeout·4xx·5xx·설정 오류는 30초부터
