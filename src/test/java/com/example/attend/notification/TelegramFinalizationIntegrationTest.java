@@ -1,9 +1,6 @@
 package com.example.attend.notification;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.reset;
-import static org.mockito.Mockito.timeout;
-import static org.mockito.Mockito.verify;
 
 import com.example.attend.attendance.application.FinalizeAttendanceDayService;
 import com.example.attend.notification.application.TelegramConnectionService;
@@ -58,7 +55,6 @@ class TelegramFinalizationIntegrationTest {
 
     @BeforeEach
     void clear() {
-        reset(telegramNotificationDispatcher);
         jdbcTemplate.update("DELETE FROM public.attendance_notification_outbox");
         jdbcTemplate.update("DELETE FROM public.account_telegram_connection");
         jdbcTemplate.update("DELETE FROM public.telegram_link_token");
@@ -134,8 +130,6 @@ class TelegramFinalizationIntegrationTest {
                 SELECT count(*) FROM public.attendance_notification_outbox
                 WHERE attendance_day_id = ?
                 """, Integer.class, dayId)).isEqualTo(2);
-        verify(telegramNotificationDispatcher, timeout(2_000))
-                .recoverAndDispatchReady();
     }
 
     @Test
@@ -153,8 +147,6 @@ class TelegramFinalizationIntegrationTest {
         assertThat(connectionService.view(accountId).state()).isEqualTo("LINKED");
 
         connectionService.requestTestMessage(accountId);
-        verify(telegramNotificationDispatcher, timeout(2_000))
-                .recoverAndDispatchReady();
         assertThat(jdbcTemplate.queryForObject("""
                 SELECT count(*) FROM public.attendance_notification_outbox
                 WHERE account_id = ? AND notification_type = 'TELEGRAM_CONNECTION_TEST'

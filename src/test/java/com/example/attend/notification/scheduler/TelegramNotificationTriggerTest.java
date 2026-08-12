@@ -238,7 +238,7 @@ class TelegramNotificationTriggerTest {
         when(dispatcher.findNextActionAt())
                 .thenReturn(NOW.plusSeconds(30), (Instant) null);
         TelegramNotificationTrigger trigger = new TelegramNotificationTrigger(
-                dispatcher, executor, taskScheduler,
+                dispatcher, executor, taskScheduler, taskScheduler,
                 Clock.fixed(NOW, ZoneOffset.UTC));
 
         trigger.startAfterApplicationReady();
@@ -263,7 +263,7 @@ class TelegramNotificationTriggerTest {
         doReturn(future).when(taskScheduler)
                 .schedule(any(Runnable.class), any(Instant.class));
         TelegramNotificationTrigger trigger = new TelegramNotificationTrigger(
-                dispatcher, executor, taskScheduler,
+                dispatcher, executor, taskScheduler, taskScheduler,
                 Clock.fixed(NOW, ZoneOffset.UTC));
 
         assertThatCode(trigger::startAfterApplicationReady).doesNotThrowAnyException();
@@ -295,6 +295,78 @@ class TelegramNotificationTriggerTest {
         verify(taskScheduler, times(2)).schedule(any(Runnable.class), times.capture());
         assertThat(times.getAllValues()).containsExactly(
                 NOW.plusSeconds(30), NOW.plus(Duration.ofMinutes(1)));
+    }
+
+    @Test
+    void schedulesOneBoundedFallbackWhenThePrimaryRecoveryIsRejected() {
+        TaskScheduler taskScheduler = mock(TaskScheduler.class);
+        TaskScheduler fallbackTaskScheduler = mock(TaskScheduler.class);
+        @SuppressWarnings("unchecked")
+        ScheduledFuture<Object> fallbackFuture = mock(ScheduledFuture.class);
+        doThrow(new IllegalStateException("database wake-up unavailable"))
+                .doThrow(new IllegalStateException("primary recovery unavailable"))
+                .when(taskScheduler)
+                .schedule(any(Runnable.class), any(Instant.class));
+        doReturn(fallbackFuture).when(fallbackTaskScheduler)
+                .schedule(any(Runnable.class), any(Instant.class));
+        RecordingTaskExecutor executor = new RecordingTaskExecutor();
+        TelegramNotificationDispatcher dispatcher =
+                mock(TelegramNotificationDispatcher.class);
+        when(dispatcher.findNextActionAt()).thenReturn(NOW.plusSeconds(30));
+        TelegramNotificationTrigger trigger = new TelegramNotificationTrigger(
+                dispatcher,
+                executor,
+                taskScheduler,
+                fallbackTaskScheduler,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        trigger.startAfterApplicationReady();
+        assertThatCode(() -> executor.run(0)).doesNotThrowAnyException();
+
+        ArgumentCaptor<Instant> primaryTimes = ArgumentCaptor.forClass(Instant.class);
+        verify(taskScheduler, times(2))
+                .schedule(any(Runnable.class), primaryTimes.capture());
+        assertThat(primaryTimes.getAllValues()).containsExactly(
+                NOW.plusSeconds(30),
+                NOW.plus(Duration.ofMinutes(1)));
+        ArgumentCaptor<Runnable> fallback = ArgumentCaptor.forClass(Runnable.class);
+        verify(fallbackTaskScheduler).schedule(
+                fallback.capture(), eq(NOW.plus(Duration.ofMinutes(5))));
+
+        fallback.getValue().run();
+        assertThat(executor.tasks()).hasSize(2);
+    }
+
+    @Test
+    void stopsAfterBothRecoverySchedulersRejectTheBoundedAttempts() {
+        TaskScheduler taskScheduler = mock(TaskScheduler.class);
+        TaskScheduler fallbackTaskScheduler = mock(TaskScheduler.class);
+        doThrow(new IllegalStateException("database wake-up unavailable"))
+                .doThrow(new IllegalStateException("primary recovery unavailable"))
+                .when(taskScheduler)
+                .schedule(any(Runnable.class), any(Instant.class));
+        doThrow(new IllegalStateException("fallback recovery unavailable"))
+                .when(fallbackTaskScheduler)
+                .schedule(any(Runnable.class), any(Instant.class));
+        RecordingTaskExecutor executor = new RecordingTaskExecutor();
+        TelegramNotificationDispatcher dispatcher =
+                mock(TelegramNotificationDispatcher.class);
+        when(dispatcher.findNextActionAt()).thenReturn(NOW.plusSeconds(30));
+        TelegramNotificationTrigger trigger = new TelegramNotificationTrigger(
+                dispatcher,
+                executor,
+                taskScheduler,
+                fallbackTaskScheduler,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        trigger.startAfterApplicationReady();
+
+        assertThatCode(() -> executor.run(0)).doesNotThrowAnyException();
+        verify(taskScheduler, times(2))
+                .schedule(any(Runnable.class), any(Instant.class));
+        verify(fallbackTaskScheduler).schedule(
+                any(Runnable.class), eq(NOW.plus(Duration.ofMinutes(5))));
+        assertThat(executor.tasks()).hasSize(1);
     }
 
     @Test
@@ -413,6 +485,7 @@ class TelegramNotificationTriggerTest {
                 new TelegramNotificationTrigger(
                         dispatcher,
                         executor,
+                        taskScheduler,
                         taskScheduler,
                         Clock.fixed(NOW, ZoneOffset.UTC)));
     }

@@ -97,6 +97,8 @@ public final class TelegramNotificationDispatcher {
             }
             return;
         }
+        // retry_after is Telegram's authoritative rate-limit window. Shortening
+        // it would retry before the server permits; only the local backoff is capped.
         long seconds = exception.retryAfterSeconds() != null
                 ? Math.max(1, exception.retryAfterSeconds())
                 : Math.min(3600, 30L * (1L << Math.min(7, attempted - 1)));

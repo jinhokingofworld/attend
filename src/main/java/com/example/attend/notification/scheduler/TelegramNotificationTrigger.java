@@ -26,10 +26,13 @@ public final class TelegramNotificationTrigger {
             LoggerFactory.getLogger(TelegramNotificationTrigger.class);
     private static final Duration INFRASTRUCTURE_RECOVERY_DELAY =
             Duration.ofMinutes(1);
+    private static final Duration INFRASTRUCTURE_RECOVERY_FALLBACK_DELAY =
+            Duration.ofMinutes(5);
 
     private final TelegramNotificationDispatcher dispatcher;
     private final TaskExecutor executor;
     private final TaskScheduler taskScheduler;
+    private final TaskScheduler fallbackTaskScheduler;
     private final Clock clock;
     private final Object monitor = new Object();
 
@@ -44,10 +47,12 @@ public final class TelegramNotificationTrigger {
             TelegramNotificationDispatcher dispatcher,
             @Qualifier("attendanceTelegramExecutor") TaskExecutor executor,
             @Qualifier("attendanceTelegramTaskScheduler") TaskScheduler taskScheduler,
+            @Qualifier("taskScheduler") TaskScheduler fallbackTaskScheduler,
             Clock clock) {
         this.dispatcher = dispatcher;
         this.executor = executor;
         this.taskScheduler = taskScheduler;
+        this.fallbackTaskScheduler = fallbackTaskScheduler;
         this.clock = clock;
     }
 
@@ -184,23 +189,41 @@ public final class TelegramNotificationTrigger {
     private void scheduleInfrastructureRecovery(String trigger) {
         boolean wakeImmediately = false;
         try {
-            synchronized (monitor) {
-                if (stopped) {
-                    return;
-                }
-                Instant requestedAt = clock.instant().plus(INFRASTRUCTURE_RECOVERY_DELAY);
-                if (scheduledAt != null && !scheduledAt.isAfter(requestedAt)) {
-                    return;
-                }
-                wakeImmediately = replaceScheduledTask(requestedAt, trigger);
-            }
+            wakeImmediately = scheduleInfrastructureRecoveryAt(
+                    taskScheduler, trigger, INFRASTRUCTURE_RECOVERY_DELAY);
         } catch (RuntimeException exception) {
             log.error(
-                    "Could not schedule one-time Telegram notification recovery. trigger={}",
+                    "Could not schedule primary Telegram notification recovery. trigger={}",
                     trigger, exception);
+            try {
+                wakeImmediately = scheduleInfrastructureRecoveryAt(
+                        fallbackTaskScheduler,
+                        trigger + "-fallback",
+                        INFRASTRUCTURE_RECOVERY_FALLBACK_DELAY);
+            } catch (RuntimeException fallbackException) {
+                log.error(
+                        "Could not schedule fallback Telegram notification recovery. trigger={}",
+                        trigger, fallbackException);
+            }
         }
         if (wakeImmediately) {
             requestWorker("early-recovery-callback", null);
+        }
+    }
+
+    private boolean scheduleInfrastructureRecoveryAt(
+            TaskScheduler scheduler,
+            String trigger,
+            Duration delay) {
+        synchronized (monitor) {
+            if (stopped) {
+                return false;
+            }
+            Instant requestedAt = clock.instant().plus(delay);
+            if (scheduledAt != null && !scheduledAt.isAfter(requestedAt)) {
+                return false;
+            }
+            return replaceScheduledTask(scheduler, requestedAt, trigger);
         }
     }
 
@@ -211,8 +234,15 @@ public final class TelegramNotificationTrigger {
      * 버리지 않고 worker 요청으로 전환한다.</p>
      */
     private boolean replaceScheduledTask(Instant requestedAt, String trigger) {
+        return replaceScheduledTask(taskScheduler, requestedAt, trigger);
+    }
+
+    private boolean replaceScheduledTask(
+            TaskScheduler scheduler,
+            Instant requestedAt,
+            String trigger) {
         WakeUpRegistration registration = new WakeUpRegistration();
-        ScheduledFuture<?> acceptedTask = taskScheduler.schedule(registration, requestedAt);
+        ScheduledFuture<?> acceptedTask = scheduler.schedule(registration, requestedAt);
         if (acceptedTask == null) {
             throw new IllegalStateException(
                     "TaskScheduler rejected Telegram notification task: " + trigger);

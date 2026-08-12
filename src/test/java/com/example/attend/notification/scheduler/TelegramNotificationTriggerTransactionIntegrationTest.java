@@ -98,6 +98,7 @@ class TelegramNotificationTriggerTransactionIntegrationTest {
                     dispatcher,
                     executor,
                     taskScheduler,
+                    taskScheduler,
                     Clock.fixed(
                             Instant.parse("2026-08-12T01:00:00Z"),
                             ZoneOffset.UTC));

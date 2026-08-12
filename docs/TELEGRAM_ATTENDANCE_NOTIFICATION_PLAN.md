@@ -87,9 +87,9 @@ status = SCHEDULED AND finalization_due_at <= now
 
 기존 `FinalizeAttendanceDayService`의 잠금 순서와 멱등성은 유지한다.
 
-V014는 claim version과 lease를 DB에 저장하고 최초 실패 뒤 1·2·4·8·16분에
-다섯 번 재시도한다. 이전 lease의 늦은 실패 update는 현재 claim version과 달라
-반영되지 않는다.
+V014는 claim version과 lease를 DB에 저장하고 출석일 마감 트랜잭션 자체의 최초
+실패 뒤 1·2·4·8·16분에 다섯 번 재시도한다. 이는 Telegram 전송 backoff와 별개다.
+이전 lease의 늦은 실패 update는 현재 claim version과 달라 반영되지 않는다.
 
 ```text
 department 잠금 → attendance_day 잠금 → 누락 대상 결석 생성
@@ -293,7 +293,8 @@ UPDATE로 claim한다.
 읽어 그 정확한 시각에 일회성 task 하나만 예약한다. 이미 실행 시각이 지난 작업은
 zero-delay timer를 만들지 않고 현재 worker가 계속 drain한다. 행이 없으면 timer와
 주기 DB polling을 모두 남기지 않는다. executor·DB·timer 인프라 오류에만 1분 뒤
-일회성 복구 task를 둔다.
+일회성 복구 task를 둔다. 전용 TaskScheduler가 이 복구 예약까지 거절하면 공용
+TaskScheduler에 해당 실패 cycle의 5분 뒤 시각으로 단발 fallback 하나만 예약한다.
 
 ### 7.2 발송 전 재검증
 
@@ -582,7 +583,8 @@ bot token, webhook secret, chat ID, 메시지 원문은 화면과 운영 로그�
 - 시작·commit 직후 처리와 DB의 정확한 다음 시각 단발 예약을 검증하고, 빈 outbox에는
   timer와 polling이 남지 않는다.
 - executor·DB 조회·TaskScheduler 실패와 worker 비정상 종료는 1분 일회성 복구로
-  다시 시도한다.
+  다시 시도하고, 전용 scheduler가 그 예약을 거절하면 공용 scheduler의 5분 시각으로
+  해당 실패 cycle에 한 번만 fallback한다.
 - 일반·운영 Telegram과 공용 scheduler가 서로 다른 thread와 bean을 사용한다.
 - claim 시점 전에 권한 회수·계정 비활성화·연결 해제가 완료되면 발송하지 않는다.
 - Telegram 장애 중에도 출석일 마감은 완료된다.

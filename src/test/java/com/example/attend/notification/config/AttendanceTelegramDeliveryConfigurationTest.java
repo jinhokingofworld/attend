@@ -93,6 +93,8 @@ class AttendanceTelegramDeliveryConfigurationTest {
                             context.getBean(TelegramNotificationTrigger.class);
                     assertThat(ReflectionTestUtils.getField(
                             attendanceTrigger, "taskScheduler")).isSameAs(attendance);
+                    assertThat(ReflectionTestUtils.getField(
+                            attendanceTrigger, "fallbackTaskScheduler")).isSameAs(shared);
                     FinalizationOperationalAlertTrigger operationsTrigger =
                             context.getBean(FinalizationOperationalAlertTrigger.class);
                     assertThat(ReflectionTestUtils.getField(

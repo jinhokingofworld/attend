@@ -635,6 +635,43 @@ class FlywayMigrationTest {
         }
     }
 
+    /** 같은 이름의 잘못된 인덱스로는 V017 runtime 권한을 부여하지 않는다. */
+    @Test
+    void rejectsRuntimePrivilegeGrantsForAnIncorrectV017LeaseIndex()
+            throws Exception {
+        Database database = createDatabase("v017_grant_index_definition");
+        new DatabaseMigrationRunner().migrate(
+                database.dataSource(), NEW_OR_SAMPLE);
+
+        try (Connection connection = database.connect();
+             Statement statement = connection.createStatement()) {
+            executeSqlFile(statement, "ops/db/roles/001_create_login_roles.sql");
+            statement.execute("DROP INDEX public.idx_notification_outbox_lease");
+            statement.execute("""
+                    CREATE INDEX idx_notification_outbox_lease
+                    ON public.attendance_notification_outbox(id, lease_until)
+                    WHERE status = 'PROCESSING'
+                    """);
+
+            assertThatThrownBy(() -> executeSqlFile(
+                    statement,
+                    "ops/db/roles/003_grant_application_privileges.sql"
+            ))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining(
+                            "valid V017 notification lease index definition");
+        }
+
+        try (Connection connection = database.connect()) {
+            assertThat(queryString(connection, """
+                    SELECT has_table_privilege(
+                        'app_runtime',
+                        'public.attendance_notification_outbox',
+                        'SELECT')::text
+                    """)).isEqualTo("false");
+        }
+    }
+
     /**
      * V010은 기존의 만료 감사 행을 500개씩만 삭제하고 이후 INSERT 시각은
      * PostgreSQL이 강제한다.

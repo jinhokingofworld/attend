@@ -57,11 +57,51 @@ BEGIN
             'Runtime grants require successful Flyway migration V017';
     END IF;
 
-    IF pg_catalog.to_regclass(
-            'public.idx_notification_outbox_lease'
-       ) IS NULL THEN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_class AS index_relation
+        JOIN pg_catalog.pg_namespace AS index_schema
+          ON index_schema.oid = index_relation.relnamespace
+        JOIN pg_catalog.pg_index AS index_definition
+          ON index_definition.indexrelid = index_relation.oid
+        JOIN pg_catalog.pg_class AS indexed_relation
+          ON indexed_relation.oid = index_definition.indrelid
+        JOIN pg_catalog.pg_namespace AS indexed_schema
+          ON indexed_schema.oid = indexed_relation.relnamespace
+        JOIN pg_catalog.pg_am AS access_method
+          ON access_method.oid = index_relation.relam
+        WHERE index_schema.nspname = 'public'
+          AND index_relation.relname = 'idx_notification_outbox_lease'
+          AND index_relation.relkind = 'i'
+          AND index_definition.indisvalid
+          AND index_definition.indisready
+          AND index_definition.indislive
+          AND NOT index_definition.indisunique
+          AND NOT index_definition.indisprimary
+          AND indexed_schema.nspname = 'public'
+          AND indexed_relation.relname = 'attendance_notification_outbox'
+          AND indexed_relation.relkind IN ('r', 'p')
+          AND access_method.amname = 'btree'
+          AND index_definition.indnkeyatts = 2
+          AND index_definition.indnatts = 2
+          AND ARRAY(
+              SELECT attribute.attname::text
+              FROM pg_catalog.unnest(index_definition.indkey::smallint[])
+                       WITH ORDINALITY AS indexed_column(attnum, position)
+              JOIN pg_catalog.pg_attribute AS attribute
+                ON attribute.attrelid = index_definition.indrelid
+               AND attribute.attnum = indexed_column.attnum
+              WHERE indexed_column.position <= index_definition.indnkeyatts
+              ORDER BY indexed_column.position
+          ) = ARRAY['lease_until', 'id']::text[]
+          AND pg_catalog.pg_get_expr(
+                  index_definition.indpred,
+                  index_definition.indrelid,
+                  false
+              ) = '(status = ''PROCESSING''::text)'
+    ) THEN
         RAISE EXCEPTION
-            'Runtime grants require the V017 notification lease index';
+            'Runtime grants require the valid V017 notification lease index definition';
     END IF;
 
     IF pg_catalog.to_regprocedure(

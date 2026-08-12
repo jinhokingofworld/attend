@@ -399,7 +399,7 @@ deadlock이나 lock timeout을 단순 재시도로 숨기지 않는다. 예상�
 | TEL-DLV-003 | outbox가 비어 있음 | timer·`@Scheduled`·주기 DB 조회가 남지 않음 |
 | TEL-DLV-004 | 처리 중 commit 사건 또는 다음 시각 조회 경합 | 작업 신호를 병합하되 더 이른 DB 작업을 유실하지 않음 |
 | TEL-DLV-005 | ready 작업이 batch 한도를 초과 | 현재 worker가 overdue 작업을 계속 drain하고 zero-delay timer를 만들지 않음 |
-| TEL-DLV-006 | executor·DB·TaskScheduler 실패 또는 worker 비정상 종료 | 상태 고착 없이 1분 뒤 일회성 인프라 복구 또는 다음 사건에서 재실행 |
+| TEL-DLV-006 | executor·DB·TaskScheduler 실패 또는 worker 비정상 종료 | 상태 고착 없이 전용 scheduler에 1분 단발 복구, 거절 시 공용 scheduler에 5분 단일 fallback 또는 다음 사건에서 재실행 |
 | TEL-DLV-007 | `retry_after` 없는 일시 실패와 429, 첫 실패부터 최대 시도까지 | 일반 오류는 30초 시작·최대 1시간 backoff, 429는 서버 지정 시각, 정확한 최대 시도 횟수 후 `DEAD` |
 | TEL-DLV-008 | 이전 claim의 영구 실패 뒤 관리자가 재연결 | stale 결과가 새 claim 상태나 새 Telegram 연결을 삭제하지 않음 |
 | TEL-DLV-009 | 일반·운영 Telegram을 동시에 활성화 | 두 전용 executor·TaskScheduler와 공용 scheduler가 서로 다른 bean·thread 사용 |

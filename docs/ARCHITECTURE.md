@@ -780,9 +780,12 @@ batch 완료 뒤 `PENDING`·`RETRY.next_attempt_at`과 `PROCESSING.lease_until`�
 계속 drain하므로 zero-delay timer race가 없고, 빈 outbox에는 timer나 DB 주기 조회가
 없다. 관리자 활성 상태·부서 권한·현재 Telegram 연결은 claim UPDATE에서 다시
 검증하며 결과 update는 claim version으로 fencing한다. 일반 알림과 운영 알림은 각각
-독립된 executor와 TaskScheduler를 사용한다. 일반 알림의 commit 사건과 timer 역시
-단일 인스턴스 로컬 신호다. outbox 작업은 최대 시도 횟수까지 at-least-once로 처리하지만
-성공 발송은 보장하지 않으며, 성공한 호출은 `SENT` 저장 전 중단 시 중복될 수 있다.
+독립된 executor와 전용 TaskScheduler를 사용한다. 일반 알림 전용 scheduler가 1분
+인프라 복구 예약까지 거절한 경우에만 공용 scheduler에 해당 실패 cycle의 5분 단발
+fallback 하나를 예약하며, callback은 네트워크 호출 없이 전용 executor만 깨운다. 일반 알림의 commit
+사건과 timer는 단일 인스턴스 로컬 신호다. outbox 작업은 최대 시도 횟수까지
+at-least-once로 처리하지만 성공 발송은 보장하지 않으며, 성공한 호출은 `SENT` 저장 전
+중단 시 중복될 수 있다.
 
 ### 8.7 수동 등록·정정
 
