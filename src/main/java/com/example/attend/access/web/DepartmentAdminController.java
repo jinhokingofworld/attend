@@ -2,6 +2,7 @@ package com.example.attend.access.web;
 
 import com.example.attend.access.application.AdminWriteGate;
 import com.example.attend.access.application.DepartmentAdminQueryService;
+import com.example.attend.access.application.DepartmentAdminInvitationService;
 import com.example.attend.access.security.AccountPrincipal;
 import com.example.attend.attendance.application.AttendanceCorrectionService;
 import com.example.attend.attendance.application.AttendanceDayBatchResult;
@@ -57,6 +58,7 @@ import java.util.Set;
 public final class DepartmentAdminController {
 
 	private final DepartmentAdminQueryService queryService;
+	private final DepartmentAdminInvitationService invitationService;
 	private final AdminWriteGate writeGate;
 	private final TeacherRosterService teacherService;
 	private final CardManagementService cardService;
@@ -75,6 +77,7 @@ public final class DepartmentAdminController {
 	 */
 	public DepartmentAdminController(
 			DepartmentAdminQueryService queryService,
+			DepartmentAdminInvitationService invitationService,
 			AdminWriteGate writeGate,
 			TeacherRosterService teacherService,
 			CardManagementService cardService,
@@ -89,6 +92,7 @@ public final class DepartmentAdminController {
 			@Value("${attendance.admin.show-tag-logs:false}")
 			boolean showTagLogs) {
 		this.queryService = queryService;
+		this.invitationService = invitationService;
 		this.writeGate = writeGate;
 		this.teacherService = teacherService;
 		this.cardService = cardService;
@@ -103,6 +107,38 @@ public final class DepartmentAdminController {
 		this.showTagLogs = showTagLogs;
 	}
 
+	/** 현재 부서의 관리자만 동료 부서 관리자를 초대할 수 있다. */
+	@PostMapping("/admin/departments/{departmentId}/admin-invitations")
+	public String inviteAdministrator(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@RequestParam String email,
+			RedirectAttributes redirect) {
+		try {
+			invitationService.invite(principal.toActor(), departmentId, email, false);
+			redirect.addFlashAttribute("message", "관리자 초대 메일 발송을 예약했습니다.");
+		} catch (IllegalArgumentException | BusinessRuleException exception) {
+			redirect.addFlashAttribute("error", exception.getMessage());
+		}
+		return "redirect:/admin/departments/" + departmentId;
+	}
+
+	/** 현재 부서의 실패한 관리자 초대 메일만 다시 전송할 수 있다. */
+	@PostMapping("/admin/departments/{departmentId}/admin-invitations/{outboxId}/resend")
+	public String resendAdministratorInvitation(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long outboxId,
+			RedirectAttributes redirect) {
+		try {
+			invitationService.resend(principal.toActor(), departmentId, outboxId, false);
+			redirect.addFlashAttribute("message", "관리자 초대 메일 재전송을 예약했습니다.");
+		} catch (BusinessRuleException exception) {
+			redirect.addFlashAttribute("error", exception.getMessage());
+		}
+		return "redirect:/admin/departments/" + departmentId;
+	}
+
 	/** 오늘의 출석 집계와 부서 내비게이션을 표시한다. */
 	@GetMapping("/admin/departments/{departmentId}")
 	public String dashboard(
@@ -115,6 +151,8 @@ public final class DepartmentAdminController {
 		model.addAttribute("dashboard", dashboard);
 		model.addAttribute("dashboardRows",
 				dashboardRows(principal, departmentId, dashboard));
+		model.addAttribute("invitations",
+				invitationService.invitations(principal.toActor(), departmentId));
 		return "admin/department/dashboard";
 	}
 

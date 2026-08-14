@@ -10,11 +10,12 @@
     <a th:if="${writeEnabled}" th:href="@{/admin/system/departments/new}">부서 생성</a>
     <table>
         <caption>등록 부서</caption>
-        <thead><tr><th>부서명</th><th>활성 관리자</th><th>장치</th></tr></thead>
+        <thead><tr><th>부서명</th><th>상태</th><th>활성 관리자</th><th>장치</th></tr></thead>
         <tbody>
         <tr th:each="department : ${departments}">
             <td><a th:href="@{/admin/system/departments/{id}(id=${department.id})}"
                    th:text="${department.name}">부서</a></td>
+            <td th:text="${department.active ? '활성' : '비활성'}">활성</td>
             <td th:text="${department.administrator_count}">0</td>
             <td th:text="${department.device_count}">0</td>
         </tr>

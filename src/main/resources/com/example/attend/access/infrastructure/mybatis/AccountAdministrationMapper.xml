@@ -46,6 +46,26 @@
 		RETURNING id
 	</select>
 
+	<update id="updateDepartmentName">
+		UPDATE public.department
+		SET name = #{name}
+		WHERE id = #{departmentId}
+	</update>
+
+	<update id="deactivateDepartment">
+		UPDATE public.department
+		SET active = FALSE
+		WHERE id = #{departmentId}
+		  AND active
+	</update>
+
+	<update id="reactivateDepartment">
+		UPDATE public.department
+		SET active = TRUE
+		WHERE id = #{departmentId}
+		  AND NOT active
+	</update>
+
 	<select id="selectDepartmentAdministrators" resultType="map">
 		SELECT account.id,
 		       account.username,
@@ -96,6 +116,14 @@
 		       password_changed_at, created_at
 		FROM public.account
 		WHERE id = #{accountId}
+	</select>
+
+	<select id="selectAccountByUsername"
+			resultType="com.example.attend.access.infrastructure.mybatis.AccountAdministrationRow">
+		SELECT id, username, password_hash, system_role, status,
+		       password_changed_at, created_at
+		FROM public.account
+		WHERE lower(btrim(username)) = lower(btrim(#{username}))
 	</select>
 
 	<select id="lockAccount"
@@ -177,6 +205,30 @@
 		WHERE department.id = #{departmentId}
 		  AND department.active
 		RETURNING id
+	</select>
+
+	<select id="insertDepartmentAdminInvitationOutbox" resultType="long" affectData="true">
+		INSERT INTO public.department_admin_invitation_outbox(
+		    account_id, department_id, issued_by_account_id, delivery_type, recipient_email)
+		VALUES (#{accountId}, #{departmentId}, #{issuerAccountId},
+		        #{deliveryType}, #{recipientEmail})
+		RETURNING id
+	</select>
+
+	<select id="selectDepartmentAdminInvitationOutbox" resultType="map">
+		SELECT outbox.id,
+		       account.username,
+		       outbox.delivery_type,
+		       outbox.status,
+		       outbox.attempt_count,
+		       outbox.last_error_code,
+		       outbox.created_at,
+		       outbox.sent_at
+		FROM public.department_admin_invitation_outbox AS outbox
+		JOIN public.account AS account ON account.id = outbox.account_id
+		WHERE outbox.department_id = #{departmentId}
+		ORDER BY outbox.created_at DESC, outbox.id DESC
+		LIMIT 20
 	</select>
 
 	<update id="revokeDepartmentRole">

@@ -79,6 +79,14 @@ public class SystemAdministrationService {
 		return mapper.selectDepartmentDevices(departmentId);
 	}
 
+	/** 부서 상세에 최근 관리자 초대 메일 전달 상태를 표시한다. */
+	@Transactional(readOnly = true)
+	public List<Map<String, Object>> departmentInvitations(
+			AccountActor actor, long departmentId) {
+		department(actor, departmentId);
+		return mapper.selectDepartmentAdminInvitationOutbox(departmentId);
+	}
+
 	/** 계정·권한을 암묵적으로 만들지 않고 부서 하나만 생성한다. */
 	@Transactional
 	public long createDepartment(AccountActor actor, String name) {
@@ -94,6 +102,53 @@ public class SystemAdministrationService {
 		} catch (DuplicateKeyException exception) {
 			throw new BusinessRuleException("department name already exists");
 		}
+	}
+
+	/** 시스템 관리자가 부서 이름만 변경한다. */
+	@Transactional
+	public void updateDepartment(AccountActor actor, long departmentId, String name) {
+		writeGate.requireEnabled();
+		authorization.requireSystemAdmin(actor);
+		Map<String, Object> department = department(actor, departmentId);
+		name = normalizeRequired(name, "department name", 100);
+		try {
+			if (mapper.updateDepartmentName(departmentId, name) != 1) {
+				throw new ResourceNotFoundException("department");
+			}
+		} catch (DuplicateKeyException exception) {
+			throw new BusinessRuleException("department name already exists");
+		}
+		auditLogWriter.writeAccount(departmentId, actor, null, "DEPARTMENT_RENAMED",
+				"DEPARTMENT", Long.toString(departmentId),
+				Map.of("name", department.get("name")), Map.of("name", name), null);
+	}
+
+	/** 물리 삭제 없이 부서를 비활성화해 업무와 장치 처리를 함께 막는다. */
+	@Transactional
+	public void deactivateDepartment(AccountActor actor, long departmentId) {
+		writeGate.requireEnabled();
+		authorization.requireSystemAdmin(actor);
+		department(actor, departmentId);
+		if (mapper.deactivateDepartment(departmentId) != 1) {
+			throw new BusinessRuleException("department is already inactive");
+		}
+		auditLogWriter.writeAccount(departmentId, actor, null, "DEPARTMENT_DEACTIVATED",
+				"DEPARTMENT", Long.toString(departmentId),
+				Map.of("active", true), Map.of("active", false), null);
+	}
+
+	/** 보존된 역할·이력을 바꾸지 않고 부서를 재활성화한다. */
+	@Transactional
+	public void reactivateDepartment(AccountActor actor, long departmentId) {
+		writeGate.requireEnabled();
+		authorization.requireSystemAdmin(actor);
+		department(actor, departmentId);
+		if (mapper.reactivateDepartment(departmentId) != 1) {
+			throw new BusinessRuleException("department is already active");
+		}
+		auditLogWriter.writeAccount(departmentId, actor, null, "DEPARTMENT_REACTIVATED",
+				"DEPARTMENT", Long.toString(departmentId),
+				Map.of("active", false), Map.of("active", true), null);
 	}
 
 	/** 관리자 계정 목록과 현재 역할 요약을 조회한다. */

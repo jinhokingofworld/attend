@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import com.example.attend.access.application.AdminWriteGate;
 import com.example.attend.access.application.CredentialTokenService;
+import com.example.attend.access.application.DepartmentAdminInvitationService;
 import com.example.attend.access.application.SystemAdministrationService;
 import com.example.attend.access.domain.AccountSystemRole;
 import com.example.attend.access.security.AccountPrincipal;
@@ -34,6 +35,7 @@ class SystemAdminControllerTest {
 				mock(OperationsRuntimeStatusService.class);
 		SystemAdminController controller = new SystemAdminController(
 				administrationService,
+				mock(DepartmentAdminInvitationService.class),
 				mock(CredentialTokenService.class),
 				writeGate,
 				runtimeStatusService);

@@ -2,6 +2,7 @@ package com.example.attend.access.web;
 
 import com.example.attend.access.application.AdminWriteGate;
 import com.example.attend.access.application.CredentialTokenService;
+import com.example.attend.access.application.DepartmentAdminInvitationService;
 import com.example.attend.access.application.IssuedCredentialLink;
 import com.example.attend.access.application.SystemAdministrationService;
 import com.example.attend.access.domain.CredentialTokenPurpose;
@@ -29,6 +30,7 @@ import java.util.Map;
 public final class SystemAdminController {
 
 	private final SystemAdministrationService administrationService;
+	private final DepartmentAdminInvitationService invitationService;
 	private final CredentialTokenService tokenService;
 	private final AdminWriteGate writeGate;
 	private final OperationsRuntimeStatusService runtimeStatusService;
@@ -38,10 +40,12 @@ public final class SystemAdminController {
 	 */
 	public SystemAdminController(
 			SystemAdministrationService administrationService,
+			DepartmentAdminInvitationService invitationService,
 			CredentialTokenService tokenService,
 			AdminWriteGate writeGate,
 			OperationsRuntimeStatusService runtimeStatusService) {
 		this.administrationService = administrationService;
+		this.invitationService = invitationService;
 		this.tokenService = tokenService;
 		this.writeGate = writeGate;
 		this.runtimeStatusService = runtimeStatusService;
@@ -115,7 +119,88 @@ public final class SystemAdminController {
 		model.addAttribute("devices",
 				administrationService.departmentDevices(
 						principal.toActor(), departmentId));
+		model.addAttribute("invitations",
+				administrationService.departmentInvitations(
+						principal.toActor(), departmentId));
 		return "admin/system/department-detail";
+	}
+
+	/** 시스템 관리자가 부서 이름을 변경한다. */
+	@PostMapping("/admin/system/departments/{departmentId}/edit")
+	public String editDepartment(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@RequestParam String name,
+			RedirectAttributes redirectAttributes) {
+		try {
+			administrationService.updateDepartment(principal.toActor(), departmentId, name);
+			redirectAttributes.addFlashAttribute("message", "부서 이름을 수정했습니다.");
+		} catch (IllegalArgumentException | BusinessRuleException exception) {
+			redirectAttributes.addFlashAttribute("error", safeMessage(exception));
+		}
+		return "redirect:/admin/system/departments/" + departmentId;
+	}
+
+	/** 시스템 관리자가 부서를 이력 보존 방식으로 비활성화한다. */
+	@PostMapping("/admin/system/departments/{departmentId}/deactivate")
+	public String deactivateDepartment(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			RedirectAttributes redirectAttributes) {
+		try {
+			administrationService.deactivateDepartment(principal.toActor(), departmentId);
+			redirectAttributes.addFlashAttribute("message", "부서를 비활성화했습니다.");
+		} catch (BusinessRuleException exception) {
+			redirectAttributes.addFlashAttribute("error", safeMessage(exception));
+		}
+		return "redirect:/admin/system/departments/" + departmentId;
+	}
+
+	/** 시스템 관리자가 비활성 부서를 다시 사용할 수 있게 한다. */
+	@PostMapping("/admin/system/departments/{departmentId}/reactivate")
+	public String reactivateDepartment(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			RedirectAttributes redirectAttributes) {
+		try {
+			administrationService.reactivateDepartment(principal.toActor(), departmentId);
+			redirectAttributes.addFlashAttribute("message", "부서를 재활성화했습니다.");
+		} catch (BusinessRuleException exception) {
+			redirectAttributes.addFlashAttribute("error", safeMessage(exception));
+		}
+		return "redirect:/admin/system/departments/" + departmentId;
+	}
+
+	/** 모든 부서에서 사용할 수 있는 시스템 관리자 초대 진입점이다. */
+	@PostMapping("/admin/system/departments/{departmentId}/admin-invitations")
+	public String inviteDepartmentAdministrator(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@RequestParam String email,
+			RedirectAttributes redirectAttributes) {
+		try {
+			invitationService.invite(principal.toActor(), departmentId, email, true);
+			redirectAttributes.addFlashAttribute("message", "관리자 초대 메일 발송을 예약했습니다.");
+		} catch (IllegalArgumentException | BusinessRuleException exception) {
+			redirectAttributes.addFlashAttribute("error", safeMessage(exception));
+		}
+		return "redirect:/admin/system/departments/" + departmentId;
+	}
+
+	/** 실패한 부서 관리자 이메일을 시스템 관리자가 재전송한다. */
+	@PostMapping("/admin/system/departments/{departmentId}/admin-invitations/{outboxId}/resend")
+	public String resendDepartmentAdministratorInvitation(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long outboxId,
+			RedirectAttributes redirectAttributes) {
+		try {
+			invitationService.resend(principal.toActor(), departmentId, outboxId, true);
+			redirectAttributes.addFlashAttribute("message", "관리자 초대 메일 재전송을 예약했습니다.");
+		} catch (BusinessRuleException exception) {
+			redirectAttributes.addFlashAttribute("error", safeMessage(exception));
+		}
+		return "redirect:/admin/system/departments/" + departmentId;
 	}
 
 	/** 관리자 계정 목록을 표시한다. */
@@ -213,19 +298,6 @@ public final class SystemAdminController {
 		model.addAttribute("departments", administrationService.departments(
 				principal.toActor()));
 		return "admin/system/account-detail";
-	}
-
-	/** 회원가입 초대 링크를 새로 발급해 한 번만 표시한다. */
-	@PostMapping("/admin/system/accounts/{accountId}/invite")
-	public String invite(
-			@AuthenticationPrincipal AccountPrincipal principal,
-			@PathVariable long accountId,
-			Model model) {
-		return showCredentialLink(
-				principal,
-				accountId,
-				CredentialTokenPurpose.INVITATION,
-				model);
 	}
 
 	/** 비밀번호 재설정 링크를 새로 발급해 한 번만 표시한다. */

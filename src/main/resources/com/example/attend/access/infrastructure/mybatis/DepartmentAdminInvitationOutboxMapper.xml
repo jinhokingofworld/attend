@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.attend.access.infrastructure.mybatis.DepartmentAdminInvitationOutboxMapper">
+    <select id="selectReadyIds" resultType="long">
+        SELECT id FROM public.department_admin_invitation_outbox
+        WHERE status IN ('PENDING', 'RETRY') AND next_attempt_at &lt;= #{now}
+        ORDER BY next_attempt_at, id LIMIT #{limit}
+    </select>
+
+    <select id="claim" resultType="com.example.attend.access.application.DepartmentAdminInvitationDispatchJob"
+            affectData="true" flushCache="true">
+        UPDATE public.department_admin_invitation_outbox
+        SET status = 'PROCESSING', attempt_count = attempt_count + 1,
+            claim_version = claim_version + 1, lease_until = #{leaseUntil}, updated_at = #{now}
+        WHERE id = #{id} AND status IN ('PENDING', 'RETRY') AND next_attempt_at &lt;= #{now}
+        RETURNING id, account_id, department_id, issued_by_account_id,
+            (SELECT name FROM public.department WHERE id = department_id) AS department_name,
+            recipient_email, delivery_type, attempt_count, claim_version,
+            EXISTS (
+                SELECT 1 FROM public.department AS department
+                JOIN public.account_department_role AS role_assignment
+                  ON role_assignment.department_id = department.id
+                 AND role_assignment.account_id = department_admin_invitation_outbox.account_id
+                 AND role_assignment.role = 'DEPARTMENT_ADMIN'
+                 AND role_assignment.revoked_at IS NULL
+                JOIN public.account AS account
+                  ON account.id = department_admin_invitation_outbox.account_id
+                WHERE department.id = department_admin_invitation_outbox.department_id
+                  AND department.active
+                  AND ((department_admin_invitation_outbox.delivery_type = 'INVITATION'
+                        AND account.status = 'PENDING_SETUP')
+                    OR (department_admin_invitation_outbox.delivery_type = 'ROLE_ASSIGNED'
+                        AND account.status = 'ACTIVE'))
+            ) AS eligible
+    </select>
+
+    <update id="markSent">
+        UPDATE public.department_admin_invitation_outbox
+        SET status = 'SENT', sent_at = #{sentAt}, lease_until = NULL,
+            last_error_code = NULL, updated_at = #{sentAt}
+        WHERE id = #{id} AND status = 'PROCESSING' AND claim_version = #{claimVersion}
+    </update>
+    <update id="markRetry">
+        UPDATE public.department_admin_invitation_outbox
+        SET status = 'RETRY', next_attempt_at = #{nextAttemptAt}, lease_until = NULL,
+            last_error_code = #{errorCode}, updated_at = #{updatedAt}
+        WHERE id = #{id} AND status = 'PROCESSING' AND claim_version = #{claimVersion}
+    </update>
+    <update id="markDead">
+        UPDATE public.department_admin_invitation_outbox
+        SET status = 'DEAD', lease_until = NULL, last_error_code = #{errorCode}, updated_at = #{updatedAt}
+        WHERE id = #{id} AND status = 'PROCESSING' AND claim_version = #{claimVersion}
+    </update>
+    <update id="markCanceled">
+        UPDATE public.department_admin_invitation_outbox
+        SET status = 'CANCELED', lease_until = NULL, last_error_code = NULL, updated_at = #{updatedAt}
+        WHERE id = #{id} AND status = 'PROCESSING' AND claim_version = #{claimVersion}
+    </update>
+    <update id="recoverExpiredLeases">
+        UPDATE public.department_admin_invitation_outbox
+        SET status = 'RETRY', next_attempt_at = #{now}, lease_until = NULL,
+            last_error_code = 'MAIL_LEASE_EXPIRED', updated_at = #{now}
+        WHERE status = 'PROCESSING' AND lease_until &lt;= #{now}
+    </update>
+    <update id="resetDead">
+        UPDATE public.department_admin_invitation_outbox AS outbox
+        SET status = 'PENDING', attempt_count = 0, next_attempt_at = #{now},
+            lease_until = NULL, last_error_code = NULL, updated_at = #{now}
+        FROM public.department AS department
+        WHERE outbox.id = #{id} AND outbox.department_id = #{departmentId}
+          AND department.id = outbox.department_id AND department.active
+          AND outbox.status = 'DEAD'
+    </update>
+</mapper>

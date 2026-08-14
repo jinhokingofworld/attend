@@ -22,6 +22,17 @@ public interface AccountAdministrationMapper {
 	/** 부서를 추가하고 생성 ID를 반환한다. */
 	long insertDepartment(@Param("name") String name);
 
+	/** 부서 이름을 변경한다. */
+	int updateDepartmentName(
+			@Param("departmentId") long departmentId,
+			@Param("name") String name);
+
+	/** 부서를 논리적으로 비활성화한다. */
+	int deactivateDepartment(@Param("departmentId") long departmentId);
+
+	/** 비활성 부서를 다시 업무 가능 상태로 돌린다. */
+	int reactivateDepartment(@Param("departmentId") long departmentId);
+
 	/** 부서의 활성 관리자 계정 목록을 조회한다. */
 	List<Map<String, Object>> selectDepartmentAdministrators(
 			@Param("departmentId") long departmentId);
@@ -35,6 +46,9 @@ public interface AccountAdministrationMapper {
 
 	/** 계정 한 건을 조회한다. */
 	AccountAdministrationRow selectAccount(@Param("accountId") long accountId);
+
+	/** 대소문자를 무시한 사용자명으로 계정을 조회한다. */
+	AccountAdministrationRow selectAccountByUsername(@Param("username") String username);
 
 	/** 상태 변경할 계정 행을 잠근다. */
 	AccountAdministrationRow lockAccount(@Param("accountId") long accountId);
@@ -68,6 +82,18 @@ public interface AccountAdministrationMapper {
 			@Param("departmentId") long departmentId,
 			@Param("actorAccountId") long actorAccountId,
 			@Param("assignedAt") Instant assignedAt);
+
+	/** 메일로 전달할 부서 관리자 초대 작업을 저장한다. */
+	long insertDepartmentAdminInvitationOutbox(
+			@Param("accountId") long accountId,
+			@Param("departmentId") long departmentId,
+			@Param("issuerAccountId") long issuerAccountId,
+			@Param("deliveryType") String deliveryType,
+			@Param("recipientEmail") String recipientEmail);
+
+	/** 부서 상세 화면의 최근 초대 전달 상태를 조회한다. */
+	List<Map<String, Object>> selectDepartmentAdminInvitationOutbox(
+			@Param("departmentId") long departmentId);
 
 	/** 활성 부서 관리자 역할 이력을 종료한다. */
 	int revokeDepartmentRole(

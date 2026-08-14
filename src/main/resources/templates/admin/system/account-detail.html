@@ -16,11 +16,7 @@
 
     <section th:if="${writeEnabled}">
         <h2>회원가입·비밀번호</h2>
-        <form th:if="${account.status == 'PENDING_SETUP'}"
-              th:action="@{/admin/system/accounts/{id}/invite(id=${account.id})}"
-              method="post">
-            <button type="submit">회원가입 초대 링크 발급</button>
-        </form>
+        <p th:if="${account.status == 'PENDING_SETUP'}">부서 상세의 관리자 초대에서 이메일 발송 상태를 관리합니다.</p>
         <form th:if="${account.status == 'ACTIVE'}"
               th:action="@{/admin/system/accounts/{id}/reset-password(id=${account.id})}"
               method="post">

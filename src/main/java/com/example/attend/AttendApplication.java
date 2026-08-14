@@ -2,6 +2,7 @@ package com.example.attend;
 
 import com.example.attend.config.AttendanceProperties;
 import com.example.attend.config.AttendanceFinalizationSchedulerProperties;
+import com.example.attend.config.AttendanceMailProperties;
 import com.example.attend.config.AdminSecurityProperties;
 import com.example.attend.config.DeviceApiProperties;
 import com.example.attend.config.OperationalTelegramProperties;
@@ -22,6 +23,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 @EnableConfigurationProperties({
 		AttendanceProperties.class,
 		AttendanceFinalizationSchedulerProperties.class,
+		AttendanceMailProperties.class,
 		AdminSecurityProperties.class,
 		DeviceApiProperties.class,
 		OperationalTelegramProperties.class,

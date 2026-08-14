@@ -81,6 +81,26 @@ public class CredentialTokenService {
 			CredentialTokenPurpose purpose) {
 		writeGate.requireEnabled();
 		systemAuthorization.requireSystemAdmin(actor);
+		return issueUnchecked(actor.accountId(), accountId, purpose);
+	}
+
+	/**
+	 * 초대 outbox worker만 사용하는 내부 발급 경로다. 요청 시점의 권한은
+	 * outbox를 만들 때 검증됐고, 이 메서드는 원문을 저장하지 않은 채 메일 전송
+	 * 시점마다 새 초대 token을 만든다.
+	 */
+	@Transactional
+	public IssuedCredentialLink issueInvitationForDelivery(
+			long issuerAccountId, long accountId) {
+		writeGate.requireEnabled();
+		return issueUnchecked(issuerAccountId, accountId,
+				CredentialTokenPurpose.INVITATION);
+	}
+
+	private IssuedCredentialLink issueUnchecked(
+			long issuerAccountId,
+			long accountId,
+			CredentialTokenPurpose purpose) {
 		String baseUrl = requirePublicBaseUrl();
 		byte[] pepper = requirePepper();
 
@@ -101,12 +121,12 @@ public class CredentialTokenService {
 				accountId,
 				purpose.name(),
 				hash(rawToken, pepper),
-				actor.accountId(),
+				issuerAccountId,
 				issuedAt,
 				expiresAt);
 		auditLogWriter.writeAccount(
 				null,
-				actor,
+				new AccountActor(issuerAccountId),
 				null,
 				purpose == CredentialTokenPurpose.INVITATION
 						? "ACCOUNT_INVITATION_ISSUED"

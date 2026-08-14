@@ -287,9 +287,10 @@ erDiagram
 
 | 테이블 | 역할 | 핵심 제약 |
 |---|---|---|
-| `department` | 교회 내 독립 운영 부서 | 이름 유일, 물리 삭제 금지 |
+| `department` | 교회 내 독립 운영 부서 | 이름 유일, 물리 삭제 금지, 비활성 시 웹·장치 업무 차단 |
 | `account` | 관리자 로그인 계정과 회원가입 초대 진행 상태 | 사용자명 대소문자 무시 유일, 상태와 nullable 비밀번호 hash·변경 시각의 일관성 |
 | `account_credential_token` | 회원가입 초대와 비밀번호 재설정용 일회성 token | `INVITATION`·`RESET`, lowercase HMAC-SHA-256 hash, 계정·목적별 활성 token 최대 한 건 |
+| `department_admin_invitation_outbox` | 부서 관리자 SMTP 초대·권한 안내 전달 작업 | 원문 token 미저장, lease·재시도·최종 실패 상태 보존 |
 | `account_department_role` | 계정의 부서별 관리자 권한과 이력 | 동일 계정·부서·역할의 활성 권한은 한 건 |
 
 `account.system_role`은 `SYSTEM_ADMIN` 또는 `NULL`만 허용한다. 부서 관리자 권한은 `account`에 직접 넣지 않고 `account_department_role`로 분리해 한 관리자가 여러 부서를 담당할 수 있게 한다.

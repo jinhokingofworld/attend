@@ -6,9 +6,12 @@
 
 	<select id="selectCredentialByCode"
 			resultType="com.example.attend.device.infrastructure.mybatis.DeviceCredentialRow">
-		SELECT id, department_id, credential_hash, credential_version
-		FROM public.device
-		WHERE device_code = #{deviceCode}
+		SELECT device.id, device.department_id, device.credential_hash, device.credential_version
+		FROM public.device AS device
+		JOIN public.department AS department
+		  ON department.id = device.department_id
+		 AND department.active
+		WHERE device.device_code = #{deviceCode}
 	</select>
 
 	<update id="updateLastSeen">
@@ -20,19 +23,25 @@
 
 	<select id="lockRuntimeDevice"
 			resultType="com.example.attend.device.infrastructure.mybatis.DeviceRuntimeRow">
-		SELECT id, department_id, credential_version, status
-		FROM public.device
-		WHERE id = #{deviceId}
-		  AND department_id = #{departmentId}
+		SELECT device.id, device.department_id, device.credential_version, device.status
+		FROM public.device AS device
+		JOIN public.department AS department
+		  ON department.id = device.department_id
+		 AND department.active
+		WHERE device.id = #{deviceId}
+		  AND device.department_id = #{departmentId}
 		FOR UPDATE
 	</select>
 
 	<select id="selectRuntimeDevice"
 			resultType="com.example.attend.device.infrastructure.mybatis.DeviceRuntimeRow">
-		SELECT id, department_id, credential_version, status
-		FROM public.device
-		WHERE id = #{deviceId}
-		  AND department_id = #{departmentId}
+		SELECT device.id, device.department_id, device.credential_version, device.status
+		FROM public.device AS device
+		JOIN public.department AS department
+		  ON department.id = device.department_id
+		 AND department.active
+		WHERE device.id = #{deviceId}
+		  AND device.department_id = #{departmentId}
 	</select>
 
 	<update id="markCredentialTested">
