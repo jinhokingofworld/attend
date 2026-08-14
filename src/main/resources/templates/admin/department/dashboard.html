@@ -27,6 +27,27 @@
         <a th:href="@{/admin/workspaces}">부서 전환</a>
     </nav>
 
+    <section>
+        <h2>부서 관리자 초대</h2>
+        <p th:if="${message}" th:text="${message}" role="status"></p>
+        <p th:if="${error}" th:text="${error}" role="alert"></p>
+        <form th:if="${writeEnabled}" method="post"
+              th:action="@{/admin/departments/{id}/admin-invitations(id=${department.id})}">
+            <label>이메일 <input type="email" name="email" maxlength="100" required></label>
+            <button type="submit">관리자 초대 메일 예약</button>
+        </form>
+        <ul>
+            <li th:each="invitation : ${invitations}">
+                <span th:text="|${invitation.username} · ${invitation.status}|">초대 상태</span>
+                <form th:if="${writeEnabled and invitation.status == 'DEAD'}" method="post"
+                      th:action="@{/admin/departments/{departmentId}/admin-invitations/{outboxId}/resend(departmentId=${department.id},outboxId=${invitation.id})}">
+                    <button type="submit">이메일 재전송</button>
+                </form>
+            </li>
+        </ul>
+        <p th:if="${#lists.isEmpty(invitations)}">최근 관리자 초대가 없습니다.</p>
+    </section>
+
     <section data-dashboard-live
              th:attr="data-endpoint=@{/admin/departments/{id}/dashboard-data(id=${department.id})},data-member-base=@{/admin/departments/{id}/teachers(id=${department.id})},data-day-base=@{/admin/departments/{id}/attendance-days(id=${department.id})}">
         <div data-dashboard-content th:hidden="${dashboard == null}">

@@ -287,9 +287,10 @@ erDiagram
 
 | 테이블 | 역할 | 핵심 제약 |
 |---|---|---|
-| `department` | 교회 내 독립 운영 부서 | 이름 유일, 물리 삭제 금지 |
+| `department` | 교회 내 독립 운영 부서 | 이름 유일, 물리 삭제 금지, 비활성 시 웹·장치 업무 차단 |
 | `account` | 관리자 로그인 계정과 회원가입 초대 진행 상태 | 사용자명 대소문자 무시 유일, 상태와 nullable 비밀번호 hash·변경 시각의 일관성 |
 | `account_credential_token` | 회원가입 초대와 비밀번호 재설정용 일회성 token | `INVITATION`·`RESET`, lowercase HMAC-SHA-256 hash, 계정·목적별 활성 token 최대 한 건 |
+| `department_admin_invitation_outbox` | 부서 관리자 SMTP 초대·권한 안내 전달 작업 | 원문 token 미저장, lease·재시도·최종 실패 상태 보존 |
 | `account_department_role` | 계정의 부서별 관리자 권한과 이력 | 동일 계정·부서·역할의 활성 권한은 한 건 |
 
 `account.system_role`은 `SYSTEM_ADMIN` 또는 `NULL`만 허용한다. 부서 관리자 권한은 `account`에 직접 넣지 않고 `account_department_role`로 분리해 한 관리자가 여러 부서를 담당할 수 있게 한다.
@@ -316,7 +317,7 @@ NFC UID는 대문자 16진수 문자열로 정규화한다. 카드 연결을 별
 
 소속 제외와 카드 연결 해제 시각을 기록할 때는 인증된 부서 관리자 계정 ID와 비어 있지 않은 사유를 함께 저장한다. 처리 관리자 ID는 클라이언트 입력을 신뢰하지 않고 인증 세션에서 서버가 결정한다. 화면의 필수 입력만으로는 API 직접 호출을 막을 수 없으므로 Spring 입력·권한 검증과 DB `CHECK`를 함께 적용한다.
 
-MVP에서는 `department.active`를 생성 시 `TRUE`로 두고 변경하는 application command를 제공하지 않는다. 이 컬럼은 후속 부서 비활성화·재활성화 기능을 위한 예약 필드다.
+시스템 관리자는 부서 이름을 수정하고 `department.active`를 비활성화·재활성화할 수 있다. 비활성 부서는 부서 관리자 작업 공간과 장치 인증·출석 처리를 거부하지만, 관리자 역할·구성원·출석 이력은 삭제하지 않는다.
 
 카드의 UID와 물리 행은 수정·삭제하지 않는다. 등록·재연결은 `AVAILABLE → ACTIVE`와 assignment 생성을, 정상 해제·교체는 assignment 종료와 `ACTIVE → AVAILABLE`을, 분실은 assignment 종료와 `ACTIVE → LOST`를, 영구 폐기는 필요 시 assignment 종료와 `RETIRED` 전이를 각각 같은 트랜잭션에서 처리한다. `RETIRED` 카드는 다시 연결하지 않는다. 이 교차 행 규칙은 단일 `CHECK`로 표현할 수 없으므로 서비스 잠금·검증과 PostgreSQL 통합 테스트로 보장한다.
 

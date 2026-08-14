@@ -30,7 +30,7 @@ public final class SchemaVersionGuard implements InitializingBean {
     private static final List<MigrationVersion> REQUIRED_VERSIONS =
             List.of(
                     "1", "2", "3", "4", "5", "6", "7",
-                    "8", "9", "10", "11", "12", "13", "14", "15", "16", "17"
+                    "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18"
             ).stream()
                     .map(MigrationVersion::fromVersion)
                     .toList();
@@ -58,7 +58,7 @@ public final class SchemaVersionGuard implements InitializingBean {
     }
 
     /**
-     * 성공한 versioned migration이 V001~V017과 정확히 일치하는지 확인한다.
+     * 성공한 versioned migration이 V001~V018과 정확히 일치하는지 확인한다.
      *
      * <p>문자열의 최댓값만 비교하면 {@code 9}와 {@code 10} 같은 버전을
      * 잘못 정렬할 수 있으므로 Flyway의 {@link MigrationVersion}으로 해석한
