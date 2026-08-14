@@ -85,6 +85,18 @@ class DepartmentAdminInvitationServiceTest {
     }
 
     @Test
+    void rejectsMalformedEmailWithoutEvaluatingAUserControlledRegularExpression() {
+        when(mapper.selectDepartment(7L)).thenReturn(Map.of("active", true));
+
+        assertThatThrownBy(() -> service.invite(
+                new AccountActor(2L), 7L, "!@!.".repeat(100), false))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("email is invalid");
+
+        verify(mapper, never()).selectAccountByUsername(any());
+    }
+
+    @Test
     void departmentAdminCanOnlyResetAnEligibleFailedJob() {
         AccountActor actor = new AccountActor(2L);
         when(outboxMapper.resetDead(eq(44L), eq(7L), any())).thenReturn(1);

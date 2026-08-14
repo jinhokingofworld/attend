@@ -128,7 +128,14 @@ public class DepartmentAdminInvitationService {
             throw new IllegalArgumentException("email is required");
         }
         String email = value.trim().toLowerCase(Locale.ROOT);
-        if (email.length() > 100 || !email.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) {
+        int atIndex = email.indexOf('@');
+        int finalDotIndex = email.lastIndexOf('.');
+        if (email.length() > 100
+                || atIndex <= 0
+                || atIndex != email.lastIndexOf('@')
+                || finalDotIndex <= atIndex + 1
+                || finalDotIndex == email.length() - 1
+                || email.chars().anyMatch(Character::isWhitespace)) {
             throw new IllegalArgumentException("email is invalid");
         }
         return email;
