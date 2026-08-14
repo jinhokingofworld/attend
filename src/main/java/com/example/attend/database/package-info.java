@@ -12,7 +12,7 @@
  * 운영 승인
  *   -&gt; {@link com.example.attend.database.DatabasePreflightInspector}
  *   -&gt; {@link com.example.attend.database.DatabaseMigrationRunner}
- *   -&gt; Flyway V001~V017
+ *   -&gt; Flyway V001~V018
  *   -&gt; {@link com.example.attend.database.SchemaVersionGuard}
  * </pre>
  */

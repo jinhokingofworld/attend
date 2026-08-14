@@ -43,7 +43,7 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
     }
 
     /**
-     * 현재 DB 사용자가 V017 runtime 최소 권한 경계를 지키는지 확인한다.
+     * 현재 DB 사용자가 V018 runtime 최소 권한 경계를 지키는지 확인한다.
      *
      * @param dataSource 검사할 운영 데이터소스
      * @throws IllegalStateException 권한이 과도하거나 필수 조회 권한이 없을 때
@@ -176,6 +176,11 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                         )
                         AND has_table_privilege(
                             current_user,
+                            'public.department_admin_invitation_outbox',
+                            'SELECT,INSERT'
+                        )
+                        AND has_table_privilege(
+                            current_user,
                             'public.finalization_operational_event',
                             'SELECT'
                         )
@@ -241,6 +246,11 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                         )
                         AND has_sequence_privilege(
                             current_user,
+                            'public.department_admin_invitation_outbox_id_seq',
+                            'USAGE'
+                        )
+                        AND has_sequence_privilege(
+                            current_user,
                             'public.finalization_operational_event_id_seq',
                             'USAGE'
                         )
@@ -275,6 +285,16 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                                     ('attendance_notification_outbox', 'sent_at'),
                                     ('attendance_notification_outbox', 'last_error_code'),
                                     ('attendance_notification_outbox', 'updated_at'),
+                                    ('department_admin_invitation_outbox', 'status'),
+                                    ('department_admin_invitation_outbox', 'attempt_count'),
+                                    ('department_admin_invitation_outbox', 'claim_version'),
+                                    ('department_admin_invitation_outbox', 'next_attempt_at'),
+                                    ('department_admin_invitation_outbox', 'lease_until'),
+                                    ('department_admin_invitation_outbox', 'sent_at'),
+                                    ('department_admin_invitation_outbox', 'last_error_code'),
+                                    ('department_admin_invitation_outbox', 'updated_at'),
+                                    ('department', 'name'),
+                                    ('department', 'active'),
                                     ('finalization_operational_event', 'status'),
                                     ('finalization_operational_event', 'delivery_attempt_count'),
                                     ('finalization_operational_event', 'delivery_claim_version'),

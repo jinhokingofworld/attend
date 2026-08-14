@@ -27,6 +27,7 @@ public class DepartmentAdminInvitationService {
     private final AuditLogWriter auditLogWriter;
     private final Clock clock;
 
+    /** 부서·시스템 권한, 계정 저장, audit 저장 경계를 주입한다. */
     public DepartmentAdminInvitationService(
             SystemAuthorization systemAuthorization,
             DepartmentAuthorization departmentAuthorization,
@@ -78,8 +79,9 @@ public class DepartmentAdminInvitationService {
         if ("DISABLED".equals(account.status())) {
             throw new BusinessRuleException("disabled account cannot be invited");
         }
-        if (mapper.countActiveRole(account.id(), departmentId) == 0) {
-            mapper.insertDepartmentRole(account.id(), departmentId, actor.accountId(), clock.instant());
+		Long roleId = mapper.insertDepartmentRole(
+				account.id(), departmentId, actor.accountId(), clock.instant());
+		if (roleId != null) {
             auditLogWriter.writeAccount(departmentId, actor, null, "DEPARTMENT_ROLE_ASSIGNED",
                     "ACCOUNT", Long.toString(account.id()), null,
                     Map.of("role", "DEPARTMENT_ADMIN", "invited", true), null);

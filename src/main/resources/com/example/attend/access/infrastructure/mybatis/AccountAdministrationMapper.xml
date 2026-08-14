@@ -189,7 +189,7 @@
 		  AND revoked_at IS NULL
 	</select>
 
-	<select id="insertDepartmentRole" resultType="long" affectData="true">
+	<select id="insertDepartmentRole" resultType="java.lang.Long" affectData="true">
 		INSERT INTO public.account_department_role(
 		    account_id,
 		    department_id,
@@ -204,6 +204,8 @@
 		FROM public.department AS department
 		WHERE department.id = #{departmentId}
 		  AND department.active
+		ON CONFLICT (account_id, department_id, role)
+		    WHERE revoked_at IS NULL DO NOTHING
 		RETURNING id
 	</select>
 

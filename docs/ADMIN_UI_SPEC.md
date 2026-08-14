@@ -134,12 +134,13 @@
 | `POST` | `/logout` | 로그아웃 |
 | `GET` | `/admin/workspaces` | 작업 공간 선택 |
 | `GET`, `POST` | `/admin/account/password` | 본인 비밀번호 변경 |
-| `GET`, `POST` | `/admin/system/departments...` | 부서 목록·생성·상세 |
+| `GET`, `POST` | `/admin/system/departments...` | 부서 목록·생성·상세·이름 수정·비활성화·재활성화·관리자 초대 |
 | `GET`, `POST` | `/admin/system/accounts...` | 계정 목록·생성·상태·권한 |
 | `GET`, `POST` | `/admin/system/devices...` | 장치 목록·등록·상태·자격증명 |
 | `GET` | `/admin/system/operations` | 전체 운영 상태 |
 | `GET` | `/admin/system/audit` | 시스템 범위 감사 |
 | `GET` | `/admin/departments/{departmentId}` | 오늘의 출석 |
+| `POST` | `/admin/departments/{departmentId}/admin-invitations...` | 자기 부서 관리자 초대·실패 메일 재전송 |
 | `GET` | `/admin/departments/{departmentId}/dashboard-data` | 5초 폴링용 오늘 집계·대상자 JSON |
 | `GET`, `POST` | `/admin/departments/{departmentId}/teachers...` | 교사·카드·부서 제외 |
 | `GET`, `POST` | `/admin/departments/{departmentId}/cards/inbox...` | 미등록·재사용 가능 카드 연결 |
@@ -361,9 +362,14 @@ GET  /admin/system/departments
 GET  /admin/system/departments/new
 POST /admin/system/departments
 GET  /admin/system/departments/{departmentId}
+POST /admin/system/departments/{departmentId}/edit
+POST /admin/system/departments/{departmentId}/deactivate
+POST /admin/system/departments/{departmentId}/reactivate
+POST /admin/system/departments/{departmentId}/admin-invitations
+POST /admin/system/departments/{departmentId}/admin-invitations/{outboxId}/resend
 ```
 
-목록에는 부서명, 생성일, 활성 관리자 수, 장치 수와 설정 상태를 표시한다. `department.active`는 MVP 예약 필드이므로 비활성화·재활성화 버튼을 제공하지 않는다.
+목록에는 부서명, 생성일, 활성 관리자 수, 장치 수와 활성 상태를 표시한다. 시스템 관리자는 부서명을 수정하고 부서를 비활성화·재활성화할 수 있다. 비활성화는 물리 삭제가 아니며 부서 관리자 업무와 연결 장치의 출석 처리를 차단한다.
 
 생성 form은 부서명 하나만 받는다.
 
@@ -1217,7 +1223,7 @@ feature flag는 환경 설정과 controlled restart로만 바꾸므로 toggle·�
 
 아래 값은 UI 구조를 막지는 않지만 실제 배포 전에 관련 문서에서 확정해야 한다.
 
-1. 회원가입 초대·비밀번호 재설정 링크에 사용할 운영 공개 base URL과 HTTPS 정책. 전달은 관리자가 1회 표시 링크를 복사해 승인된 1:1 메신저로 직접 수행한다. 제한 CLI는 fresh DB의 최초 `SYSTEM_ADMIN` 1회 bootstrap에만 사용하며 일반 계정 초대·reset 대안으로 사용하지 않음
+1. 회원가입 초대·비밀번호 재설정 링크에 사용할 운영 공개 base URL과 HTTPS 정책, 그리고 STARTTLS가 강제된 SMTP 발신 설정. 초대 worker는 링크 원문을 저장하지 않고 메일 발송 시점에만 생성한다. 제한 CLI는 fresh DB의 최초 `SYSTEM_ADMIN` 1회 bootstrap에만 사용하며 일반 계정 초대·reset 대안으로 사용하지 않음
 2. 장치 수·설치 위치와 장치별 표시명
 3. 설치 장치별로 확정된 4·7·10-byte UID를 구분자 없는 대문자 16진수로 실제 읽고 전송하는 현장 호환성
 4. 확정된 개인정보·감사·태깅 이력 보유기간의 실제 자동 삭제 상태와, 별도 승인 전인 backup 운영 범위

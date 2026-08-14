@@ -66,14 +66,14 @@ jobs:
             "${retention_artifact_path}"; do
             jar tf "${packaged_artifact}" > build/jar-contents.txt
 
-            for version in 001 002 003 004 005 006 007 008 009 010 011 012 013 014 015 016 017; do
+            for version in 001 002 003 004 005 006 007 008 009 010 011 012 013 014 015 016 017 018; do
               grep -Eq "BOOT-INF/classes/db/migration/V${version}__.+[.]sql$" build/jar-contents.txt
             done
 
             migration_count="$(
               grep -Ec 'BOOT-INF/classes/db/migration/V[0-9]+__.+[.]sql$' build/jar-contents.txt
             )"
-            test "${migration_count}" -eq 17
+            test "${migration_count}" -eq 18
             grep -Fxq \
               'BOOT-INF/classes/db/migration/V015__add_attendance_finalization_dispatch_index.sql.conf' \
               build/jar-contents.txt

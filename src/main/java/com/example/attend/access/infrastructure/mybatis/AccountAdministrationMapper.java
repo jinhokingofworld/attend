@@ -77,7 +77,7 @@ public interface AccountAdministrationMapper {
 			@Param("departmentId") long departmentId);
 
 	/** 부서 관리자 역할 이력을 시작한다. */
-	long insertDepartmentRole(
+	Long insertDepartmentRole(
 			@Param("accountId") long accountId,
 			@Param("departmentId") long departmentId,
 			@Param("actorAccountId") long actorAccountId,

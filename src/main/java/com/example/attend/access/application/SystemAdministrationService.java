@@ -270,8 +270,11 @@ public class SystemAdministrationService {
 		if (mapper.countActiveRole(accountId, departmentId) != 0) {
 			throw new BusinessRuleException("department role is already active");
 		}
-		mapper.insertDepartmentRole(
+		Long roleId = mapper.insertDepartmentRole(
 				accountId, departmentId, actor.accountId(), clock.instant());
+		if (roleId == null) {
+			throw new BusinessRuleException("department role is already active");
+		}
 		auditLogWriter.writeAccount(
 				departmentId, actor, null, "DEPARTMENT_ROLE_ASSIGNED",
 				"ACCOUNT", Long.toString(accountId), null,

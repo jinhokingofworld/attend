@@ -242,7 +242,7 @@ MVP는 영구 계정 잠금을 만들지 않고 token bucket 두 개를 함께 �
 - 시스템 관리자는 계정을 먼저 생성한 뒤 회원가입 초대 token을 발급한다. 초대받지 않은 사용자가 직접 계정을 생성하는 공개 회원가입은 제공하지 않는다.
 - 회원가입 초대와 password reset 원문은 256 bit 난수로 생성하고, DB에는 대상 account, 발급 account, 목적 `INVITATION`·`RESET`, 발급·만료·사용·무효 시각과 64자 lowercase HMAC-SHA-256 hash만 저장한다.
 - 초대·reset token은 최대 30분만 유효하고 계정·목적별 미사용·미무효 token은 한 건만 허용한다. 한 번 성공하거나 새 token을 발급하면 이전 token은 즉시 사용할 수 없어야 하며 원문 token을 DB·감사·application/access log·email 본문에 보관하지 않는다.
-- 발급 화면은 원문 token이 포함된 링크를 한 번만 표시하고 시스템 관리자가 이를 복사해 승인된 1:1 메신저로 직접 전달한다. 애플리케이션은 메신저 계정·연락처를 저장하거나 메신저 API로 자동 발송하지 않는다.
+- 관리자 초대 링크는 SMTP 이메일로만 전달하고, password reset 링크는 시스템 관리자가 1회 표시 화면에서 복사해 승인된 1:1 메신저로 직접 전달한다. 애플리케이션은 메신저 계정·연락처를 저장하거나 메신저 API로 자동 발송하지 않는다.
 - 운영 공개 base URL과 HTTPS 정책은 배포 전에 확정한다. 그전에는 운영용 링크를 임의의 localhost·HTTP 주소로 생성하지 않는다.
 - V002 migration과 계정 상태·token 제약의 PostgreSQL 부정 테스트가 완료되기 전에는 계정 생성·회원가입 초대·reset command를 비활성화하고 성공 UI를 표시하지 않는다. 공개 URL·HTTPS 승인은 이 DB 출시 gate와 별도다.
 - 평문 임시 비밀번호를 시스템 관리자가 조회·복사·메일 전송하는 방식은 대체 구현으로 허용하지 않는다.
@@ -870,7 +870,7 @@ PRG(Post/Redirect/Get)를 사용하더라도 성공하지 않은 변경을 성�
 - [ ] backup 위치·암호화·보유기간·복원 담당자가 운영 배포 전에 확정됨
 - [ ] 출석·종료 소속·카드 연결과 legacy table의 retention 실행 주체·정리 정책이 구현·검증됨
 - [ ] V002 계정·token migration과 PostgreSQL 제약 부정 테스트를 통과함
-- [x] 회원가입 초대·password reset 원문 token은 관리자가 1회 표시 링크를 복사해 승인된 1:1 메신저로 직접 전달
+- [x] 회원가입 초대 링크는 SMTP 이메일로 전달하고, password reset 원문 token은 관리자가 1회 표시 링크를 복사해 승인된 1:1 메신저로 직접 전달
 - [ ] 운영 공개 base URL과 HTTPS URL 정책이 승인됨
 
 ---
