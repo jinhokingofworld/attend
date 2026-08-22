@@ -12,4 +12,4 @@ constexpr char DEVICE_KEY[] = "REPLACE_WITH_DEVICE_KEY";
 // true: call credential-tests only and refuse NFC check-ins.
 // false: normal ACTIVE-device operation. Change this only after the system
 // administrator confirms credential test evidence and activates the device.
-constexpr bool CREDENTIAL_PROVISIONING_MODE = true;
+constexpr bool CREDENTIAL_PROVISIONING_MODE = false;

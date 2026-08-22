@@ -45,5 +45,6 @@ Thumbs.db
 .env.*
 !.env.example
 .device-smoke.env
+secrets/
 ops/backups/
 firmware/**/config.h

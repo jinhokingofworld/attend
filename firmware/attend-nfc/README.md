@@ -1,13 +1,13 @@
 # Attend NFC 펌웨어
 
-대상은 MFRC522와 ATECC508/608 보안 칩이 있는 WiFiNINA 호환 보드(예: Arduino
-MKR WiFi 1010, Nano 33 IoT)다. 다른 보드는 TLS 인증서 검증과 부팅 난수원을 다시
-설계하기 전까지 지원하지 않는다.
+대상은 MFRC522를 연결한 WiFiNINA 호환 보드(예: Arduino MKR WiFi 1010,
+Nano 33 IoT)다. 다른 보드는 TLS 인증서 검증을 별도로 확인하기 전까지 지원하지
+않는다.
 
 ## 준비
 
-1. Arduino IDE/CLI에서 `MFRC522`, `WiFiNINA`, `ArduinoHttpClient`, `ArduinoJson 7`,
-   `ArduinoECCX08`을 설치한다.
+1. Arduino IDE/CLI에서 `MFRC522`, `WiFiNINA`, `ArduinoHttpClient`, `ArduinoJson 7`을
+   설치한다.
 2. WiFiNINA Firmware Updater로 운영 서버 인증서의 신뢰 root를 보드에 넣는다.
 3. `config.example.h`를 `config.h`로 복사하고 Wi-Fi·장치 값을 입력한다.
 4. `CREDENTIAL_PROVISIONING_MODE=true`로 업로드해 초록 신호와 관리자 화면의
@@ -22,12 +22,23 @@ MKR WiFi 1010, Nano 33 IoT)다. 다른 보드는 TLS 인증서 검증과 부팅 
 
 | 신호 | 의미 | 자동 재시도 |
 |---|---|---|
+| 짧은 초록 1회(250 ms) | 카드 UID를 읽어 RAM 전송 대기열에 접수함. 아직 출석 확정은 아님 | 해당 없음 |
 | 초록 1회(700 ms) | 신규 정상/지각 기록 | 없음 |
 | 초록 2회 | 이미 출석됨 | 없음 |
 | 빨강 1회(700 ms) | 카드·날짜 등 결정적 업무 거부 | 없음 |
 | 빨강 2회 | 인증·장치 상태·설정 오류 | 없음 |
 | 빨강 3회 | timeout, 잘못된 응답, 429/500/503 재시도 소진 | 최대 3회 후 표시 |
 
-429·503은 `Retry-After`, 500·무응답은 2/5/15초 간격을 사용한다. 재시도 동안
-UID와 requestId는 바꾸지 않는다. LED는 보조 신호이므로 파일럿에서는 HTTP 결과와
-DB 기록도 함께 대사한다.
+카드를 읽으면 UID를 RAM FIFO(최대 8건)에 먼저 넣고 짧은 초록 신호를 표시한다.
+요청 ID는 태그를 읽은 즉시, 부팅 세션 값(사용하지 않는 A0의 값과 타이머 지터를
+섞음)·태그 시각·순번을 조합해 한 번 만든다. 따라서 Wi-Fi 연결이나 네트워크 시각을
+기다리지 않으며, 같은 큐 항목의 재시도 동안에는 같은 ID를 유지한다. 이 값은
+암호학적 난수나 인증정보가 아니라 서버 멱등성용 식별자다. 429·503은 `Retry-After`,
+500·무응답은 2/5/15초 간격을 사용한다.
+
+RAM 대기열은 전원 차단·보드 리셋 시 아직 전송하지 못한 항목을 보존하지 않는다.
+또한 현재 `WiFiSSLClient`/`ArduinoHttpClient` 전송은 요청을 처리하는 동안 동기적으로
+동작한다. 따라서 짧은 초록 신호는 사용자가 바로 이동할 수 있게 하지만, 여러 사람이
+연속 태그하는 환경까지 지원하려면 다음 단계에서 비차단 네트워크 상태 머신 또는
+영속 대기열을 추가해야 한다. LED는 보조 신호이므로 파일럿에서는 HTTP 결과와 DB
+기록도 함께 대사한다.

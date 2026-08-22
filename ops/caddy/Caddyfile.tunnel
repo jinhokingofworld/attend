@@ -1,0 +1,28 @@
+{
+	admin off
+}
+
+# Cloudflare terminates public HTTPS. This listener is not published on the
+# host; the cloudflared service reaches it on the Compose network as caddy:80.
+http://{$PUBLIC_HOST} {
+	encode zstd gzip
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+	}
+
+	request_body {
+		max_size 1MB
+	}
+
+	reverse_proxy app:8080 {
+		# The Caddy origin is not host-published. Cloudflare overwrites
+		# CF-Connecting-IP at the edge, so pass exactly that one IP to the
+		# application's strict trusted-proxy filter.
+		header_up X-Forwarded-For {http.request.header.Cf-Connecting-Ip}
+		header_up X-Forwarded-Proto https
+		header_up X-Attend-Proxy-Token {$TRUSTED_PROXY_TOKEN}
+	}
+}
