@@ -6,14 +6,12 @@
  * - WiFiNINA
  * - ArduinoHttpClient
  * - ArduinoJson 7
- * - ArduinoECCX08
  *
  * Production uses WiFiSSLClient and verifies SERVER_HOST against the root
  * certificates provisioned with the WiFiNINA Firmware Updater. Plain HTTP is
  * intentionally not implemented.
  */
 
-#include <ArduinoECCX08.h>
 #include <ArduinoHttpClient.h>
 #include <ArduinoJson.h>
 #include <MFRC522.h>
@@ -29,12 +27,42 @@ constexpr byte GREEN_LED_PIN = 3;
 constexpr unsigned long NETWORK_TIMEOUT_MS = 5000;
 constexpr int MAX_AUTOMATIC_RETRIES = 3;
 constexpr unsigned long RETRY_DELAYS_MS[] = {2000, 5000, 15000};
+constexpr byte PENDING_CHECK_IN_CAPACITY = 8;
+constexpr unsigned long DISPATCH_DELAY_MS = 150;
+constexpr unsigned long DUPLICATE_TAG_WINDOW_MS = 1500;
+constexpr unsigned long WIFI_CONNECT_RETRY_MS = 10000;
+constexpr unsigned long WIFI_STATUS_RECHECK_MS = 250;
+constexpr unsigned long WIFI_BEGIN_TIMEOUT_MS = 1000;
+constexpr byte REQUEST_ID_JITTER_PIN = A0;
+constexpr bool SERIAL_LOOP_HEARTBEAT_ENABLED = true;
+constexpr unsigned long LOOP_HEARTBEAT_INTERVAL_MS = 1000;
+constexpr size_t UID_BUFFER_SIZE = 21;
+constexpr size_t REQUEST_ID_BUFFER_SIZE = 32;
 
 MFRC522 rfid(RFID_SELECT_PIN, RFID_RESET_PIN);
 WiFiSSLClient tlsClient;
 HttpClient httpClient(tlsClient, SERVER_HOST, SERVER_PORT);
-byte bootRandom[4];
 unsigned long tagCounter = 0;
+uint32_t requestSessionId = 0;
+
+struct PendingCheckIn {
+  char uid[UID_BUFFER_SIZE];
+  char requestId[REQUEST_ID_BUFFER_SIZE];
+  unsigned long capturedAtMicros;
+  unsigned long sequenceNo;
+  byte retryCount;
+  unsigned long nextAttemptAt;
+};
+
+PendingCheckIn pendingCheckIns[PENDING_CHECK_IN_CAPACITY];
+byte pendingHead = 0;
+byte pendingTail = 0;
+byte pendingCount = 0;
+char lastQueuedUid[UID_BUFFER_SIZE] = "";
+unsigned long lastQueuedAt = 0;
+unsigned long nextWifiConnectAttemptAt = 0;
+bool wifiWasConnected = false;
+unsigned long lastLoopHeartbeatAt = 0;
 
 struct DeviceResponse {
   int httpStatus;
@@ -42,6 +70,8 @@ struct DeviceResponse {
   int retryAfterSeconds;
   bool validJson;
 };
+
+bool isTimeDue(unsigned long now, unsigned long due);
 
 void setLeds(bool red, bool green) {
   digitalWrite(RED_LED_PIN, red ? HIGH : LOW);
@@ -68,6 +98,12 @@ void signalSuccess(const String &code) {
   }
 }
 
+// This confirms only that the tag was read and placed in RAM for delivery.
+// It must stay visually distinct from the later, server-confirmed success.
+void signalTagAccepted() {
+  pulse(GREEN_LED_PIN, 1, 250, 0);
+}
+
 void signalBusinessFailure() {
   pulse(RED_LED_PIN, 1, 700, 0);
 }
@@ -88,21 +124,29 @@ void signalTransientFailure() {
   }
 }
 
-void connectWifi() {
-  while (WiFi.status() != WL_CONNECTED) {
+bool ensureWifiConnected() {
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!wifiWasConnected) {
+      Serial.println(F("Wi-Fi connected"));
+      wifiWasConnected = true;
+    }
+    return true;
+  }
+
+  wifiWasConnected = false;
+  unsigned long now = millis();
+  if (isTimeDue(now, nextWifiConnectAttemptAt)) {
     Serial.println(F("Connecting to Wi-Fi..."));
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    unsigned long startedAt = millis();
-    while (WiFi.status() != WL_CONNECTED
-           && millis() - startedAt < NETWORK_TIMEOUT_MS) {
-      delay(250);
-    }
-    if (WiFi.status() != WL_CONNECTED) {
-      signalTransientFailure();
-      delay(2000);
-    }
+    nextWifiConnectAttemptAt = now + WIFI_CONNECT_RETRY_MS;
   }
-  Serial.println(F("Wi-Fi connected"));
+  return false;
+}
+
+void connectWifiForCredentialProvisioning() {
+  while (!ensureWifiConnected()) {
+    delay(WIFI_STATUS_RECHECK_MS);
+  }
 }
 
 String uidToCanonicalHex(const MFRC522::Uid &uid) {
@@ -119,12 +163,64 @@ String uidToCanonicalHex(const MFRC522::Uid &uid) {
   return output;
 }
 
-String nextRequestId() {
-  ++tagCounter;
-  char requestId[24];
-  snprintf(requestId, sizeof(requestId), "B%02X%02X%02X%02X-%08lX",
-           bootRandom[0], bootRandom[1], bootRandom[2], bootRandom[3], tagCounter);
-  return String(requestId);
+// An idempotency key must change after a board reset but must never delay NFC
+// delivery for network time synchronization.  This is non-secret session
+// jitter, mixed from an unused analog input and timer samples; it is not used
+// for authentication.
+uint32_t mixRequestIdSession(uint32_t value) {
+  value ^= value >> 16;
+  value *= 0x7FEB352DUL;
+  value ^= value >> 15;
+  value *= 0x846CA68BUL;
+  value ^= value >> 16;
+  return value;
+}
+
+void initializeRequestIdSession() {
+  uint32_t seed = micros();
+  for (byte sample = 0; sample < 16; ++sample) {
+    uint32_t analogSample = static_cast<uint32_t>(analogRead(REQUEST_ID_JITTER_PIN));
+    seed ^= analogSample << ((sample % 3) * 10);
+    seed ^= micros();
+    seed = mixRequestIdSession(seed + 0x9E3779B9UL + sample);
+    delayMicroseconds(17);
+  }
+  requestSessionId = seed == 0 ? 0xA5A5A5A5UL : seed;
+}
+
+// The ID is generated immediately when the tag enters the RAM queue.  It
+// contains the per-boot session, capture time, and monotonic tag sequence.
+void assignRequestId(PendingCheckIn &pending) {
+  if (pending.requestId[0] != '\0') {
+    return;
+  }
+
+  int written = snprintf(pending.requestId, sizeof(pending.requestId),
+                         "R%08lX-%08lX-%08lX",
+                         static_cast<unsigned long>(requestSessionId),
+                         pending.capturedAtMicros,
+                         pending.sequenceNo);
+  if (written < 0
+      || static_cast<size_t>(written) >= sizeof(pending.requestId)) {
+    haltWithConfigurationFailure(F("Request ID buffer is too small"));
+  }
+
+  // This ID is opaque and non-secret.  The actual card UID and credential are
+  // deliberately still not printed.
+  Serial.print(F("Check-in request ID: "));
+  Serial.println(pending.requestId);
+}
+
+void initializeRfid() {
+  SPI.begin();
+  rfid.PCD_Init();
+  byte rfidVersion = rfid.PCD_ReadRegister(rfid.VersionReg);
+  if (rfidVersion == 0x00 || rfidVersion == 0xFF) {
+    Serial.println(F("MFRC522 communication failed"));
+  } else {
+    Serial.print(F("MFRC522 ready; version: 0x"));
+    Serial.println(rfidVersion, HEX);
+  }
 }
 
 DeviceResponse readResponse() {
@@ -150,7 +246,7 @@ DeviceResponse readResponse() {
   return {status, code, retryAfterSeconds, !error && code.length() > 0};
 }
 
-DeviceResponse postCheckIn(const String &uid, const String &requestId) {
+DeviceResponse postCheckIn(const char *uid, const char *requestId) {
   JsonDocument request;
   request["uid"] = uid;
   request["requestId"] = requestId;
@@ -205,18 +301,7 @@ unsigned long retryDelay(const DeviceResponse &response, int retryIndex) {
   return RETRY_DELAYS_MS[retryIndex];
 }
 
-void handleTag(const String &uid) {
-  String requestId = nextRequestId();
-  DeviceResponse response = {-1, String(), 0, false};
-  for (int attempt = 0; attempt <= MAX_AUTOMATIC_RETRIES; ++attempt) {
-    connectWifi();
-    response = postCheckIn(uid, requestId);
-    if (!isRetryable(response) || attempt == MAX_AUTOMATIC_RETRIES) {
-      break;
-    }
-    delay(retryDelay(response, attempt));
-  }
-
+void signalFinalResult(const DeviceResponse &response) {
   if (response.validJson
       && (response.httpStatus == 200 || response.httpStatus == 201)
       && (response.code == "CHECKED_IN" || response.code == "LATE"
@@ -231,22 +316,102 @@ void handleTag(const String &uid) {
   }
 }
 
+bool isTimeDue(unsigned long now, unsigned long due) {
+  return static_cast<long>(now - due) >= 0;
+}
+
+bool isRecentDuplicate(const String &uid, unsigned long now) {
+  return lastQueuedUid[0] != '\0'
+         && uid == lastQueuedUid
+         && now - lastQueuedAt < DUPLICATE_TAG_WINDOW_MS;
+}
+
+bool enqueueCheckIn(const String &uid) {
+  unsigned long now = millis();
+  if (isRecentDuplicate(uid, now)) {
+    Serial.println(F("Duplicate tag ignored"));
+    return true;
+  }
+  if (pendingCount == PENDING_CHECK_IN_CAPACITY) {
+    Serial.println(F("Check-in queue full"));
+    return false;
+  }
+
+  PendingCheckIn &pending = pendingCheckIns[pendingTail];
+  uid.toCharArray(pending.uid, sizeof(pending.uid));
+  pending.requestId[0] = '\0';
+  pending.capturedAtMicros = micros();
+  pending.sequenceNo = ++tagCounter;
+  assignRequestId(pending);
+  pending.retryCount = 0;
+  pending.nextAttemptAt = now + DISPATCH_DELAY_MS;
+
+  pendingTail = (pendingTail + 1) % PENDING_CHECK_IN_CAPACITY;
+  ++pendingCount;
+  uid.toCharArray(lastQueuedUid, sizeof(lastQueuedUid));
+  lastQueuedAt = now;
+
+  Serial.print(F("NFC tag queued; pending: "));
+  Serial.println(pendingCount);
+  return true;
+}
+
+void removePendingHead() {
+  pendingHead = (pendingHead + 1) % PENDING_CHECK_IN_CAPACITY;
+  --pendingCount;
+}
+
+void processPendingCheckIn() {
+  if (pendingCount == 0) {
+    return;
+  }
+
+  PendingCheckIn &pending = pendingCheckIns[pendingHead];
+  if (!isTimeDue(millis(), pending.nextAttemptAt)) {
+    return;
+  }
+
+  if (!ensureWifiConnected()) {
+    pending.nextAttemptAt = millis() + WIFI_STATUS_RECHECK_MS;
+    return;
+  }
+  assignRequestId(pending);
+  Serial.print(F("Sending check-in request ID: "));
+  Serial.println(pending.requestId);
+  DeviceResponse response = postCheckIn(pending.uid, pending.requestId);
+  Serial.print(F("Check-in HTTP status: "));
+  Serial.print(response.httpStatus);
+  Serial.print(F(", code: "));
+  Serial.println(response.code);
+
+  if (isRetryable(response) && pending.retryCount < MAX_AUTOMATIC_RETRIES) {
+    pending.nextAttemptAt = millis() + retryDelay(response, pending.retryCount);
+    ++pending.retryCount;
+    Serial.print(F("Check-in retry scheduled; pending: "));
+    Serial.println(pendingCount);
+    return;
+  }
+
+  signalFinalResult(response);
+  removePendingHead();
+}
+
 void setup() {
   pinMode(RED_LED_PIN, OUTPUT);
   pinMode(GREEN_LED_PIN, OUTPUT);
   setLeds(false, false);
   Serial.begin(115200);
+  Serial.println(F("Attend NFC boot"));
+  initializeRequestIdSession();
 
-  if (!ECCX08.begin() || !ECCX08.random(bootRandom, sizeof(bootRandom))) {
-    haltWithConfigurationFailure(F("Secure boot random source unavailable"));
-  }
-
-  SPI.begin();
-  rfid.PCD_Init();
   httpClient.setHttpResponseTimeout(NETWORK_TIMEOUT_MS);
-  connectWifi();
+  // WiFiNINA defaults to a 50-second blocking WiFi.begin() call. Bound it so
+  // an unavailable access point cannot monopolize NFC scanning.
+  WiFi.setTimeout(WIFI_BEGIN_TIMEOUT_MS);
 
   if (CREDENTIAL_PROVISIONING_MODE) {
+    Serial.println(F("Mode: credential provisioning"));
+    connectWifiForCredentialProvisioning();
     DeviceResponse response = testCredential();
     if (response.httpStatus == 200 && response.code == "CREDENTIAL_VALID") {
       signalSuccess(response.code);
@@ -255,28 +420,49 @@ void setup() {
       signalConfigurationFailure();
       Serial.println(F("Credential test failed"));
     }
+  } else {
+    Serial.println(F("Mode: NFC check-in"));
+    // Normal attendance mode may scan immediately and retain tags in RAM
+    // while Wi-Fi is reconnecting.
+    ensureWifiConnected();
   }
+  // Initialize the external SPI reader after WiFiNINA has initialized its
+  // internal transport, matching the final hardware state used for scanning.
+  initializeRfid();
+  Serial.println(F("NFC scan mode ready"));
 }
 
 void loop() {
+  // unsigned long now = millis();
+  // if (SERIAL_LOOP_HEARTBEAT_ENABLED
+  //     && now - lastLoopHeartbeatAt >= LOOP_HEARTBEAT_INTERVAL_MS) {
+  //   Serial.println(F("NFC scan loop alive"));
+  //   lastLoopHeartbeatAt = now;
+  // }
+
   if (CREDENTIAL_PROVISIONING_MODE) {
     delay(1000);
     return;
   }
-  if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) {
-    delay(30);
-    return;
+
+  if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
+    Serial.println(F("NFC tag detected"));
+    String uid = uidToCanonicalHex(rfid.uid);
+    if (uid.length() == 0) {
+      signalBusinessFailure();
+    } else if (enqueueCheckIn(uid)) {
+      // UID and credentials are deliberately never printed to Serial.
+      signalTagAccepted();
+    } else {
+      signalBusinessFailure();
+    }
+
+    rfid.PICC_HaltA();
+    rfid.PCD_StopCrypto1();
   }
 
-  String uid = uidToCanonicalHex(rfid.uid);
-  if (uid.length() == 0) {
-    signalBusinessFailure();
-  } else {
-    // UID and credentials are deliberately never printed to Serial.
-    handleTag(uid);
-  }
-
-  rfid.PICC_HaltA();
-  rfid.PCD_StopCrypto1();
-  delay(500);
+  // Delivery happens after the card has already been accepted. This first
+  // version still uses a synchronous HTTPS client while a request is active.
+  processPendingCheckIn();
+  delay(30);
 }

@@ -142,7 +142,7 @@ assert_contains "${page}" '"rows"'
 for route_and_text in \
   "teachers|교사 추가" \
   "cards/inbox|원본 UID를 화면에 노출하지 않고" \
-  "policies|정책 초안 생성" \
+  "policies|출석 정책 생성" \
   "attendance-days|출석 날짜 생성"; do
   route="${route_and_text%%|*}"
   expected="${route_and_text#*|}"

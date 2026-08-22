@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
@@ -84,7 +85,7 @@ public class AttendanceDayService {
 		PolicyVersionRow policy = requirePublishedPolicy(departmentId, policyVersionId);
 		requireCreatableDate(attendanceDate, policy);
 		Long dayId = createDayIfAbsent(
-				actor, departmentId, attendanceDate, policyVersionId);
+				actor, departmentId, attendanceDate, policyVersionId, null);
 		if (dayId == null) {
 			throw new BusinessRuleException(
 					"이 부서에 같은 출석 날짜가 이미 있습니다.");
@@ -124,7 +125,7 @@ public class AttendanceDayService {
 		int skippedExistingCount = 0;
 		for (LocalDate date : dates) {
 			Long dayId = createDayIfAbsent(
-					actor, departmentId, date, command.policyVersionId());
+					actor, departmentId, date, command.policyVersionId(), null);
 			if (dayId == null) {
 				skippedExistingCount++;
 			} else {
@@ -134,12 +135,71 @@ public class AttendanceDayService {
 		return new AttendanceDayBatchResult(createdCount, skippedExistingCount);
 	}
 
+	/** 활성 정책 일정이 소유한 미래 출석일을 생성한다. */
+	@Transactional
+	public AttendanceDayBatchResult createDaysForPolicySchedule(
+			AccountActor actor,
+			long departmentId,
+			long policyVersionId,
+			long policyScheduleId,
+			List<LocalDate> dates
+	) {
+		writeAuthorization.requireEnabled();
+		authorization.requireDepartmentAdmin(actor, departmentId);
+		departmentLock.lockActive(departmentId);
+		PolicyVersionRow policy = requirePublishedPolicy(departmentId, policyVersionId);
+		int createdCount = 0;
+		for (LocalDate date : dates) {
+			requireCreatableDate(date, policy);
+			Long dayId = createDayIfAbsent(
+					actor, departmentId, date, policyVersionId, policyScheduleId);
+			if (dayId == null) {
+				throw new BusinessRuleException("같은 날짜에 적용되는 출석 정책이 이미 있습니다.");
+			}
+			createdCount++;
+		}
+		return new AttendanceDayBatchResult(createdCount, 0);
+	}
+
+	/** 정책을 끄거나 보관할 때 미래·미시작 출석일만 취소한다. */
+	@Transactional
+	public int cancelFuturePolicyScheduleDays(
+			AccountActor actor,
+			long departmentId,
+			long policyScheduleId,
+			String reason
+	) {
+		return cancelFuturePolicyScheduleDays(
+				actor, departmentId, policyScheduleId, reason, true);
+	}
+
+	/**
+	 * 정책 수정 시에는 새 정책도 아직 시작하지 않은 오늘 일정만 교체할 수 있다.
+	 */
+	@Transactional
+	public int cancelFuturePolicyScheduleDays(
+			AccountActor actor,
+			long departmentId,
+			long policyScheduleId,
+			String reason,
+			boolean cancelToday
+	) {
+		writeAuthorization.requireEnabled();
+		authorization.requireDepartmentAdmin(actor, departmentId);
+		departmentLock.lockActive(departmentId);
+		Clock localClock = clock.withZone(attendanceZone);
+		return dayMapper.cancelFutureScheduleDays(
+				departmentId, policyScheduleId, LocalDate.now(localClock), LocalTime.now(localClock), cancelToday, actor.accountId(),
+				clock.instant(), reason);
+	}
+
 	/** 날짜와 활성 교사 대상자 snapshot을 생성하고, 생성 사실을 감사한다. */
 	private Long createDayIfAbsent(
 			AccountActor actor,
 			long departmentId,
 			LocalDate attendanceDate,
-			long policyVersionId
+			long policyVersionId,
+			Long policyScheduleId
 	) {
 		Instant finalizationDueAt = finalizationDueAt(
 				attendanceDate, policyVersionId);
@@ -147,6 +207,7 @@ public class AttendanceDayService {
 				departmentId,
 				attendanceDate,
 				policyVersionId,
+				policyScheduleId,
 				finalizationDueAt,
 				actor.accountId());
 		if (dayId == null) {

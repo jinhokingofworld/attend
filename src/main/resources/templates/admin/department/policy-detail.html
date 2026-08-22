@@ -33,6 +33,7 @@
                     <span class="band-time-label" th:text="${bandStat.last} ? '마감 시간 (마지막 태깅 허용 시각)' : '단계 종료 시간'">단계 종료 시간</span>
                     <input type="time" name="bandUpperTime" th:value="${band.upper_time}" required>
                 </label>
+                <button type="button" class="remove-band">단계 삭제</button>
             </div>
         </fieldset>
         <template id="edit-band-template">
@@ -46,6 +47,7 @@
                     <span class="band-time-label">마감 시간 (마지막 태깅 허용 시각)</span>
                     <input type="time" name="bandUpperTime" required>
                 </label>
+                <button type="button" class="remove-band">단계 삭제</button>
             </div>
         </template>
         <button type="button" id="addEditBand">단계 추가</button>
@@ -66,6 +68,7 @@ const updateEditFinalizationLabels = () => {
         row.querySelector(".band-time-label").textContent = isFinal
             ? "마감 시간 (마지막 태깅 허용 시각)"
             : "단계 종료 시간";
+        row.querySelector(".remove-band").disabled = index === 0 || rows.length <= 2;
     });
 };
 
@@ -81,6 +84,14 @@ document.getElementById("addEditBand")?.addEventListener("click", () => {
         ? "PRESENT"
         : "LATE";
     bands.appendChild(row);
+    updateEditFinalizationLabels();
+});
+
+document.getElementById("edit-bands")?.addEventListener("click", (event) => {
+    const removeButton = event.target.closest(".remove-band");
+    if (!removeButton || removeButton.disabled) return;
+
+    removeButton.closest(".band-row").remove();
     updateEditFinalizationLabels();
 });
 updateEditFinalizationLabels();

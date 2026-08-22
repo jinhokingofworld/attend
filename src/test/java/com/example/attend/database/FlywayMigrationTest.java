@@ -113,7 +113,7 @@ class FlywayMigrationTest {
                     FROM public.flyway_schema_history
                     WHERE success
                       AND version IS NOT NULL
-                    """ )).isEqualTo(18);
+                    """ )).isEqualTo(19);
 
             assertThat(queryString(connection, """
                     SELECT indisvalid::text || ':' || indisready::text || ':' || pg_get_indexdef(indexrelid)
@@ -158,6 +158,9 @@ class FlywayMigrationTest {
                     "nfc_card_assignment",
                     "device",
                     "attendance_policy_version",
+                    "attendance_policy_schedule",
+                    "attendance_policy_schedule_weekday",
+                    "attendance_policy_schedule_monthday",
                     "attendance_band",
                     "attendance_day",
                     "attendance_target",
@@ -589,7 +592,7 @@ class FlywayMigrationTest {
                     "ops/db/roles/003_grant_application_privileges.sql"
             ))
                     .isInstanceOf(SQLException.class)
-                    .hasMessageContaining("successful Flyway migration V017");
+                    .hasMessageContaining("complete V019 schema");
         }
     }
 
@@ -2282,7 +2285,7 @@ class FlywayMigrationTest {
                     FROM public.flyway_schema_history
                     WHERE success
                       AND version IS NOT NULL
-                    """)).isEqualTo(19);
+                    """)).isEqualTo(20);
             assertThat(queryInt(connection, """
                     SELECT count(*)
                     FROM public.flyway_schema_history

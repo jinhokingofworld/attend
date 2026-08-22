@@ -1,0 +1,34 @@
+# Test-only override for a Docker-managed Cloudflare Tunnel connector.
+# Always merge this file after compose.prod.yaml; it is not standalone.
+services:
+  caddy:
+    ports: !override
+      []
+    expose:
+      - "80"
+    volumes:
+      - ./ops/caddy/Caddyfile.tunnel:/etc/caddy/Caddyfile:ro
+
+  cloudflared:
+    # Pin the version; upgrade deliberately after checking the release notes.
+    image: cloudflare/cloudflared:2026.7.3
+    restart: unless-stopped
+    command:
+      - tunnel
+      - --no-autoupdate
+      - run
+      - --token-file
+      - /run/secrets/cloudflared_tunnel_token
+    depends_on:
+      caddy:
+        condition: service_started
+    networks:
+      - private
+    secrets:
+      - cloudflared_tunnel_token
+    security_opt:
+      - no-new-privileges:true
+
+secrets:
+  cloudflared_tunnel_token:
+    file: ./secrets/cloudflared-tunnel-token

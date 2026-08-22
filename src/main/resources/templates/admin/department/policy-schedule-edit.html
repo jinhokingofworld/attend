@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>출석 정책 수정</title>
+    <link rel="stylesheet" th:href="@{/css/admin.css}"></head>
+<body>
+<header th:replace="~{fragments/admin-shell :: header}"></header>
+<main>
+    <h1 th:text="|${policy.name} · 정책 수정|">출석 정책 수정</h1>
+    <p>수정하면 오늘 이후 6개월 안의 아직 시작하지 않은 출석일만 새 조건으로 다시 생성합니다.</p>
+    <form method="post" th:action="@{/admin/departments/{departmentId}/policies/{policyId}/edit(departmentId=${department.id},policyId=${policy.id})}">
+        <label>정책 이름 <input name="name" th:value="${policy.name}" required></label>
+        <label>적용 시작일 <input type="date" name="startDate" th:value="${policy.start_date}" required></label>
+        <label>적용 종료일 <input type="date" name="endDate" th:value="${policy.end_date}"></label>
+        <label>태깅 시작 <input type="time" name="checkInStartTime" th:value="${policy.check_in_start_time}" required></label>
+        <label>반복 방식
+            <select name="recurrence">
+                <option value="NONE" th:selected="${policy.recurrence == 'NONE'}">한 번만</option>
+                <option value="DAILY" th:selected="${policy.recurrence == 'DAILY'}">매일</option>
+                <option value="WEEKLY" th:selected="${policy.recurrence == 'WEEKLY'}">매주</option>
+                <option value="MONTHLY" th:selected="${policy.recurrence == 'MONTHLY'}">매월</option>
+                <option value="YEARLY" th:selected="${policy.recurrence == 'YEARLY'}">매년</option>
+            </select>
+        </label>
+        <label>반복 간격 <input type="number" name="interval" min="1" th:value="${policy.interval_value}" required></label>
+        <fieldset><legend>매주 반복 요일</legend>
+            <label th:each="day : ${T(java.time.DayOfWeek).values()}">
+                <input type="checkbox" name="weeklyDays" th:value="${day}"
+                       th:checked="${#lists.contains(weeklyDays, day.value)}">
+                <span th:text="${day}">요일</span>
+            </label>
+        </fieldset>
+        <fieldset><legend>매월 반복 날짜</legend>
+            <label th:each="day : ${#numbers.sequence(1, 31)}">
+                <input type="checkbox" name="monthlyDays" th:value="${day}"
+                       th:checked="${#lists.contains(monthlyDays, day)}">
+                <span th:text="|${day}일|">1일</span>
+            </label>
+        </fieldset>
+        <label>매년 반복 월 <input type="number" name="yearlyMonth" min="1" max="12" th:value="${policy.yearly_month}"></label>
+        <label>매년 반복 일 <input type="number" name="yearlyDay" min="1" max="31" th:value="${policy.yearly_day}"></label>
+        <label><input type="checkbox" name="enabled" value="true" th:checked="${policy.status == 'ON'}"> 저장 후 활성화</label>
+        <fieldset id="edit-bands"><legend>출석 단계</legend>
+            <div class="band-row" th:each="band, stat : ${bands}" th:classappend="${stat.last} ? 'band-row--final' : ''">
+                <input name="bandLabel" th:value="${band.label}" maxlength="50" required>
+                <select name="bandStatus">
+                    <option value="PRESENT" th:selected="${band.parent_status == 'PRESENT'}">정상</option>
+                    <option value="LATE" th:selected="${band.parent_status == 'LATE'}">지각</option>
+                </select>
+                <label><span class="band-time-label">단계 종료 시간</span>
+                    <input type="time" name="bandUpperTime" th:value="${band.upper_time}" required></label>
+                <button type="button" class="remove-band">단계 삭제</button>
+            </div>
+        </fieldset>
+        <button type="button" id="addEditBand">단계 추가</button>
+        <button type="submit">수정 저장</button>
+    </form>
+    <a th:href="@{/admin/departments/{id}/policies(id=${department.id})}">정책 목록</a>
+</main>
+<script>
+const bands = document.getElementById("edit-bands");
+const refreshBands = () => [...bands.querySelectorAll(".band-row")].forEach((row, index, rows) => {
+    const final = index === rows.length - 1;
+    row.classList.toggle("band-row--final", final);
+    row.querySelector(".band-time-label").textContent = final ? "마감 시간 (마지막 태깅 허용 시각)" : "단계 종료 시간";
+    row.querySelector(".remove-band").disabled = index === 0 || rows.length <= 2;
+});
+document.getElementById("addEditBand").addEventListener("click", () => {
+    const row = bands.querySelector(".band-row").cloneNode(true);
+    row.querySelector("input[name='bandLabel']").value = "";
+    row.querySelector("select[name='bandStatus']").value = "LATE";
+    row.querySelector("input[name='bandUpperTime']").value = "";
+    bands.appendChild(row); refreshBands();
+});
+bands.addEventListener("click", event => {
+    const button = event.target.closest(".remove-band");
+    if (button && !button.disabled) { button.closest(".band-row").remove(); refreshBands(); }
+});
+refreshBands();
+</script>
+</body>
+</html>

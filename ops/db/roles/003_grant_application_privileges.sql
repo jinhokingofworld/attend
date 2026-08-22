@@ -1,4 +1,4 @@
--- Post-migration grants for the V017 schema. Run as migration_owner or an
+-- Post-migration grants for the V019 schema. Run as migration_owner or an
 -- equivalent owner after guarded dbMigrate succeeds.
 --
 -- This script is intentionally explicit. A future migration that adds a table,
@@ -25,6 +25,9 @@ BEGIN
               ('nfc_card_assignment'),
               ('device'),
               ('attendance_policy_version'),
+              ('attendance_policy_schedule'),
+              ('attendance_policy_schedule_weekday'),
+              ('attendance_policy_schedule_monthday'),
               ('attendance_band'),
               ('attendance_day'),
               ('attendance_target'),
@@ -43,18 +46,18 @@ BEGIN
 
     IF missing_tables IS NOT NULL THEN
         RAISE EXCEPTION
-            'Runtime grants require the complete V017 schema; missing: %',
+            'Runtime grants require the complete V019 schema; missing: %',
             missing_tables;
     END IF;
 
     IF NOT EXISTS (
         SELECT 1
         FROM public.flyway_schema_history
-        WHERE version = '017'
+        WHERE version = '019'
           AND success
     ) THEN
         RAISE EXCEPTION
-            'Runtime grants require successful Flyway migration V017';
+            'Runtime grants require successful Flyway migration V019';
     END IF;
 
     IF NOT EXISTS (
@@ -230,6 +233,9 @@ GRANT SELECT, INSERT ON TABLE
     public.nfc_card_assignment,
     public.device,
     public.attendance_policy_version,
+    public.attendance_policy_schedule,
+    public.attendance_policy_schedule_weekday,
+    public.attendance_policy_schedule_monthday,
     public.attendance_band,
     public.attendance_day,
     public.attendance_target,
@@ -319,6 +325,21 @@ GRANT UPDATE (
 TO app_runtime, cutover_writer;
 
 GRANT UPDATE (
+    policy_version_id,
+    status,
+    start_date,
+    end_date,
+    recurrence,
+    interval_value,
+    yearly_month,
+    yearly_day,
+    updated_by_account_id,
+    updated_at,
+    archived_at
+) ON TABLE public.attendance_policy_schedule
+TO app_runtime, cutover_writer;
+
+GRANT UPDATE (
     sequence_no,
     label,
     parent_status,
@@ -339,7 +360,8 @@ GRANT UPDATE (
     finalization_first_failed_at,
     finalization_last_failed_at,
     canceled_at,
-    cancel_reason
+    cancel_reason,
+    policy_schedule_id
 ) ON TABLE public.attendance_day
 TO app_runtime, cutover_writer;
 
@@ -448,6 +470,7 @@ GRANT USAGE ON SEQUENCE
     public.nfc_card_assignment_id_seq,
     public.device_id_seq,
     public.attendance_policy_version_id_seq,
+    public.attendance_policy_schedule_id_seq,
     public.attendance_band_id_seq,
     public.attendance_day_id_seq,
     public.attendance_record_id_seq,

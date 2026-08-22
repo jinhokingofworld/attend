@@ -34,7 +34,7 @@ public final class DatabaseMigrationRunner {
      * 이 애플리케이션 버전이 지원하는 유일한 목표 스키마 버전이다.
      */
     public static final MigrationVersion TARGET_VERSION =
-            MigrationVersion.fromVersion("18");
+            MigrationVersion.fromVersion("19");
 
     private final DatabasePreflightInspector preflightInspector;
 

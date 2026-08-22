@@ -10,6 +10,7 @@ import com.example.attend.attendance.application.AttendanceDayRecurrence;
 import com.example.attend.attendance.application.AttendanceDayScheduleCommand;
 import com.example.attend.attendance.application.AttendanceDayService;
 import com.example.attend.attendance.application.AttendancePolicyService;
+import com.example.attend.attendance.application.AttendancePolicyScheduleService;
 import com.example.attend.attendance.application.AttendanceStatistics;
 import com.example.attend.attendance.application.AttendanceStatisticsService;
 import com.example.attend.attendance.application.AttendanceTargetService;
@@ -64,6 +65,7 @@ public final class DepartmentAdminController {
 	private final CardManagementService cardService;
 	private final DepartmentMembershipExclusionService exclusionService;
 	private final AttendancePolicyService policyService;
+	private final AttendancePolicyScheduleService policyScheduleService;
 	private final AttendanceDayService dayService;
 	private final AttendanceTargetService targetService;
 	private final AttendanceCorrectionService correctionService;
@@ -83,6 +85,7 @@ public final class DepartmentAdminController {
 			CardManagementService cardService,
 			DepartmentMembershipExclusionService exclusionService,
 			AttendancePolicyService policyService,
+			AttendancePolicyScheduleService policyScheduleService,
 			AttendanceDayService dayService,
 			AttendanceTargetService targetService,
 			AttendanceCorrectionService correctionService,
@@ -98,6 +101,7 @@ public final class DepartmentAdminController {
 		this.cardService = cardService;
 		this.exclusionService = exclusionService;
 		this.policyService = policyService;
+		this.policyScheduleService = policyScheduleService;
 		this.dayService = dayService;
 		this.targetService = targetService;
 		this.correctionService = correctionService;
@@ -454,7 +458,7 @@ public final class DepartmentAdminController {
 			Model model) {
 		addDepartmentModel(principal, departmentId, model);
 		model.addAttribute("policies",
-				queryService.policies(principal.toActor(), departmentId));
+				queryService.policySchedules(principal.toActor(), departmentId));
 		return "admin/department/policies";
 	}
 
@@ -485,21 +489,118 @@ public final class DepartmentAdminController {
 			@RequestParam(required = false) List<AttendanceParentStatus> bandStatus,
 			@RequestParam(required = false) @DateTimeFormat(pattern = "HH:mm")
 					List<LocalTime> bandUpperTime,
+			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+					LocalDate startDate,
+			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+					LocalDate endDate,
+			@RequestParam(required = false) AttendanceDayRecurrence recurrence,
+			@RequestParam(defaultValue = "1") int interval,
+			@RequestParam(required = false) List<DayOfWeek> weeklyDays,
+			@RequestParam(required = false) List<Integer> monthlyDays,
+			@RequestParam(required = false) Integer yearlyMonth,
+			@RequestParam(required = false) Integer yearlyDay,
+			@RequestParam(defaultValue = "true") boolean enabled,
 			RedirectAttributes redirect) {
+		PolicyDraftCommand policy = new PolicyDraftCommand(name, checkInStartTime,
+				toBands(bandLabel, bandStatus, bandUpperTime));
+		if (startDate != null) {
+			return command(
+					() -> policyScheduleService.create(principal.toActor(), departmentId,
+							new com.example.attend.attendance.application.PolicyScheduleCommand(
+									policy, startDate, endDate,
+									recurrence == null ? AttendanceDayRecurrence.NONE : recurrence,
+									interval,
+									toSet(weeklyDays, "반복 요일 값이 올바르지 않습니다."),
+									toSet(monthlyDays, "반복 날짜 값이 올바르지 않습니다."),
+									yearlyMonth, yearlyDay, enabled)),
+					"출석 정책을 저장했습니다.", policiesPath(departmentId), redirect);
+		}
 		return command(
 				() -> policyService.createDraft(
 						principal.toActor(),
 						departmentId,
-						new PolicyDraftCommand(
-								name,
-								checkInStartTime,
-								toBands(
-										bandLabel,
-										bandStatus,
-										bandUpperTime))),
+						policy),
 				"출석 정책 초안을 저장했습니다.",
 				policiesPath(departmentId),
 				redirect);
+	}
+
+	/** 알람처럼 정책 일정의 적용 여부를 전환한다. */
+	@PostMapping("/admin/departments/{departmentId}/policies/{policyId}/enabled")
+	public String setPolicyEnabled(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long policyId,
+			@RequestParam boolean enabled,
+			RedirectAttributes redirect) {
+		return command(
+				() -> policyScheduleService.setEnabled(
+						principal.toActor(), departmentId, policyId, enabled),
+				enabled ? "출석 정책을 활성화했습니다." : "출석 정책을 비활성화했습니다.",
+				policiesPath(departmentId), redirect);
+	}
+
+	/** 과거 판정 이력을 보존하기 위해 정책을 보관 처리한다. */
+	@PostMapping("/admin/departments/{departmentId}/policies/{policyId}/archive")
+	public String archivePolicy(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long policyId,
+			@RequestParam String reason,
+			RedirectAttributes redirect) {
+		return command(
+				() -> policyScheduleService.archive(
+						principal.toActor(), departmentId, policyId, reason),
+				"출석 정책을 보관했습니다.", policiesPath(departmentId), redirect);
+	}
+
+	/** 알람형 정책 일정과 현재 시간 단계를 한 화면에서 수정한다. */
+	@GetMapping("/admin/departments/{departmentId}/policies/{policyId}/edit")
+	public String editPolicySchedule(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long policyId,
+			Model model) {
+		addDepartmentModel(principal, departmentId, model);
+		Map<String, Object> policy = queryService.policySchedule(principal.toActor(), departmentId, policyId);
+		model.addAttribute("policy", policy);
+		model.addAttribute("bands", queryService.policyBands(principal.toActor(), departmentId,
+				((Number) policy.get("policy_version_id")).longValue()));
+		model.addAttribute("weeklyDays", queryService.policyScheduleWeekdays(
+				principal.toActor(), departmentId, policyId));
+		model.addAttribute("monthlyDays", queryService.policyScheduleMonthdays(
+				principal.toActor(), departmentId, policyId));
+		return "admin/department/policy-schedule-edit";
+	}
+
+	@PostMapping("/admin/departments/{departmentId}/policies/{policyId}/edit")
+	public String replacePolicySchedule(
+			@AuthenticationPrincipal AccountPrincipal principal,
+			@PathVariable long departmentId,
+			@PathVariable long policyId,
+			@RequestParam String name,
+			@RequestParam @DateTimeFormat(pattern = "HH:mm") LocalTime checkInStartTime,
+			@RequestParam(required = false) List<String> bandLabel,
+			@RequestParam(required = false) List<AttendanceParentStatus> bandStatus,
+			@RequestParam(required = false) @DateTimeFormat(pattern = "HH:mm") List<LocalTime> bandUpperTime,
+			@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+			@RequestParam AttendanceDayRecurrence recurrence,
+			@RequestParam(defaultValue = "1") int interval,
+			@RequestParam(required = false) List<DayOfWeek> weeklyDays,
+			@RequestParam(required = false) List<Integer> monthlyDays,
+			@RequestParam(required = false) Integer yearlyMonth,
+			@RequestParam(required = false) Integer yearlyDay,
+			@RequestParam(defaultValue = "true") boolean enabled,
+			RedirectAttributes redirect) {
+		return command(() -> policyScheduleService.replace(principal.toActor(), departmentId, policyId,
+				new com.example.attend.attendance.application.PolicyScheduleCommand(
+						new PolicyDraftCommand(name, checkInStartTime, toBands(bandLabel, bandStatus, bandUpperTime)),
+						startDate, endDate, recurrence, interval,
+						toSet(weeklyDays, "반복 요일 값이 올바르지 않습니다."),
+						toSet(monthlyDays, "반복 날짜 값이 올바르지 않습니다."),
+						yearlyMonth, yearlyDay, enabled)),
+				"출석 정책을 수정했습니다.", policiesPath(departmentId), redirect);
 	}
 
 	/** 발행 전 정책 초안과 단계를 전부 교체한다. */
