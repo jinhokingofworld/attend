@@ -81,4 +81,5 @@
     <delete id="deleteMonthdays">
         DELETE FROM public.attendance_policy_schedule_monthday WHERE schedule_id = #{scheduleId}
     </delete>
+
 </mapper>

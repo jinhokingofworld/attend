@@ -62,4 +62,5 @@ public interface AttendancePolicyScheduleMapper {
     void deleteWeekdays(@Param("scheduleId") long scheduleId);
 
     void deleteMonthdays(@Param("scheduleId") long scheduleId);
+
 }
