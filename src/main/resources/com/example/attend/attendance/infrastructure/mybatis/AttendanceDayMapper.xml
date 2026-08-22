@@ -9,6 +9,7 @@
 			department_id,
 			attendance_date,
 			policy_version_id,
+			policy_schedule_id,
 			finalization_due_at,
 			status,
 			created_by_account_id
@@ -17,6 +18,7 @@
 			#{departmentId},
 			#{attendanceDate},
 			#{policyVersionId},
+			#{policyScheduleId},
 			#{finalizationDueAt},
 			'SCHEDULED',
 			#{actorAccountId}
@@ -24,6 +26,34 @@
 		ON CONFLICT (department_id, attendance_date) DO NOTHING
 		RETURNING id
 	</select>
+
+	<select id="selectFirstActiveDateConflict" resultType="java.time.LocalDate">
+		SELECT attendance_date
+		FROM public.attendance_day
+		WHERE department_id = #{departmentId}
+		  AND status &lt;&gt; 'CANCELED'
+		  AND attendance_date IN
+		<foreach collection="attendanceDates" item="date" open="(" separator="," close=")">
+			#{date}
+		</foreach>
+		ORDER BY attendance_date
+		LIMIT 1
+	</select>
+
+	<update id="cancelFutureScheduleDays">
+		UPDATE public.attendance_day
+		SET status = 'CANCELED',
+			canceled_by_account_id = #{actorAccountId},
+			canceled_at = #{canceledAt},
+			cancel_reason = #{reason}
+		WHERE department_id = #{departmentId}
+		  AND policy_schedule_id = #{policyScheduleId}
+		  AND attendance_date &gt; #{today}
+		  AND status = 'SCHEDULED'
+		  AND NOT EXISTS (
+			SELECT 1 FROM public.attendance_record
+			WHERE attendance_day_id = public.attendance_day.id)
+	</update>
 
 	<insert id="snapshotActiveMembers">
 		INSERT INTO public.attendance_target (

@@ -20,8 +20,23 @@ public interface AttendanceDayMapper {
 			@Param("departmentId") long departmentId,
 			@Param("attendanceDate") LocalDate attendanceDate,
 			@Param("policyVersionId") long policyVersionId,
+			@Param("policyScheduleId") Long policyScheduleId,
 			@Param("finalizationDueAt") Instant finalizationDueAt,
 			@Param("actorAccountId") long actorAccountId);
+
+	/** 같은 부서의 취소되지 않은 날짜 중 정책 일정과 충돌하는 첫 날짜를 찾는다. */
+	LocalDate selectFirstActiveDateConflict(
+			@Param("departmentId") long departmentId,
+			@Param("attendanceDates") List<LocalDate> attendanceDates);
+
+	/** 아직 시작하지 않은 일정 소속 출석일만 취소한다. */
+	int cancelFutureScheduleDays(
+			@Param("departmentId") long departmentId,
+			@Param("policyScheduleId") long policyScheduleId,
+			@Param("today") LocalDate today,
+			@Param("actorAccountId") long actorAccountId,
+			@Param("canceledAt") Instant canceledAt,
+			@Param("reason") String reason);
 
 	/** 현재 활성 소속 교사를 날짜 대상자로 한 번에 snapshot한다. */
 	int snapshotActiveMembers(

@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.attend.attendance.infrastructure.mybatis.AttendancePolicyScheduleMapper">
+    <select id="insertSchedule" resultType="long" affectData="true">
+        INSERT INTO public.attendance_policy_schedule (
+            department_id, policy_version_id, status, start_date, end_date,
+            recurrence, interval_value, yearly_month, yearly_day,
+            created_by_account_id, updated_by_account_id)
+        VALUES (#{departmentId}, #{policyVersionId}, #{status}, #{startDate}, #{endDate},
+                #{recurrence}, #{intervalValue}, #{yearlyMonth}, #{yearlyDay},
+                #{actorAccountId}, #{actorAccountId})
+        RETURNING id
+    </select>
+
+    <insert id="insertWeekdays">
+        INSERT INTO public.attendance_policy_schedule_weekday (schedule_id, weekday)
+        VALUES
+        <foreach collection="weekdays" item="weekday" separator=",">
+            (#{scheduleId}, #{weekday.value})
+        </foreach>
+    </insert>
+
+    <insert id="insertMonthdays">
+        INSERT INTO public.attendance_policy_schedule_monthday (schedule_id, monthday)
+        VALUES
+        <foreach collection="monthdays" item="monthday" separator=",">
+            (#{scheduleId}, #{monthday})
+        </foreach>
+    </insert>
+
+    <select id="lockSchedule" resultType="com.example.attend.attendance.infrastructure.mybatis.PolicyScheduleRow">
+        SELECT id, department_id, policy_version_id, status, start_date, end_date,
+               recurrence, interval_value, yearly_month, yearly_day
+        FROM public.attendance_policy_schedule
+        WHERE id = #{scheduleId} AND department_id = #{departmentId}
+        FOR UPDATE
+    </select>
+
+    <select id="selectWeekdayValues" resultType="int">
+        SELECT weekday
+        FROM public.attendance_policy_schedule_weekday
+        WHERE schedule_id = #{scheduleId}
+        ORDER BY weekday
+    </select>
+
+    <select id="selectMonthdays" resultType="int">
+        SELECT monthday
+        FROM public.attendance_policy_schedule_monthday
+        WHERE schedule_id = #{scheduleId}
+        ORDER BY monthday
+    </select>
+
+    <update id="updateStatus">
+        UPDATE public.attendance_policy_schedule
+        SET status = #{status},
+            updated_by_account_id = #{actorAccountId},
+            updated_at = CURRENT_TIMESTAMP,
+            archived_at = #{archivedAt}
+        WHERE id = #{scheduleId}
+          AND department_id = #{departmentId}
+          AND status &lt;&gt; 'ARCHIVED'
+    </update>
+
+    <update id="replaceSchedule">
+        UPDATE public.attendance_policy_schedule
+        SET policy_version_id = #{policyVersionId},
+            start_date = #{startDate}, end_date = #{endDate}, recurrence = #{recurrence},
+            interval_value = #{intervalValue}, yearly_month = #{yearlyMonth}, yearly_day = #{yearlyDay},
+            updated_by_account_id = #{actorAccountId}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{scheduleId}
+          AND department_id = #{departmentId}
+          AND status &lt;&gt; 'ARCHIVED'
+    </update>
+
+    <delete id="deleteWeekdays">
+        DELETE FROM public.attendance_policy_schedule_weekday WHERE schedule_id = #{scheduleId}
+    </delete>
+
+    <delete id="deleteMonthdays">
+        DELETE FROM public.attendance_policy_schedule_monthday WHERE schedule_id = #{scheduleId}
+    </delete>
+</mapper>

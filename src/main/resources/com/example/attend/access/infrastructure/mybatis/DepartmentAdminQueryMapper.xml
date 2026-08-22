@@ -171,6 +171,51 @@
 		ORDER BY version_no DESC
 	</select>
 
+	<select id="selectPolicySchedules" resultType="map">
+		SELECT schedule.id,
+		       schedule.policy_version_id,
+		       policy.name,
+		       schedule.status,
+		       schedule.start_date,
+		       schedule.end_date,
+		       schedule.recurrence,
+		       schedule.interval_value,
+		       policy.check_in_start_time,
+		       (
+			SELECT band.upper_time
+			FROM public.attendance_band AS band
+			WHERE band.policy_version_id = policy.id
+			ORDER BY band.sequence_no DESC
+			LIMIT 1
+		) AS final_upper_time
+		FROM public.attendance_policy_schedule AS schedule
+		JOIN public.attendance_policy_version AS policy
+		  ON policy.id = schedule.policy_version_id
+		WHERE schedule.department_id = #{departmentId}
+		ORDER BY CASE schedule.status WHEN 'ON' THEN 0 WHEN 'OFF' THEN 1 ELSE 2 END,
+		         schedule.start_date, schedule.id
+	</select>
+
+	<select id="selectPolicySchedule" resultType="map">
+		SELECT schedule.id, schedule.policy_version_id, policy.name, schedule.status,
+		       schedule.start_date, schedule.end_date, schedule.recurrence,
+		       schedule.interval_value, schedule.yearly_month, schedule.yearly_day,
+		       policy.check_in_start_time
+		FROM public.attendance_policy_schedule AS schedule
+		JOIN public.attendance_policy_version AS policy ON policy.id = schedule.policy_version_id
+		WHERE schedule.department_id = #{departmentId} AND schedule.id = #{scheduleId}
+	</select>
+
+	<select id="selectPolicyScheduleWeekdays" resultType="int">
+		SELECT weekday FROM public.attendance_policy_schedule_weekday
+		WHERE schedule_id = #{scheduleId} ORDER BY weekday
+	</select>
+
+	<select id="selectPolicyScheduleMonthdays" resultType="int">
+		SELECT monthday FROM public.attendance_policy_schedule_monthday
+		WHERE schedule_id = #{scheduleId} ORDER BY monthday
+	</select>
+
 	<select id="selectPolicy" resultType="map">
 		SELECT id, version_no, name, check_in_start_time, status,
 		       created_at, published_at

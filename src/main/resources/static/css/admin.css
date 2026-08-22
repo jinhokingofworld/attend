@@ -319,6 +319,17 @@ input[type="submit"] {
     font-weight: 700;
 }
 
+button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.remove-band:not(:disabled) {
+    border-color: var(--danger);
+    background: #fff1f0;
+    color: var(--danger);
+}
+
 .button-secondary {
     border-color: var(--border);
     background: #fff;

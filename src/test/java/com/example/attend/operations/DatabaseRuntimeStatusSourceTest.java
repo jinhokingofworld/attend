@@ -23,7 +23,7 @@ class DatabaseRuntimeStatusSourceTest {
 		Statement schemaStatement = mock(Statement.class);
 		DataSource dataSource = dataSourceWithVersions(
 				schemaStatement,
-				"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18");
+				"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19");
 
 		assertThat(new DatabaseRuntimeStatusSource(dataSource).current())
 				.isEqualTo("정상 · 연결 및 승인된 Flyway target 일치");
