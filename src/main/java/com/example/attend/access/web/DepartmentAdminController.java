@@ -494,6 +494,8 @@ public final class DepartmentAdminController {
 			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
 					LocalDate endDate,
 			@RequestParam(required = false) AttendanceDayRecurrence recurrence,
+			@RequestParam(defaultValue = "false") boolean repeatEnabled,
+			@RequestParam(required = false) AttendanceDayRecurrence recurrencePattern,
 			@RequestParam(defaultValue = "1") int interval,
 			@RequestParam(required = false) List<DayOfWeek> weeklyDays,
 			@RequestParam(required = false) List<Integer> monthlyDays,
@@ -503,12 +505,15 @@ public final class DepartmentAdminController {
 			RedirectAttributes redirect) {
 		PolicyDraftCommand policy = new PolicyDraftCommand(name, checkInStartTime,
 				toBands(bandLabel, bandStatus, bandUpperTime));
+		AttendanceDayRecurrence selectedRecurrence = repeatEnabled
+				? recurrencePattern == null ? recurrence : recurrencePattern
+				: AttendanceDayRecurrence.NONE;
 		if (startDate != null) {
 			return command(
 					() -> policyScheduleService.create(principal.toActor(), departmentId,
 							new com.example.attend.attendance.application.PolicyScheduleCommand(
 									policy, startDate, endDate,
-									recurrence == null ? AttendanceDayRecurrence.NONE : recurrence,
+									selectedRecurrence,
 									interval,
 									toSet(weeklyDays, "반복 요일 값이 올바르지 않습니다."),
 									toSet(monthlyDays, "반복 날짜 값이 올바르지 않습니다."),

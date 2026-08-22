@@ -161,6 +161,42 @@ class M3SecurityIntegrationTest {
 				""", Integer.class, policyId)).isZero();
 	}
 
+	@Test
+	void createsARecurringPolicyFromExplicitRepeatFieldsWithoutClientScript()
+			throws Exception {
+		AccountPrincipal departmentPrincipal = (AccountPrincipal)
+				userDetailsService.loadUserByUsername(DEPARTMENT_USERNAME);
+		LocalDate startDate = LocalDate.now(clock).plusDays(1);
+		LocalDate endDate = startDate.plusDays(7);
+
+		mockMvc.perform(post("/admin/departments/" + departmentId + "/policies")
+						.with(user(departmentPrincipal))
+						.with(csrf())
+						.param("name", "반복 화면 검증 정책")
+						.param("checkInStartTime", "08:30")
+						.param("bandLabel", "정상", "지각")
+						.param("bandStatus", "PRESENT", "LATE")
+						.param("bandUpperTime", "09:00", "09:30")
+						.param("startDate", startDate.toString())
+						.param("endDate", endDate.toString())
+						.param("recurrence", "NONE")
+						.param("repeatEnabled", "true")
+						.param("recurrencePattern", "WEEKLY")
+						.param("weeklyDays", "MONDAY"))
+				.andExpect(status().is3xxRedirection())
+				.andExpect(redirectedUrl(
+						"/admin/departments/" + departmentId + "/policies"));
+
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT schedule.recurrence
+				FROM public.attendance_policy_schedule AS schedule
+				JOIN public.attendance_policy_version AS policy
+				  ON policy.id = schedule.policy_version_id
+				WHERE policy.department_id = ?
+				  AND policy.name = '반복 화면 검증 정책'
+				""", String.class, departmentId)).isEqualTo("WEEKLY");
+	}
+
 	/** 운영 집계는 오늘 날짜도 저장된 마감 시각이 지났으면 지연으로 표시한다. */
 	@Test
 	void countsDueSameDayAttendanceAsOverdueInSystemOperations()
@@ -213,6 +249,9 @@ class M3SecurityIntegrationTest {
 		jdbcTemplate.update("DELETE FROM public.attendance_record");
 		jdbcTemplate.update("DELETE FROM public.attendance_target");
 		jdbcTemplate.update("DELETE FROM public.attendance_day");
+		jdbcTemplate.update("DELETE FROM public.attendance_policy_schedule_weekday");
+		jdbcTemplate.update("DELETE FROM public.attendance_policy_schedule_monthday");
+		jdbcTemplate.update("DELETE FROM public.attendance_policy_schedule");
 		jdbcTemplate.update("DELETE FROM public.attendance_band");
 		jdbcTemplate.update("DELETE FROM public.attendance_policy_version");
 		jdbcTemplate.update("DELETE FROM public.nfc_card_assignment");
@@ -396,9 +435,11 @@ class M3SecurityIntegrationTest {
 				.andExpect(content().string(containsString(
 						"마감 시간 (마지막 태깅 허용 시각)")))
 				.andExpect(content().string(containsString(
-						"1µs 후 미출석자는 결석 처리 대상")))
+						"반복 방식을 먼저 선택하면 필요한 설정만 표시됩니다.")))
 				.andExpect(content().string(containsString(
-						"updateFinalizationLabels")));
+						"/js/policy-form.js")))
+				.andExpect(content().string(not(containsString(
+						"name=\"recurrencePattern\" value=\"YEARLY\""))));
 		mockMvc.perform(get("/admin/departments/" + departmentId
 						+ "/policies/" + policyId)
 						.with(user(departmentPrincipal)))

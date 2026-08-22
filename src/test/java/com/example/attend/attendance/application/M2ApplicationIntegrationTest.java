@@ -83,6 +83,9 @@ class M2ApplicationIntegrationTest {
 	private AttendanceDayService dayService;
 
 	@Autowired
+	private AttendancePolicyScheduleService policyScheduleService;
+
+	@Autowired
 	private AttendanceCorrectionService correctionService;
 
 	@Autowired
@@ -883,6 +886,54 @@ class M2ApplicationIntegrationTest {
 				WHERE department_id = ?
 				  AND action = 'ATTENDANCE_DAY_CREATED'
 				""", authority.departmentId())).isEqualTo(3);
+	}
+
+	@Test
+	void createsAnEnabledPolicyScheduleWithItsAttendanceDayAndTargetSnapshot() {
+		clock.setInstant(atSeoul(
+				LocalDate.of(2026, 8, 1),
+				LocalTime.of(8, 0)));
+		TestAuthority authority = createAuthority();
+		AccountActor actor = new AccountActor(authority.accountId());
+		TeacherRegistrationResult teacher = teacherRosterService.addTeacher(
+				actor,
+				authority.departmentId(),
+				new AddTeacherCommand(
+						"정책 생성 교사",
+						null,
+						LocalDate.of(1992, 3, 4),
+						null));
+
+		long scheduleId = policyScheduleService.create(
+				actor,
+				authority.departmentId(),
+				new PolicyScheduleCommand(
+						new PolicyDraftCommand("자동 생성 정책", LocalTime.of(8, 30), List.of(
+								new PolicyBandInput(1, "정상", AttendanceParentStatus.PRESENT,
+										LocalTime.of(9, 0)),
+								new PolicyBandInput(2, "지각", AttendanceParentStatus.LATE,
+										LocalTime.of(9, 30)))),
+						LocalDate.of(2026, 8, 2),
+						null,
+						AttendanceDayRecurrence.NONE,
+						1,
+						Set.of(),
+						Set.of(),
+						null,
+						null,
+						true));
+
+		assertThat(queryInt("""
+				SELECT count(*)
+				FROM public.attendance_day AS day
+				JOIN public.attendance_target AS target
+				  ON target.attendance_day_id = day.id
+				WHERE day.department_id = ?
+				  AND day.policy_schedule_id = ?
+				  AND day.attendance_date = ?
+				  AND target.member_id = ?
+				""", authority.departmentId(), scheduleId,
+				LocalDate.of(2026, 8, 2), teacher.memberId())).isEqualTo(1);
 	}
 
 	@Test

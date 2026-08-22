@@ -44,7 +44,9 @@ public record PolicyScheduleCommand(
 
     /** 정책의 시작 규칙을 유지한 채 지정 범위에 발생하는 날짜를 계산한다. */
     public java.util.List<LocalDate> occurrenceDatesUntil(LocalDate horizonEnd) {
-        LocalDate effectiveEnd = endDate == null
+        LocalDate effectiveEnd = recurrence == AttendanceDayRecurrence.NONE
+                ? startDate
+                : endDate == null
                 ? horizonEnd
                 : endDate.isBefore(horizonEnd) ? endDate : horizonEnd;
         if (effectiveEnd.isBefore(startDate)) {

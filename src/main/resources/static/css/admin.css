@@ -820,3 +820,415 @@ th {
         padding: 18px;
     }
 }
+
+/* Attendance policy composer */
+.policy-page {
+    max-width: 1180px;
+}
+
+.policy-page__heading {
+    margin-bottom: 28px;
+}
+
+.policy-composer,
+.policy-list {
+    margin: 24px 0;
+    padding: 26px;
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: #fbfcfe;
+}
+
+.policy-composer .section-heading,
+.policy-list .section-heading {
+    margin-bottom: 18px;
+}
+
+.policy-composer .section-heading h2,
+.policy-list .section-heading h2 {
+    margin: 0;
+}
+
+.policy-composer .section-heading p:last-child {
+    margin-bottom: 0;
+    color: var(--muted);
+}
+
+.policy-form {
+    display: block;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+
+.policy-form__section {
+    margin: 14px 0;
+    padding: 22px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: #fff;
+}
+
+.policy-form__section-heading {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.policy-form__section-heading h3 {
+    margin: 0;
+    font-size: 1rem;
+}
+
+.policy-form__section-heading p {
+    margin: 3px 0 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+.policy-form__step {
+    display: grid;
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+    place-items: center;
+    border-radius: 50%;
+    background: #e9f0fc;
+    color: var(--primary-dark);
+    font-size: 0.86rem;
+    font-weight: 800;
+}
+
+.policy-form__grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.policy-form__grid--basics .policy-form__name {
+    grid-column: span 2;
+}
+
+.policy-form small,
+.field-help {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.repeat-toggle,
+.recurrence-picker {
+    display: grid;
+    gap: 8px;
+}
+
+.repeat-toggle {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.recurrence-picker {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.repeat-toggle label,
+.recurrence-picker label {
+    display: block;
+    min-width: 0;
+}
+
+.repeat-toggle input,
+.recurrence-picker input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    min-height: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+.repeat-toggle span,
+.recurrence-picker span {
+    display: grid;
+    min-height: 46px;
+    place-items: center;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #fff;
+    color: var(--muted);
+    cursor: pointer;
+    font-weight: 750;
+}
+
+.repeat-toggle input:checked + span,
+.recurrence-picker input:checked + span {
+    border-color: var(--primary);
+    background: var(--primary);
+    color: #fff;
+    box-shadow: 0 4px 12px rgb(37 87 167 / 18%);
+}
+
+.repeat-toggle input:focus-visible + span,
+.recurrence-picker input:focus-visible + span {
+    outline: 3px solid rgb(37 87 167 / 25%);
+    outline-offset: 2px;
+}
+
+.repeat-options {
+    display: grid;
+    grid-template-columns: minmax(190px, 0.42fr) 1fr;
+    gap: 14px;
+    align-items: start;
+    margin-top: 16px;
+}
+
+/* `display: grid` must not override the semantic hidden state controlled by the form. */
+.policy-form [hidden] {
+    display: none !important;
+}
+
+/* JS가 지연되거나 차단돼도 반복 토글은 즉시 동작해야 한다. */
+.policy-form:has(input[name="repeatEnabled"][value="true"]:checked) #repeatOptions[hidden] {
+    display: grid !important;
+}
+
+.policy-form:has(input[name="repeatEnabled"][value="true"]:checked) #policyEndDateField[hidden] {
+    display: grid !important;
+}
+
+.policy-form:has(input[name="repeatEnabled"][value="true"]:checked):has(
+        #repeatOptions input[name="recurrencePattern"][value="WEEKLY"]:checked
+    ) #repeatOptions [data-recurrence="WEEKLY"][hidden],
+.policy-form:has(input[name="repeatEnabled"][value="true"]:checked):has(
+        #repeatOptions input[name="recurrencePattern"][value="MONTHLY"]:checked
+    ) #repeatOptions [data-recurrence="MONTHLY"][hidden] {
+    display: block !important;
+}
+
+.repeat-options__pattern {
+    grid-column: 1 / -1;
+}
+
+.repeat-options__pattern > p {
+    margin: 0 0 8px;
+    color: var(--muted);
+    font-size: 0.88rem;
+    font-weight: 750;
+}
+
+.repeat-options__interval {
+    align-self: stretch;
+    padding: 16px;
+    border: 1px solid #cddbf0;
+    border-radius: 12px;
+    background: #f5f8fd;
+}
+
+.recurrence-panel {
+    grid-column: 2;
+    margin: 0;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: #fbfcfe;
+}
+
+.recurrence-panel legend {
+    padding: 0 5px;
+    color: var(--text);
+    font-weight: 750;
+}
+
+.weekday-picker,
+.monthday-picker {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.weekday-picker label,
+.monthday-picker label {
+    display: block;
+}
+
+.weekday-picker input,
+.monthday-picker input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    min-height: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+}
+
+.weekday-picker span,
+.monthday-picker span {
+    display: grid;
+    min-height: 40px;
+    place-items: center;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--muted);
+    cursor: pointer;
+    font-weight: 750;
+}
+
+.weekday-picker input:checked + span,
+.monthday-picker input:checked + span {
+    border-color: var(--primary);
+    background: #e9f0fc;
+    color: var(--primary-dark);
+}
+
+.policy-bands {
+    display: grid;
+    gap: 10px;
+}
+
+.policy-form .band-row {
+    display: grid;
+    grid-template-columns: minmax(180px, 1.5fr) minmax(100px, 0.55fr) minmax(170px, 1fr) auto;
+    align-items: end;
+    margin: 0;
+    padding: 14px;
+    border-color: var(--border);
+}
+
+.policy-form .band-row--final {
+    border-color: #9bb7df;
+    background: #edf3fc;
+}
+
+.policy-form .band-row button {
+    min-height: 42px;
+}
+
+.policy-form__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.policy-card-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+    gap: 14px;
+}
+
+.policy-card {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    margin: 0;
+    padding: 20px;
+    background: #fff;
+}
+
+.policy-card__header,
+.policy-card__actions {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.policy-card__header h3,
+.policy-card__header p {
+    margin: 0;
+}
+
+.policy-card__header p {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 0.88rem;
+}
+
+.policy-card__details {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin: 0;
+}
+
+.policy-card__details div {
+    padding: 10px;
+    border-radius: 9px;
+    background: #f5f7fb;
+}
+
+.policy-card__details dt {
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-weight: 750;
+}
+
+.policy-card__details dd {
+    margin: 3px 0 0;
+    font-size: 0.88rem;
+    font-weight: 750;
+}
+
+.policy-card__actions {
+    align-items: center;
+    justify-content: flex-start;
+    margin-top: auto;
+}
+
+.policy-card__actions form {
+    display: inline-flex;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+
+.policy-card__actions button,
+.policy-card__actions .button-link {
+    min-height: 38px;
+    padding: 7px 11px;
+}
+
+.policy-page__back {
+    display: inline-block;
+    margin-top: 8px;
+}
+
+@media (max-width: 720px) {
+    .policy-composer,
+    .policy-list {
+        padding: 18px;
+    }
+
+    .policy-form__grid,
+    .recurrence-picker,
+    .repeat-options,
+    .policy-form .band-row,
+    .policy-card__details {
+        grid-template-columns: 1fr;
+    }
+
+    .policy-form__grid--basics .policy-form__name,
+    .recurrence-panel {
+        grid-column: auto;
+    }
+
+    .weekday-picker {
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+    }
+
+    .monthday-picker {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+
+    .policy-form__actions,
+    .policy-card__actions {
+        flex-wrap: wrap;
+    }
+}
