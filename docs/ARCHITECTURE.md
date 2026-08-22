@@ -853,8 +853,8 @@ PostgreSQL 기본 `READ COMMITTED`와 명시적 행 잠금·유일 제약을 사
 - 배포 전 별도 runner가 승인된 target version까지 migration
 - 웹 애플리케이션 DB 계정은 DDL 권한 없음
 - 애플리케이션 artifact에는 지원하는 최소·최대 schema version을 기록한다. MVP에서는 두 값을 같은 승인 target version으로 두고, runtime은 시작 시 `flyway_schema_history`에 대한 읽기 전용 검사로 일치 여부를 확인한다.
-- V018 release의 runtime 검사는 history 부재, `success = FALSE` 행, V001~V018 중 누락·중복·초과 version을 모두 실패로 판정한다.
-- version 문자열에 `MAX`를 사용하지 않고 Flyway `MigrationVersion`으로 해석한 적용 순서 전체를 artifact의 V001~V018 목록과 정확히 비교한다.
+- V020 release의 runtime 검사는 history 부재, `success = FALSE` 행, V001~V020 중 누락·중복·초과 version을 모두 실패로 판정한다.
+- version 문자열에 `MAX`를 사용하지 않고 Flyway `MigrationVersion`으로 해석한 적용 순서 전체를 artifact의 V001~V020 목록과 정확히 비교한다.
 - repeatable migration은 현재 version 계산에서 제외하고 checksum·누락 여부는 배포 runner의 `flyway validate`로 검증한다.
 - 위 조건이 맞지 않으면 readiness 경고만 내는 것이 아니라 쓰기 요청을 받을 수 없도록 기동을 실패한다.
 - Spring SQL init과 Flyway를 함께 사용하지 않음

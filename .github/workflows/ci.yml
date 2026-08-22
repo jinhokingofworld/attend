@@ -73,7 +73,7 @@ jobs:
             migration_count="$(
               grep -Ec 'BOOT-INF/classes/db/migration/V[0-9]+__.+[.]sql$' build/jar-contents.txt
             )"
-            test "${migration_count}" -eq 19
+            test "${migration_count}" -eq 20
             grep -Fxq \
               'BOOT-INF/classes/db/migration/V015__add_attendance_finalization_dispatch_index.sql.conf' \
               build/jar-contents.txt

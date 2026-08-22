@@ -44,7 +44,7 @@ import static com.example.attend.database.DatabasePreflightInspector.PreflightSt
 import static com.example.attend.database.DatabasePreflightInspector.PreflightStatus.REJECTED;
 
 /**
- * 실제 PostgreSQL 15에서 V001~V018 migration의 안전성과 핵심 제약조건을 검증한다.
+ * 실제 PostgreSQL 15에서 V001~V020 migration의 안전성과 핵심 제약조건을 검증한다.
  *
  * <p>H2 같은 대체 DB로는 PostgreSQL catalog, partial unique index, 복합 외래 키,
  * SQLSTATE가 실제 운영 DB와 같다고 보장할 수 없다. 따라서 Testcontainers로
@@ -70,7 +70,7 @@ class FlywayMigrationTest {
             new PostgreSQLContainer<>("postgres:15-alpine");
 
     /**
-     * 빈 DB가 올바르게 분류되고 V018까지 정확히 한 번 적용되는지 검증한다.
+     * 빈 DB가 올바르게 분류되고 V020까지 정확히 한 번 적용되는지 검증한다.
      *
      * <p>잘못된 운영자 승인값에서는 history조차 만들지 않아야 하며, 같은
      * migration을 다시 실행해도 결과가 바뀌지 않는 멱등성도 함께 확인한다.</p>
@@ -113,7 +113,7 @@ class FlywayMigrationTest {
                     FROM public.flyway_schema_history
                     WHERE success
                       AND version IS NOT NULL
-                    """ )).isEqualTo(19);
+                    """ )).isEqualTo(20);
 
             assertThat(queryString(connection, """
                     SELECT indisvalid::text || ':' || indisready::text || ':' || pg_get_indexdef(indexrelid)
@@ -592,7 +592,7 @@ class FlywayMigrationTest {
                     "ops/db/roles/003_grant_application_privileges.sql"
             ))
                     .isInstanceOf(SQLException.class)
-                    .hasMessageContaining("complete V019 schema");
+                    .hasMessageContaining("complete V020 schema");
         }
     }
 
@@ -2285,7 +2285,7 @@ class FlywayMigrationTest {
                     FROM public.flyway_schema_history
                     WHERE success
                       AND version IS NOT NULL
-                    """)).isEqualTo(20);
+                    """)).isEqualTo(21);
             assertThat(queryInt(connection, """
                     SELECT count(*)
                     FROM public.flyway_schema_history
@@ -2718,7 +2718,7 @@ class FlywayMigrationTest {
     }
 
     /**
-     * 애플리케이션 시작 검사가 정확히 성공한 V001~V018만 허용하는지 검증한다.
+     * 애플리케이션 시작 검사가 정확히 성공한 V001~V020만 허용하는지 검증한다.
      *
      * <p>history 없음, 구버전, 실패 처리된 migration, 애플리케이션보다 앞선
      * 버전을 모두 거부하고 정확한 버전 목록만 통과시킨다.</p>
@@ -2771,7 +2771,7 @@ class FlywayMigrationTest {
             statement.executeUpdate("""
                     UPDATE public.flyway_schema_history
                     SET success = TRUE,
-                        version = '019'
+                        version = '020'
                     WHERE version = '018'
                     """);
             assertThatThrownBy(() ->
@@ -2840,6 +2840,24 @@ class FlywayMigrationTest {
                      migrationDataSource.getConnection();
              Statement statement =
                      migrationConnection.createStatement()) {
+            assertThat(queryString(migrationConnection, """
+                    SELECT has_table_privilege(
+                        'app_runtime',
+                        'public.attendance_policy_schedule',
+                        'SELECT,INSERT')::text
+                    """)).isEqualTo("true");
+            assertThat(queryString(migrationConnection, """
+                    SELECT has_sequence_privilege(
+                        'app_runtime',
+                        'public.attendance_policy_schedule_id_seq',
+                        'USAGE')::text
+                    """)).isEqualTo("true");
+            assertThat(queryString(migrationConnection, """
+                    SELECT has_table_privilege(
+                        'app_runtime',
+                        'public.attendance_policy_schedule_weekday',
+                        'DELETE')::text
+                    """)).isEqualTo("true");
             executeSqlFile(
                     statement,
                     "ops/db/roles/003_grant_application_privileges.sql"
@@ -2856,6 +2874,22 @@ class FlywayMigrationTest {
                 database.dataSource("retention_worker", retentionPassword);
         SchemaVersionGuard.verify(runtimeDataSource);
         RuntimeDatabasePrivilegeGuard.verify(runtimeDataSource);
+
+        try (Connection migrationConnection = migrationDataSource.getConnection();
+             Statement statement = migrationConnection.createStatement()) {
+            statement.execute("""
+                    REVOKE DELETE ON TABLE public.attendance_policy_schedule_weekday
+                    FROM app_runtime
+                    """);
+            assertRuntimePrivilegeGuardRejects(runtimeDataSource);
+            executeSqlFile(
+                    statement,
+                    "ops/db/roles/003_grant_application_privileges.sql");
+            executeSqlFile(
+                    statement,
+                    "ops/db/roles/004_grant_department_admin_invitation_privileges.sql");
+            RuntimeDatabasePrivilegeGuard.verify(runtimeDataSource);
+        }
 
 		long exhaustedDayId;
 		long runtimeAccountId;
