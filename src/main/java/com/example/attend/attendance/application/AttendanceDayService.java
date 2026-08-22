@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
@@ -171,8 +172,9 @@ public class AttendanceDayService {
 		writeAuthorization.requireEnabled();
 		authorization.requireDepartmentAdmin(actor, departmentId);
 		departmentLock.lockActive(departmentId);
+		Clock localClock = clock.withZone(attendanceZone);
 		return dayMapper.cancelFutureScheduleDays(
-				departmentId, policyScheduleId, LocalDate.now(clock), actor.accountId(),
+				departmentId, policyScheduleId, LocalDate.now(localClock), LocalTime.now(localClock), actor.accountId(),
 				clock.instant(), reason);
 	}
 

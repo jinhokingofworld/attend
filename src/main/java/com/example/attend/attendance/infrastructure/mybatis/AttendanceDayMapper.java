@@ -34,6 +34,7 @@ public interface AttendanceDayMapper {
 			@Param("departmentId") long departmentId,
 			@Param("policyScheduleId") long policyScheduleId,
 			@Param("today") LocalDate today,
+			@Param("currentTime") LocalTime currentTime,
 			@Param("actorAccountId") long actorAccountId,
 			@Param("canceledAt") Instant canceledAt,
 			@Param("reason") String reason);

@@ -149,8 +149,7 @@ public class AttendancePolicyScheduleService {
         requireStartNotPast(command.startDate());
         validatePolicy(command);
         dayService.cancelFuturePolicyScheduleDays(actor, departmentId, scheduleId, "정책 수정으로 미래 일정을 갱신했습니다.");
-        List<LocalDate> dates = futureDates(command).stream()
-                .filter(date -> date.isAfter(LocalDate.now(clock))).toList();
+        List<LocalDate> dates = futureDates(command);
         if (command.enabled()) rejectConflict(departmentId, dates);
 
         int versionNo = policyMapper.selectNextVersionNo(departmentId);

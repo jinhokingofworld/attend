@@ -23,7 +23,16 @@
 			'SCHEDULED',
 			#{actorAccountId}
 		)
-		ON CONFLICT (department_id, attendance_date) DO NOTHING
+		ON CONFLICT (department_id, attendance_date) DO UPDATE
+		SET policy_version_id = EXCLUDED.policy_version_id,
+			policy_schedule_id = EXCLUDED.policy_schedule_id,
+			finalization_due_at = EXCLUDED.finalization_due_at,
+			status = 'SCHEDULED',
+			canceled_by_account_id = NULL,
+			canceled_at = NULL,
+			cancel_reason = NULL
+		WHERE public.attendance_day.status = 'CANCELED'
+		  AND public.attendance_day.policy_schedule_id = EXCLUDED.policy_schedule_id
 		RETURNING id
 	</select>
 
@@ -41,18 +50,24 @@
 	</select>
 
 	<update id="cancelFutureScheduleDays">
-		UPDATE public.attendance_day
+		UPDATE public.attendance_day AS day
 		SET status = 'CANCELED',
 			canceled_by_account_id = #{actorAccountId},
 			canceled_at = #{canceledAt},
 			cancel_reason = #{reason}
-		WHERE department_id = #{departmentId}
-		  AND policy_schedule_id = #{policyScheduleId}
-		  AND attendance_date &gt; #{today}
-		  AND status = 'SCHEDULED'
+		WHERE day.department_id = #{departmentId}
+		  AND day.policy_schedule_id = #{policyScheduleId}
+		  AND day.status = 'SCHEDULED'
+		  AND (day.attendance_date &gt; #{today}
+		       OR (day.attendance_date = #{today} AND EXISTS (
+				SELECT 1
+				FROM public.attendance_policy_version AS policy
+				WHERE policy.id = day.policy_version_id
+				  AND policy.check_in_start_time &gt; #{currentTime}
+			)))
 		  AND NOT EXISTS (
 			SELECT 1 FROM public.attendance_record
-			WHERE attendance_day_id = public.attendance_day.id)
+			WHERE attendance_day_id = day.id)
 	</update>
 
 	<insert id="snapshotActiveMembers">
@@ -78,6 +93,7 @@
 		WHERE membership.department_id = #{departmentId}
 		  AND membership.ended_at IS NULL
 		ORDER BY membership.member_id
+		ON CONFLICT (attendance_day_id, member_id) DO NOTHING
 	</insert>
 
 	<select id="lockDay"
