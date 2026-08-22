@@ -169,12 +169,27 @@ public class AttendanceDayService {
 			long policyScheduleId,
 			String reason
 	) {
+		return cancelFuturePolicyScheduleDays(
+				actor, departmentId, policyScheduleId, reason, true);
+	}
+
+	/**
+	 * 정책 수정 시에는 새 정책도 아직 시작하지 않은 오늘 일정만 교체할 수 있다.
+	 */
+	@Transactional
+	public int cancelFuturePolicyScheduleDays(
+			AccountActor actor,
+			long departmentId,
+			long policyScheduleId,
+			String reason,
+			boolean cancelToday
+	) {
 		writeAuthorization.requireEnabled();
 		authorization.requireDepartmentAdmin(actor, departmentId);
 		departmentLock.lockActive(departmentId);
 		Clock localClock = clock.withZone(attendanceZone);
 		return dayMapper.cancelFutureScheduleDays(
-				departmentId, policyScheduleId, LocalDate.now(localClock), LocalTime.now(localClock), actor.accountId(),
+				departmentId, policyScheduleId, LocalDate.now(localClock), LocalTime.now(localClock), cancelToday, actor.accountId(),
 				clock.instant(), reason);
 	}
 

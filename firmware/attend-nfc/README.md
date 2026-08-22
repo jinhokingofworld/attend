@@ -9,9 +9,9 @@ Nano 33 IoT)다. 다른 보드는 TLS 인증서 검증을 별도로 확인하기
 1. Arduino IDE/CLI에서 `MFRC522`, `WiFiNINA`, `ArduinoHttpClient`, `ArduinoJson 7`을
    설치한다.
 2. WiFiNINA Firmware Updater로 운영 서버 인증서의 신뢰 root를 보드에 넣는다.
-3. `config.example.h`를 `config.h`로 복사하고 Wi-Fi·장치 값을 입력한다.
-4. `CREDENTIAL_PROVISIONING_MODE=true`로 업로드해 초록 신호와 관리자 화면의
-   credential 시험 시각을 확인한다.
+3. `config.example.h`를 `config.h`로 복사하고 Wi-Fi·장치 값을 입력한다. 복사본은
+   기본값이 `CREDENTIAL_PROVISIONING_MODE=true`인 안전한 credential 검증 모드다.
+4. 그대로 업로드해 초록 신호와 관리자 화면의 credential 시험 시각을 확인한다.
 5. 관리자가 장치를 활성화한 뒤 `false`로 바꾸고 다시 업로드한다.
 
 `config.h`와 빌드 산출물은 비밀정보다. Git, 메신저, CI artifact에 올리지 않는다.

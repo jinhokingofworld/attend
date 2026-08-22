@@ -9,7 +9,8 @@ constexpr int SERVER_PORT = 443;
 constexpr char DEVICE_CODE[] = "REPLACE_WITH_DEVICE_CODE";
 constexpr char DEVICE_KEY[] = "REPLACE_WITH_DEVICE_KEY";
 
-// true: call credential-tests only and refuse NFC check-ins.
+// true: call credential-tests only and refuse NFC check-ins. This safe mode is
+// the default for every newly copied config.h.
 // false: normal ACTIVE-device operation. Change this only after the system
 // administrator confirms credential test evidence and activates the device.
-constexpr bool CREDENTIAL_PROVISIONING_MODE = false;
+constexpr bool CREDENTIAL_PROVISIONING_MODE = true;

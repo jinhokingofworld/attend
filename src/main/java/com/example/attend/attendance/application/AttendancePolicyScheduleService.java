@@ -9,6 +9,7 @@ import com.example.attend.attendance.infrastructure.mybatis.AttendanceDayMapper;
 import com.example.attend.attendance.infrastructure.mybatis.AttendancePolicyMapper;
 import com.example.attend.attendance.infrastructure.mybatis.AttendancePolicyScheduleMapper;
 import com.example.attend.attendance.infrastructure.mybatis.PolicyScheduleRow;
+import com.example.attend.attendance.infrastructure.mybatis.PolicyVersionRow;
 import com.example.attend.audit.application.AuditLogWriter;
 import com.example.attend.common.error.BusinessRuleException;
 import com.example.attend.common.error.ResourceNotFoundException;
@@ -117,8 +118,9 @@ public class AttendancePolicyScheduleService {
             return;
         }
         if (enabled) {
-            PolicyScheduleCommand command = commandFrom(schedule);
-            List<LocalDate> dates = futureDates(command);
+            PolicyVersionRow policy = requirePublishedPolicy(departmentId, schedule.policyVersionId());
+            PolicyScheduleCommand command = commandFrom(schedule, policy);
+            List<LocalDate> dates = mutableDates(command, policy.checkInStartTime());
             rejectConflict(departmentId, dates);
             requireSingleUpdate(scheduleMapper.updateStatus(
                     departmentId, scheduleId, ON, actor.accountId(), null));
@@ -148,8 +150,12 @@ public class AttendancePolicyScheduleService {
         }
         requireStartNotPast(command.startDate());
         validatePolicy(command);
-        dayService.cancelFuturePolicyScheduleDays(actor, departmentId, scheduleId, "정책 수정으로 미래 일정을 갱신했습니다.");
-        List<LocalDate> dates = futureDates(command);
+        PolicyVersionRow previousPolicy = requirePublishedPolicy(
+                departmentId, previous.policyVersionId());
+        List<LocalDate> dates = mutableDates(command, previousPolicy.checkInStartTime());
+        boolean replaceToday = dates.contains(LocalDate.now(clock));
+        dayService.cancelFuturePolicyScheduleDays(actor, departmentId, scheduleId,
+                "정책 수정으로 미래 일정을 갱신했습니다.", replaceToday);
         if (command.enabled()) rejectConflict(departmentId, dates);
 
         int versionNo = policyMapper.selectNextVersionNo(departmentId);
@@ -197,22 +203,35 @@ public class AttendancePolicyScheduleService {
                 Map.of("status", schedule.status()), Map.of("status", ARCHIVED), reason.trim());
     }
 
-    private PolicyScheduleCommand commandFrom(PolicyScheduleRow schedule) {
+    private PolicyScheduleCommand commandFrom(PolicyScheduleRow schedule, PolicyVersionRow policy) {
         Set<DayOfWeek> weekdays = scheduleMapper.selectWeekdayValues(schedule.id()).stream()
                 .map(DayOfWeek::of).collect(java.util.stream.Collectors.toUnmodifiableSet());
         Set<Integer> monthdays = Set.copyOf(scheduleMapper.selectMonthdays(schedule.id()));
         return new PolicyScheduleCommand(
-                new PolicyDraftCommand("stored", java.time.LocalTime.MIDNIGHT, List.of()),
+                new PolicyDraftCommand(policy.name(), policy.checkInStartTime(), List.of()),
                 schedule.startDate(), schedule.endDate(), schedule.recurrence(),
                 schedule.intervalValue(), weekdays, monthdays,
                 schedule.yearlyMonth(), schedule.yearlyDay(), true);
     }
 
     private List<LocalDate> futureDates(PolicyScheduleCommand command) {
+        return mutableDates(command, command.policy().checkInStartTime());
+    }
+
+    /**
+     * 오늘 일정은 기존·새 정책 모두 아직 태깅을 시작하지 않았을 때만 갱신한다.
+     * 이미 시작한 오늘 일정은 그대로 두고, 충돌 검사와 재생성은 내일부터 수행한다.
+     */
+    private List<LocalDate> mutableDates(
+            PolicyScheduleCommand command, java.time.LocalTime existingCheckInStartTime) {
         LocalDate today = LocalDate.now(clock);
         LocalDate horizon = today.plusMonths(6);
+        java.time.LocalTime now = java.time.LocalTime.now(clock);
+        boolean canReplaceToday = now.isBefore(existingCheckInStartTime)
+                && now.isBefore(command.policy().checkInStartTime());
         return command.occurrenceDatesUntil(horizon).stream()
-                .filter(date -> !date.isBefore(today))
+                .filter(date -> date.isAfter(today)
+                        || (date.equals(today) && canReplaceToday))
                 .toList();
     }
 
@@ -243,6 +262,12 @@ public class AttendancePolicyScheduleService {
         PolicyScheduleRow schedule = scheduleMapper.lockSchedule(departmentId, scheduleId);
         if (schedule == null) throw new ResourceNotFoundException("attendance policy schedule");
         return schedule;
+    }
+
+    private PolicyVersionRow requirePublishedPolicy(long departmentId, long policyVersionId) {
+        PolicyVersionRow policy = policyMapper.selectPublished(departmentId, policyVersionId);
+        if (policy == null) throw new ResourceNotFoundException("published attendance policy");
+        return policy;
     }
 
     private void requireStartNotPast(LocalDate startDate) {

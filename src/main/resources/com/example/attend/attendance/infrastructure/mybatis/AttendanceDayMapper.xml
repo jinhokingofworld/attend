@@ -59,7 +59,7 @@
 		  AND day.policy_schedule_id = #{policyScheduleId}
 		  AND day.status = 'SCHEDULED'
 		  AND (day.attendance_date &gt; #{today}
-		       OR (day.attendance_date = #{today} AND EXISTS (
+		       OR (#{cancelToday} AND day.attendance_date = #{today} AND EXISTS (
 				SELECT 1
 				FROM public.attendance_policy_version AS policy
 				WHERE policy.id = day.policy_version_id
