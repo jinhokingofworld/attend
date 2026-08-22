@@ -2852,6 +2852,12 @@ class FlywayMigrationTest {
                         'public.attendance_policy_schedule_id_seq',
                         'USAGE')::text
                     """)).isEqualTo("true");
+            assertThat(queryString(migrationConnection, """
+                    SELECT has_table_privilege(
+                        'app_runtime',
+                        'public.attendance_policy_schedule_weekday',
+                        'DELETE')::text
+                    """)).isEqualTo("true");
             executeSqlFile(
                     statement,
                     "ops/db/roles/003_grant_application_privileges.sql"
@@ -2872,7 +2878,7 @@ class FlywayMigrationTest {
         try (Connection migrationConnection = migrationDataSource.getConnection();
              Statement statement = migrationConnection.createStatement()) {
             statement.execute("""
-                    REVOKE SELECT ON TABLE public.attendance_policy_schedule
+                    REVOKE DELETE ON TABLE public.attendance_policy_schedule_weekday
                     FROM app_runtime
                     """);
             assertRuntimePrivilegeGuardRejects(runtimeDataSource);

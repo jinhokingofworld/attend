@@ -286,6 +286,11 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                         )
                         AND has_table_privilege(
                             current_user,
+                            'public.attendance_policy_schedule_weekday',
+                            'DELETE'
+                        )
+                        AND has_table_privilege(
+                            current_user,
                             'public.attendance_policy_schedule_monthday',
                             'SELECT'
                         )
@@ -293,6 +298,11 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                             current_user,
                             'public.attendance_policy_schedule_monthday',
                             'INSERT'
+                        )
+                        AND has_table_privilege(
+                            current_user,
+                            'public.attendance_policy_schedule_monthday',
+                            'DELETE'
                         )
                         AND NOT has_table_privilege(
                             current_user,

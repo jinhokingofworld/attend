@@ -15,6 +15,11 @@ BEGIN
         public.attendance_policy_schedule_monthday
         TO app_runtime, cutover_writer';
 
+    EXECUTE 'GRANT DELETE ON TABLE
+        public.attendance_policy_schedule_weekday,
+        public.attendance_policy_schedule_monthday
+        TO app_runtime, cutover_writer';
+
     EXECUTE 'GRANT UPDATE (
         policy_version_id,
         status,

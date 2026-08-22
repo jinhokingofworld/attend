@@ -339,6 +339,11 @@ GRANT UPDATE (
 ) ON TABLE public.attendance_policy_schedule
 TO app_runtime, cutover_writer;
 
+GRANT DELETE ON TABLE
+    public.attendance_policy_schedule_weekday,
+    public.attendance_policy_schedule_monthday
+TO app_runtime, cutover_writer;
+
 GRANT UPDATE (
     sequence_no,
     label,
