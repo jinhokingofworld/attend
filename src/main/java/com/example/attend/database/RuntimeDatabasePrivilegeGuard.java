@@ -43,7 +43,7 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
     }
 
     /**
-     * 현재 DB 사용자가 V018 runtime 최소 권한 경계를 지키는지 확인한다.
+     * 현재 DB 사용자가 V020 runtime 최소 권한 경계를 지키는지 확인한다.
      *
      * @param dataSource 검사할 운영 데이터소스
      * @throws IllegalStateException 권한이 과도하거나 필수 조회 권한이 없을 때
@@ -246,6 +246,11 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                         )
                         AND has_sequence_privilege(
                             current_user,
+                            'public.attendance_policy_schedule_id_seq',
+                            'USAGE'
+                        )
+                        AND has_sequence_privilege(
+                            current_user,
                             'public.department_admin_invitation_outbox_id_seq',
                             'USAGE'
                         )
@@ -257,6 +262,41 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                         AND NOT has_table_privilege(
                             current_user,
                             'public.attendance_day',
+                            'UPDATE'
+                        )
+                        AND has_table_privilege(
+                            current_user,
+                            'public.attendance_policy_schedule',
+                            'SELECT'
+                        )
+                        AND has_table_privilege(
+                            current_user,
+                            'public.attendance_policy_schedule',
+                            'INSERT'
+                        )
+                        AND has_table_privilege(
+                            current_user,
+                            'public.attendance_policy_schedule_weekday',
+                            'SELECT'
+                        )
+                        AND has_table_privilege(
+                            current_user,
+                            'public.attendance_policy_schedule_weekday',
+                            'INSERT'
+                        )
+                        AND has_table_privilege(
+                            current_user,
+                            'public.attendance_policy_schedule_monthday',
+                            'SELECT'
+                        )
+                        AND has_table_privilege(
+                            current_user,
+                            'public.attendance_policy_schedule_monthday',
+                            'INSERT'
+                        )
+                        AND NOT has_table_privilege(
+                            current_user,
+                            'public.attendance_policy_schedule',
                             'UPDATE'
                         )
                         AND NOT EXISTS (
@@ -271,6 +311,18 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                                     ('attendance_day', 'finalization_last_error_code'),
                                     ('attendance_day', 'finalization_first_failed_at'),
                                     ('attendance_day', 'finalization_last_failed_at'),
+                                    ('attendance_day', 'policy_schedule_id'),
+                                    ('attendance_policy_schedule', 'policy_version_id'),
+                                    ('attendance_policy_schedule', 'status'),
+                                    ('attendance_policy_schedule', 'start_date'),
+                                    ('attendance_policy_schedule', 'end_date'),
+                                    ('attendance_policy_schedule', 'recurrence'),
+                                    ('attendance_policy_schedule', 'interval_value'),
+                                    ('attendance_policy_schedule', 'yearly_month'),
+                                    ('attendance_policy_schedule', 'yearly_day'),
+                                    ('attendance_policy_schedule', 'updated_by_account_id'),
+                                    ('attendance_policy_schedule', 'updated_at'),
+                                    ('attendance_policy_schedule', 'archived_at'),
                                     ('telegram_link_token', 'consumed_at'),
                                     ('telegram_link_token', 'revoked_at'),
                                     ('account_telegram_connection', 'chat_id'),
@@ -400,7 +452,11 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                                     ('nfc_card_assignment', 'DELETE'),
                                     ('nfc_card_assignment', 'TRUNCATE'),
                                     ('nfc_card_assignment', 'REFERENCES'),
-                                    ('nfc_card_assignment', 'TRIGGER')
+                                    ('nfc_card_assignment', 'TRIGGER'),
+                                    ('attendance_policy_schedule', 'DELETE'),
+                                    ('attendance_policy_schedule', 'TRUNCATE'),
+                                    ('attendance_policy_schedule', 'REFERENCES'),
+                                    ('attendance_policy_schedule', 'TRIGGER')
                             ) AS forbidden(table_name, privilege_type)
                             WHERE has_table_privilege(
                                 current_user,
@@ -441,7 +497,11 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                                     ('nfc_card_assignment', 'membership_id'),
                                     ('nfc_card_assignment', 'member_id'),
                                     ('nfc_card_assignment', 'assigned_by_account_id'),
-                                    ('nfc_card_assignment', 'assigned_at')
+                                    ('nfc_card_assignment', 'assigned_at'),
+                                    ('attendance_policy_schedule', 'id'),
+                                    ('attendance_policy_schedule', 'department_id'),
+                                    ('attendance_policy_schedule', 'created_by_account_id'),
+                                    ('attendance_policy_schedule', 'created_at')
                             ) AS forbidden(table_name, column_name)
                             WHERE has_column_privilege(
                                 current_user,

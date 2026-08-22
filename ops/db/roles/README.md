@@ -1,7 +1,7 @@
 # Attend DB 역할 적용 순서
 
 이 디렉터리의 SQL은 Flyway migration이 아니다. 역할은 PostgreSQL cluster
-범위이고 비밀번호와 로그인 수명은 배포 환경이 관리하므로, V001~V018에 넣지
+범위이고 비밀번호와 로그인 수명은 배포 환경이 관리하므로, V001~V020에 넣지
 않는다.
 
 1. PostgreSQL 역할 관리자 계정으로 `001_create_login_roles.sql`을 실행한다.
@@ -9,7 +9,7 @@
    `002_prepare_database_for_migration.sql`을 실행한다.
 3. 비밀 저장소에서 `migration_owner` 비밀번호를 별도로 설정한다.
 4. `migration_owner`로 guarded `dbMigrate`를 실행한다.
-5. V017 검증 후 객체 소유자로
+5. V020 검증 후 객체 소유자로
    `003_grant_application_privileges.sql`을 실행한다.
 6. V018 관리자 초대 outbox를 배포하면 이어서
    `004_grant_department_admin_invitation_privileges.sql`을 실행한다.

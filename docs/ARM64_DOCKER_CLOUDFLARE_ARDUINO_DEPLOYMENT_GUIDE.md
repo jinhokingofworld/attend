@@ -67,7 +67,7 @@ Cloudflare에는 `en0`의 사설 IP나 서버의 LAN IP를 등록하지 않는�
 4. 이미지 tar와 Compose·Caddy 파일 전송
 5. 서버에서 이미지 load 및 `.env` 작성
 6. Compose 설정과 이미지 태그 검증
-7. DB migration을 V018까지 실행
+7. DB migration을 V020까지 실행
 8. Docker-managed Cloudflare Tunnel token을 준비
 9. App·Caddy·cloudflared를 Docker 내부에서 검증
 10. Tunnel Public Hostname과 외부 HTTPS 검증
@@ -599,7 +599,7 @@ docker compose --env-file .env \
 현재 artifact의 성공 문구는 다음과 같다.
 
 ```text
-Database migration validated at target V018.
+Database migration validated at target V020.
 ```
 
 실패하면 App을 시작하지 않는다. 우선 다음을 확인한다.
@@ -610,7 +610,7 @@ Database migration validated at target V018.
 - fresh 테스트 DB에 `MIGRATION_SOURCE_CLASS=NEW_OR_SAMPLE`이 맞는지
 - migration 계정에 `public` schema `USAGE`, `CREATE` 권한이 있는지
 
-migration 명령은 내부에서 사전검사, V018 적용, checksum과 최종 version 검증까지
+migration 명령은 내부에서 사전검사, V020 적용, checksum과 최종 version 검증까지
 수행한다.
 
 신규 DB라면 migration 성공 직후, App 시작 전에 다음 두 권한 스크립트를 순서대로
@@ -622,8 +622,9 @@ ops/db/roles/004_grant_department_admin_invitation_privileges.sql
 ```
 
 `004`까지 빠짐없이 적용해야 V018의 관리자 초대 outbox를 포함한 runtime 권한 검사를
-통과할 수 있다. 이미 이 DB에 같은 release 권한을 적용했다면 재적용 가능 여부를
-스크립트와 DB 담당자가 확인한 뒤 진행한다.
+통과할 수 있다. V020은 V019 정책 일정 테이블의 runtime 권한을 migration 안에서
+자동으로 부여하지만, 기존 객체 전체의 최소권한 재검증에는 위 두 스크립트가 계속
+필요하다.
 
 ## 12. App·Caddy·cloudflared 실행
 
@@ -1062,7 +1063,7 @@ curl -I https://test.jinhokingoftheworld.cloud
 안쪽부터 바깥쪽으로 확인한다.
 
 ```text
-1. DB migration V018
+1. DB migration V020
 2. App 컨테이너와 내부 health
 3. Caddy → App
 4. cloudflared connector
@@ -1143,7 +1144,7 @@ docker compose --env-file .env \
 4. 새 tar와 checksum 전송
 5. 서버에서 checksum 확인 후 `docker load`
 6. 서버 `.env`의 `ATTEND_IMAGE_TAG`를 새 태그로 변경
-7. migration 컨테이너 실행 및 V018/새 목표 version 검증
+7. migration 컨테이너 실행 및 V020/새 목표 version 검증
 8. `config --images`로 세 태그 확인
 9. App·Caddy·cloudflared·retention 재생성
 10. 내부 health → 외부 HTTPS → Arduino 순서로 재검증
@@ -1201,7 +1202,7 @@ docker compose --env-file .env \
 - [ ] Attend 이미지 세 개가 `linux/arm64`
 - [ ] Compose가 실제 load한 동일 태그를 참조
 - [ ] 서버 `.env` 권한이 `600`
-- [ ] 테스트 DB migration이 V018까지 검증됨
+- [ ] 테스트 DB migration이 V020까지 검증됨
 - [ ] App health가 `UP`
 - [ ] Caddy 내부 프록시가 `2xx`/`3xx`
 - [ ] cloudflared connector가 Healthy/Connected

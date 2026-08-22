@@ -16,14 +16,14 @@ import org.junit.jupiter.api.Test;
 /** 운영 화면의 DB 상태가 실제 연결·schema 검사 결과를 반영하는지 검증한다. */
 class DatabaseRuntimeStatusSourceTest {
 
-	/** 경량 query와 V001~V018 exact match가 모두 성공해야 정상이다. */
+	/** 경량 query와 V001~V020 exact match가 모두 성공해야 정상이다. */
 	@Test
 	void reportsHealthyOnlyAfterConnectionAndExactSchemaVerification()
 			throws SQLException {
 		Statement schemaStatement = mock(Statement.class);
 		DataSource dataSource = dataSourceWithVersions(
 				schemaStatement,
-				"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19");
+				"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20");
 
 		assertThat(new DatabaseRuntimeStatusSource(dataSource).current())
 				.isEqualTo("정상 · 연결 및 승인된 Flyway target 일치");
