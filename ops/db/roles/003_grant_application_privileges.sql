@@ -1,4 +1,4 @@
--- Post-migration grants for the V020 schema. Run as migration_owner or an
+-- Post-migration grants for the V022 schema. Run as migration_owner or an
 -- equivalent owner after guarded dbMigrate succeeds.
 --
 -- This script is intentionally explicit. A future migration that adds a table,
@@ -46,18 +46,18 @@ BEGIN
 
     IF missing_tables IS NOT NULL THEN
         RAISE EXCEPTION
-            'Runtime grants require the complete V020 schema; missing: %',
+            'Runtime grants require the complete V022 schema; missing: %',
             missing_tables;
     END IF;
 
     IF NOT EXISTS (
         SELECT 1
         FROM public.flyway_schema_history
-        WHERE version = '020'
+        WHERE version = '022'
           AND success
     ) THEN
         RAISE EXCEPTION
-            'Runtime grants require successful Flyway migration V020';
+            'Runtime grants require successful Flyway migration V022';
     END IF;
 
     IF NOT EXISTS (
@@ -353,6 +353,7 @@ GRANT UPDATE (
 TO app_runtime, cutover_writer;
 
 GRANT UPDATE (
+    policy_version_id,
     status,
     canceled_by_account_id,
     finalized_at,

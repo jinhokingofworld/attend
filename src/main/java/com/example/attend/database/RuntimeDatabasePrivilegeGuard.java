@@ -43,7 +43,7 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
     }
 
     /**
-     * 현재 DB 사용자가 V020 runtime 최소 권한 경계를 지키는지 확인한다.
+     * 현재 DB 사용자가 V022 runtime 최소 권한 경계를 지키는지 확인한다.
      *
      * @param dataSource 검사할 운영 데이터소스
      * @throws IllegalStateException 권한이 과도하거나 필수 조회 권한이 없을 때
@@ -313,6 +313,7 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                             SELECT 1
                             FROM (
                                 VALUES
+                                    ('attendance_day', 'policy_version_id'),
                                     ('attendance_day', 'finalization_due_at'),
                                     ('attendance_day', 'finalization_failure_count'),
                                     ('attendance_day', 'finalization_next_attempt_at'),
