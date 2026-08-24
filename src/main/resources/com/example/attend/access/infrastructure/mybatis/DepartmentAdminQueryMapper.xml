@@ -193,7 +193,8 @@
 		JOIN public.attendance_policy_version AS policy
 		  ON policy.id = schedule.policy_version_id
 		WHERE schedule.department_id = #{departmentId}
-		ORDER BY CASE schedule.status WHEN 'ON' THEN 0 WHEN 'OFF' THEN 1 ELSE 2 END,
+		  AND schedule.status &lt;&gt; 'ARCHIVED'
+		ORDER BY CASE schedule.status WHEN 'ON' THEN 0 ELSE 1 END,
 		         schedule.start_date, schedule.id
 	</select>
 

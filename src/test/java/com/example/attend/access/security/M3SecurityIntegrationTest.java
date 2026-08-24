@@ -224,6 +224,53 @@ class M3SecurityIntegrationTest {
 						"name=\"interval\" min=\"1\" value=\"1\"")));
 	}
 
+	@Test
+	void hidesArchivedPolicySchedulesAfterDeleteRequest() throws Exception {
+		AccountPrincipal departmentPrincipal = (AccountPrincipal)
+				userDetailsService.loadUserByUsername(DEPARTMENT_USERNAME);
+		LocalDate startDate = LocalDate.now(clock).plusDays(1);
+
+		mockMvc.perform(post("/admin/departments/" + departmentId + "/policies")
+						.with(user(departmentPrincipal))
+						.with(csrf())
+						.param("name", "삭제 화면 검증 정책")
+						.param("checkInStartTime", "08:30")
+						.param("bandLabel", "정상", "지각")
+						.param("bandStatus", "PRESENT", "LATE")
+						.param("bandUpperTime", "09:00", "09:30")
+						.param("startDate", startDate.toString())
+						.param("recurrence", "NONE"))
+				.andExpect(status().is3xxRedirection());
+
+		long scheduleId = jdbcTemplate.queryForObject("""
+				SELECT schedule.id
+				FROM public.attendance_policy_schedule AS schedule
+				JOIN public.attendance_policy_version AS policy
+				  ON policy.id = schedule.policy_version_id
+				WHERE policy.department_id = ?
+				  AND policy.name = '삭제 화면 검증 정책'
+				""", Long.class, departmentId);
+
+		mockMvc.perform(post("/admin/departments/" + departmentId
+						+ "/policies/" + scheduleId + "/archive")
+						.with(user(departmentPrincipal))
+						.with(csrf())
+						.param("reason", "정책 화면 삭제 검증"))
+				.andExpect(status().is3xxRedirection())
+				.andExpect(flash().attribute("message", "출석 정책을 삭제했습니다."));
+
+		assertThat(jdbcTemplate.queryForObject("""
+				SELECT status
+				FROM public.attendance_policy_schedule
+				WHERE id = ?
+				""", String.class, scheduleId)).isEqualTo("ARCHIVED");
+		mockMvc.perform(get("/admin/departments/" + departmentId + "/policies")
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(content().string(not(containsString("삭제 화면 검증 정책"))))
+				.andExpect(content().string(containsString("아직 등록된 출석 정책이 없습니다.")));
+	}
+
 	/** 운영 집계는 오늘 날짜도 저장된 마감 시각이 지났으면 지연으로 표시한다. */
 	@Test
 	void countsDueSameDayAttendanceAsOverdueInSystemOperations()

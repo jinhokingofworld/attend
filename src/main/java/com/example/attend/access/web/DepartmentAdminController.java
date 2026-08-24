@@ -546,7 +546,7 @@ public final class DepartmentAdminController {
 				policiesPath(departmentId), redirect);
 	}
 
-	/** 과거 판정 이력을 보존하기 위해 정책을 보관 처리한다. */
+	/** 과거 판정 이력은 보존하면서 정책을 목록에서 삭제한다. */
 	@PostMapping("/admin/departments/{departmentId}/policies/{policyId}/archive")
 	public String archivePolicy(
 			@AuthenticationPrincipal AccountPrincipal principal,
@@ -557,7 +557,7 @@ public final class DepartmentAdminController {
 		return command(
 				() -> policyScheduleService.archive(
 						principal.toActor(), departmentId, policyId, reason),
-				"출석 정책을 보관했습니다.", policiesPath(departmentId), redirect);
+				"출석 정책을 삭제했습니다.", policiesPath(departmentId), redirect);
 	}
 
 	/** 알람형 정책 일정과 현재 시간 단계를 한 화면에서 수정한다. */
