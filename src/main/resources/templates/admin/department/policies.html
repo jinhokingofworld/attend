@@ -116,8 +116,8 @@
         <div class="section-heading"><div><p class="eyebrow">SAVED POLICIES</p><h2 id="policy-list-title">출석 정책</h2></div></div>
         <div class="policy-card-list" th:if="${!#lists.isEmpty(policies)}">
             <article class="policy-card" th:each="policy : ${policies}">
-                <div class="policy-card__header"><div><h3 th:text="${policy.name}">정책</h3><p th:text="|${policy.start_date}${policy.end_date == null ? '부터 계속' : ' ~ ' + policy.end_date}|">기간</p></div><span class="status-chip" th:text="${policy.status}">ON</span></div>
-                <dl class="policy-card__details"><div><dt>반복</dt><dd th:text="|${policy.recurrence} · ${policy.interval_value} 간격|">DAILY · 1 간격</dd></div><div><dt>태깅</dt><dd th:text="|${policy.check_in_start_time} ~ ${policy.final_upper_time}|">09:00 ~ 09:30</dd></div></dl>
+                <div class="policy-card__header"><div><h3 th:text="${policy.name}">정책</h3><p th:text="|${policy.startDate}${policy.endDate == null ? '부터 계속' : ' ~ ' + policy.endDate}|">기간</p></div><span class="status-chip" th:text="${policy.status}">ON</span></div>
+                <dl class="policy-card__details"><div><dt>반복</dt><dd th:text="|${policy.recurrence} · ${policy.intervalValue} 간격|">DAILY · 1 간격</dd></div><div><dt>태깅</dt><dd th:text="|${policy.checkInStartTime} ~ ${policy.finalUpperTime}|">09:00 ~ 09:30</dd></div></dl>
                 <div class="policy-card__actions" th:if="${writeEnabled and policy.status != 'ARCHIVED'}">
                     <a class="button-link button-link--secondary" th:href="@{/admin/departments/{departmentId}/policies/{policyId}/edit(departmentId=${department.id},policyId=${policy.id)}">수정</a>
                     <form th:action="@{/admin/departments/{departmentId}/policies/{policyId}/enabled(departmentId=${department.id},policyId=${policy.id)}" method="post"><input type="hidden" name="enabled" th:value="${policy.status != 'ON'}"><button type="submit" class="button-secondary" th:text="${policy.status == 'ON'} ? 'OFF' : 'ON'">OFF</button></form>
