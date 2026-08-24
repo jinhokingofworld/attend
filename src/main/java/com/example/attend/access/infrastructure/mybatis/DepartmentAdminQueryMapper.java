@@ -71,11 +71,11 @@ public interface DepartmentAdminQueryMapper {
 			@Param("departmentId") long departmentId);
 
 	/** 알람처럼 독립적으로 관리하는 정책 일정 목록을 조회한다. */
-	List<Map<String, Object>> selectPolicySchedules(
+	List<PolicyScheduleListRow> selectPolicySchedules(
 			@Param("departmentId") long departmentId);
 
 	/** 편집 화면의 한 정책 일정과 현재 정책 버전을 조회한다. */
-	Map<String, Object> selectPolicySchedule(
+	PolicyScheduleEditRow selectPolicySchedule(
 			@Param("departmentId") long departmentId,
 			@Param("scheduleId") long scheduleId);
 

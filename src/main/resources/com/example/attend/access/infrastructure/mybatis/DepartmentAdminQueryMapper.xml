@@ -171,23 +171,24 @@
 		ORDER BY version_no DESC
 	</select>
 
-	<select id="selectPolicySchedules" resultType="map">
+	<select id="selectPolicySchedules"
+			resultType="com.example.attend.access.infrastructure.mybatis.PolicyScheduleListRow">
 		SELECT schedule.id,
-		       schedule.policy_version_id,
+		       schedule.policy_version_id AS "policyVersionId",
 		       policy.name,
 		       schedule.status,
-		       schedule.start_date,
-		       schedule.end_date,
+		       schedule.start_date AS "startDate",
+		       schedule.end_date AS "endDate",
 		       schedule.recurrence,
-		       schedule.interval_value,
-		       policy.check_in_start_time,
+		       schedule.interval_value AS "intervalValue",
+		       policy.check_in_start_time AS "checkInStartTime",
 		       (
 			SELECT band.upper_time
 			FROM public.attendance_band AS band
 			WHERE band.policy_version_id = policy.id
 			ORDER BY band.sequence_no DESC
 			LIMIT 1
-		) AS final_upper_time
+		) AS "finalUpperTime"
 		FROM public.attendance_policy_schedule AS schedule
 		JOIN public.attendance_policy_version AS policy
 		  ON policy.id = schedule.policy_version_id
@@ -196,11 +197,19 @@
 		         schedule.start_date, schedule.id
 	</select>
 
-	<select id="selectPolicySchedule" resultType="map">
-		SELECT schedule.id, schedule.policy_version_id, policy.name, schedule.status,
-		       schedule.start_date, schedule.end_date, schedule.recurrence,
-		       schedule.interval_value, schedule.yearly_month, schedule.yearly_day,
-		       policy.check_in_start_time
+	<select id="selectPolicySchedule"
+			resultType="com.example.attend.access.infrastructure.mybatis.PolicyScheduleEditRow">
+		SELECT schedule.id,
+		       schedule.policy_version_id AS "policyVersionId",
+		       policy.name,
+		       schedule.status,
+		       schedule.start_date AS "startDate",
+		       schedule.end_date AS "endDate",
+		       schedule.recurrence,
+		       schedule.interval_value AS "intervalValue",
+		       schedule.yearly_month AS "yearlyMonth",
+		       schedule.yearly_day AS "yearlyDay",
+		       policy.check_in_start_time AS "checkInStartTime"
 		FROM public.attendance_policy_schedule AS schedule
 		JOIN public.attendance_policy_version AS policy ON policy.id = schedule.policy_version_id
 		WHERE schedule.department_id = #{departmentId} AND schedule.id = #{scheduleId}

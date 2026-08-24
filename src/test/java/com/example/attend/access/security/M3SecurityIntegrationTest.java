@@ -195,6 +195,33 @@ class M3SecurityIntegrationTest {
 				WHERE policy.department_id = ?
 				  AND policy.name = '반복 화면 검증 정책'
 				""", String.class, departmentId)).isEqualTo("WEEKLY");
+
+		long scheduleId = jdbcTemplate.queryForObject("""
+				SELECT schedule.id
+				FROM public.attendance_policy_schedule AS schedule
+				JOIN public.attendance_policy_version AS policy
+				  ON policy.id = schedule.policy_version_id
+				WHERE policy.department_id = ?
+				  AND policy.name = '반복 화면 검증 정책'
+				""", Long.class, departmentId);
+
+		mockMvc.perform(get("/admin/departments/" + departmentId + "/policies")
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(content().string(containsString("반복 화면 검증 정책")))
+				.andExpect(content().string(containsString(startDate.toString())))
+				.andExpect(content().string(containsString("WEEKLY · 1 간격")));
+
+		mockMvc.perform(get("/admin/departments/" + departmentId
+						+ "/policies/" + scheduleId + "/edit")
+						.with(user(departmentPrincipal)))
+				.andExpect(status().isOk())
+				.andExpect(view().name("admin/department/policy-schedule-edit"))
+				.andExpect(content().string(containsString("반복 화면 검증 정책 · 정책 수정")))
+				.andExpect(content().string(containsString(
+						"name=\"startDate\" value=\"" + startDate + "\"")))
+				.andExpect(content().string(containsString(
+						"name=\"interval\" min=\"1\" value=\"1\"")));
 	}
 
 	/** 운영 집계는 오늘 날짜도 저장된 마감 시각이 지났으면 지연으로 표시한다. */
