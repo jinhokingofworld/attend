@@ -1,4 +1,4 @@
--- Post-migration grants for the V022 schema. Run as migration_owner or an
+-- Post-migration grants for the V023 schema. Run as migration_owner or an
 -- equivalent owner after guarded dbMigrate succeeds.
 --
 -- This script is intentionally explicit. A future migration that adds a table,
@@ -46,18 +46,18 @@ BEGIN
 
     IF missing_tables IS NOT NULL THEN
         RAISE EXCEPTION
-            'Runtime grants require the complete V022 schema; missing: %',
+            'Runtime grants require the complete V023 schema; missing: %',
             missing_tables;
     END IF;
 
     IF NOT EXISTS (
         SELECT 1
         FROM public.flyway_schema_history
-        WHERE version = '022'
+        WHERE version = '023'
           AND success
     ) THEN
         RAISE EXCEPTION
-            'Runtime grants require successful Flyway migration V022';
+            'Runtime grants require successful Flyway migration V023';
     END IF;
 
     IF NOT EXISTS (
@@ -266,6 +266,11 @@ GRANT INSERT (
 TO app_runtime, cutover_writer;
 
 GRANT INSERT ON TABLE public.telegram_webhook_update
+TO app_runtime, cutover_writer;
+
+-- The webhook deduplication insert uses ON CONFLICT (update_id) DO NOTHING.
+-- PostgreSQL requires SELECT on the arbiter column for every ON CONFLICT form.
+GRANT SELECT (update_id) ON TABLE public.telegram_webhook_update
 TO app_runtime, cutover_writer;
 
 GRANT UPDATE (

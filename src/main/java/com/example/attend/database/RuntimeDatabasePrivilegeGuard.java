@@ -43,7 +43,7 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
     }
 
     /**
-     * 현재 DB 사용자가 V022 runtime 최소 권한 경계를 지키는지 확인한다.
+     * 현재 DB 사용자가 V023 runtime 최소 권한 경계를 지키는지 확인한다.
      *
      * @param dataSource 검사할 운영 데이터소스
      * @throws IllegalStateException 권한이 과도하거나 필수 조회 권한이 없을 때
@@ -168,6 +168,12 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                             current_user,
                             'public.telegram_webhook_update',
                             'INSERT'
+                        )
+                        AND has_column_privilege(
+                            current_user,
+                            'public.telegram_webhook_update',
+                            'update_id',
+                            'SELECT'
                         )
                         AND has_table_privilege(
                             current_user,
