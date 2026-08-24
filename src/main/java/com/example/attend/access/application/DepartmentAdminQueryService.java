@@ -3,6 +3,8 @@ package com.example.attend.access.application;
 import com.example.attend.access.api.AccountActor;
 import com.example.attend.access.api.DepartmentAuthorization;
 import com.example.attend.access.infrastructure.mybatis.DepartmentAdminQueryMapper;
+import com.example.attend.access.infrastructure.mybatis.PolicyScheduleEditRow;
+import com.example.attend.access.infrastructure.mybatis.PolicyScheduleListRow;
 import com.example.attend.common.error.ResourceNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -115,16 +117,16 @@ public class DepartmentAdminQueryService {
 
 	/** 부서의 ON/OFF 출석 정책 일정 목록을 조회한다. */
 	@Transactional(readOnly = true)
-	public List<Map<String, Object>> policySchedules(AccountActor actor, long departmentId) {
+	public List<PolicyScheduleListRow> policySchedules(AccountActor actor, long departmentId) {
 		authorize(actor, departmentId);
 		return mapper.selectPolicySchedules(departmentId);
 	}
 
 	/** 편집 가능한 부서 범위의 정책 일정 하나를 조회한다. */
 	@Transactional(readOnly = true)
-	public Map<String, Object> policySchedule(AccountActor actor, long departmentId, long scheduleId) {
+	public PolicyScheduleEditRow policySchedule(AccountActor actor, long departmentId, long scheduleId) {
 		authorize(actor, departmentId);
-		Map<String, Object> result = mapper.selectPolicySchedule(departmentId, scheduleId);
+		PolicyScheduleEditRow result = mapper.selectPolicySchedule(departmentId, scheduleId);
 		if (result == null) throw new ResourceNotFoundException("attendance policy schedule");
 		return result;
 	}

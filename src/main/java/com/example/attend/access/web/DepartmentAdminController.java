@@ -3,6 +3,7 @@ package com.example.attend.access.web;
 import com.example.attend.access.application.AdminWriteGate;
 import com.example.attend.access.application.DepartmentAdminQueryService;
 import com.example.attend.access.application.DepartmentAdminInvitationService;
+import com.example.attend.access.infrastructure.mybatis.PolicyScheduleEditRow;
 import com.example.attend.access.security.AccountPrincipal;
 import com.example.attend.attendance.application.AttendanceCorrectionService;
 import com.example.attend.attendance.application.AttendanceDayBatchResult;
@@ -567,10 +568,11 @@ public final class DepartmentAdminController {
 			@PathVariable long policyId,
 			Model model) {
 		addDepartmentModel(principal, departmentId, model);
-		Map<String, Object> policy = queryService.policySchedule(principal.toActor(), departmentId, policyId);
+		PolicyScheduleEditRow policy = queryService.policySchedule(
+				principal.toActor(), departmentId, policyId);
 		model.addAttribute("policy", policy);
 		model.addAttribute("bands", queryService.policyBands(principal.toActor(), departmentId,
-				((Number) policy.get("policy_version_id")).longValue()));
+				policy.policyVersionId()));
 		model.addAttribute("weeklyDays", queryService.policyScheduleWeekdays(
 				principal.toActor(), departmentId, policyId));
 		model.addAttribute("monthlyDays", queryService.policyScheduleMonthdays(
