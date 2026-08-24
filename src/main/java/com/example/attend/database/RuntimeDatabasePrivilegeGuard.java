@@ -169,6 +169,12 @@ public final class RuntimeDatabasePrivilegeGuard implements InitializingBean {
                             'public.telegram_webhook_update',
                             'INSERT'
                         )
+                        AND has_column_privilege(
+                            current_user,
+                            'public.telegram_webhook_update',
+                            'update_id',
+                            'SELECT'
+                        )
                         AND has_table_privilege(
                             current_user,
                             'public.attendance_notification_outbox',
