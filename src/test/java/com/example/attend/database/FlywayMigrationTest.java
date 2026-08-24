@@ -44,7 +44,7 @@ import static com.example.attend.database.DatabasePreflightInspector.PreflightSt
 import static com.example.attend.database.DatabasePreflightInspector.PreflightStatus.REJECTED;
 
 /**
- * 실제 PostgreSQL 15에서 V001~V021 migration의 안전성과 핵심 제약조건을 검증한다.
+ * 실제 PostgreSQL 15에서 V001~V022 migration의 안전성과 핵심 제약조건을 검증한다.
  *
  * <p>H2 같은 대체 DB로는 PostgreSQL catalog, partial unique index, 복합 외래 키,
  * SQLSTATE가 실제 운영 DB와 같다고 보장할 수 없다. 따라서 Testcontainers로
@@ -70,7 +70,7 @@ class FlywayMigrationTest {
             new PostgreSQLContainer<>("postgres:15-alpine");
 
     /**
-     * 빈 DB가 올바르게 분류되고 V021까지 정확히 한 번 적용되는지 검증한다.
+     * 빈 DB가 올바르게 분류되고 V022까지 정확히 한 번 적용되는지 검증한다.
      *
      * <p>잘못된 운영자 승인값에서는 history조차 만들지 않아야 하며, 같은
      * migration을 다시 실행해도 결과가 바뀌지 않는 멱등성도 함께 확인한다.</p>
@@ -113,7 +113,7 @@ class FlywayMigrationTest {
                     FROM public.flyway_schema_history
                     WHERE success
                       AND version IS NOT NULL
-                    """ )).isEqualTo(21);
+                    """ )).isEqualTo(22);
 
             assertThat(queryString(connection, """
                     SELECT indisvalid::text || ':' || indisready::text || ':' || pg_get_indexdef(indexrelid)
@@ -564,9 +564,9 @@ class FlywayMigrationTest {
         }
     }
 
-    /** V017이 적용되지 않은 DB에는 현재 release의 runtime 권한을 부여하지 않는다. */
+    /** V022가 적용되지 않은 DB에는 현재 release의 runtime 권한을 부여하지 않는다. */
     @Test
-    void rejectsRuntimePrivilegeGrantsBeforeV017IsApplied()
+    void rejectsRuntimePrivilegeGrantsBeforeV022IsApplied()
             throws Exception {
         Database database = createDatabase("v017_grant_guard");
         Flyway.configure()
@@ -592,7 +592,7 @@ class FlywayMigrationTest {
                     "ops/db/roles/003_grant_application_privileges.sql"
             ))
                     .isInstanceOf(SQLException.class)
-                    .hasMessageContaining("complete V020 schema");
+                    .hasMessageContaining("complete V022 schema");
         }
     }
 
@@ -2285,7 +2285,7 @@ class FlywayMigrationTest {
                     FROM public.flyway_schema_history
                     WHERE success
                       AND version IS NOT NULL
-                    """)).isEqualTo(22);
+                    """)).isEqualTo(23);
             assertThat(queryInt(connection, """
                     SELECT count(*)
                     FROM public.flyway_schema_history
@@ -2718,7 +2718,7 @@ class FlywayMigrationTest {
     }
 
     /**
-     * 애플리케이션 시작 검사가 정확히 성공한 V001~V021만 허용하는지 검증한다.
+     * 애플리케이션 시작 검사가 정확히 성공한 V001~V022만 허용하는지 검증한다.
      *
      * <p>history 없음, 구버전, 실패 처리된 migration, 애플리케이션보다 앞선
      * 버전을 모두 거부하고 정확한 버전 목록만 통과시킨다.</p>
@@ -2858,6 +2858,13 @@ class FlywayMigrationTest {
                         'public.attendance_policy_schedule_weekday',
                         'DELETE')::text
                     """)).isEqualTo("true");
+            assertThat(queryString(migrationConnection, """
+                    SELECT has_column_privilege(
+                        'app_runtime',
+                        'public.attendance_day',
+                        'policy_version_id',
+                        'UPDATE')::text
+                    """)).isEqualTo("true");
             executeSqlFile(
                     statement,
                     "ops/db/roles/003_grant_application_privileges.sql"
@@ -2878,6 +2885,23 @@ class FlywayMigrationTest {
         try (Connection migrationConnection = migrationDataSource.getConnection();
              Statement statement = migrationConnection.createStatement()) {
             statement.execute("""
+                    REVOKE UPDATE (policy_version_id)
+                    ON TABLE public.attendance_day
+                    FROM app_runtime
+                    """);
+            assertRuntimePrivilegeGuardRejects(runtimeDataSource);
+            executeSqlFile(
+                    statement,
+                    "ops/db/roles/003_grant_application_privileges.sql");
+            executeSqlFile(
+                    statement,
+                    "ops/db/roles/004_grant_department_admin_invitation_privileges.sql");
+            RuntimeDatabasePrivilegeGuard.verify(runtimeDataSource);
+        }
+
+        try (Connection migrationConnection = migrationDataSource.getConnection();
+             Statement statement = migrationConnection.createStatement()) {
+            statement.execute("""
                     REVOKE DELETE ON TABLE public.attendance_policy_schedule_weekday
                     FROM app_runtime
                     """);
@@ -2892,7 +2916,11 @@ class FlywayMigrationTest {
         }
 
 		long exhaustedDayId;
+		long restorableAttendanceDayId;
 		long runtimeAccountId;
+		long runtimeDepartmentId;
+		long runtimePolicyId;
+		long runtimePolicyScheduleId;
 		try (Connection migrationConnection = migrationDataSource.getConnection();
 			 Statement statement = migrationConnection.createStatement()) {
 			runtimeAccountId = queryLong(statement, """
@@ -2906,18 +2934,26 @@ class FlywayMigrationTest {
 					    account_id, chat_id, telegram_user_id)
 					VALUES (%d, 700001, 800001)
 					""".formatted(runtimeAccountId));
-			long departmentId = queryLong(statement, """
+			runtimeDepartmentId = queryLong(statement, """
 					INSERT INTO public.department (name)
 					VALUES ('runtime outbox 권한 부서')
 					RETURNING id
 					""");
-			long policyId = queryLong(statement, """
+			runtimePolicyId = queryLong(statement, """
 					INSERT INTO public.attendance_policy_version (
 					    department_id, version_no, name, check_in_start_time,
 					    status, created_by_account_id)
 					VALUES (%d, 1, 'runtime outbox 정책', TIME '08:30', 'DRAFT', %d)
 					RETURNING id
-					""".formatted(departmentId, runtimeAccountId));
+					""".formatted(runtimeDepartmentId, runtimeAccountId));
+			runtimePolicyScheduleId = queryLong(statement, """
+					INSERT INTO public.attendance_policy_schedule (
+					    department_id, policy_version_id, status, start_date, recurrence,
+					    interval_value, created_by_account_id, updated_by_account_id)
+					VALUES (%d, %d, 'ON', DATE '2026-08-13', 'NONE', 1, %d, %d)
+					RETURNING id
+					""".formatted(runtimeDepartmentId, runtimePolicyId,
+							runtimeAccountId, runtimeAccountId));
 			exhaustedDayId = queryLong(statement, """
 					INSERT INTO public.attendance_day (
 					    department_id, attendance_date, policy_version_id,
@@ -2933,7 +2969,44 @@ class FlywayMigrationTest {
 					    TIMESTAMPTZ '2026-08-12 00:00:00Z',
 					    TIMESTAMPTZ '2026-08-12 00:05:00Z')
 					RETURNING id
-					""".formatted(departmentId, policyId, runtimeAccountId));
+					""".formatted(runtimeDepartmentId, runtimePolicyId, runtimeAccountId));
+			restorableAttendanceDayId = queryLong(statement, """
+					INSERT INTO public.attendance_day (
+					    department_id, attendance_date, policy_version_id,
+					    policy_schedule_id, finalization_due_at, status, created_by_account_id,
+					    canceled_by_account_id, canceled_at, cancel_reason)
+					VALUES (
+					    %d, DATE '2026-08-13', %d, %d,
+					    TIMESTAMPTZ '2026-08-13 01:00:00Z', 'CANCELED', %d,
+					    %d, TIMESTAMPTZ '2026-08-13 00:30:00Z', 'runtime upsert grant test')
+					RETURNING id
+					""".formatted(runtimeDepartmentId, runtimePolicyId,
+							runtimePolicyScheduleId, runtimeAccountId, runtimeAccountId));
+		}
+
+		try (Connection runtimeConnection = runtimeDataSource.getConnection();
+			 Statement statement = runtimeConnection.createStatement()) {
+			assertThat(queryLong(statement, """
+					INSERT INTO public.attendance_day (
+					    department_id, attendance_date, policy_version_id,
+					    policy_schedule_id, finalization_due_at, status, created_by_account_id)
+					VALUES (
+					    %d, DATE '2026-08-13', %d, %d,
+					    TIMESTAMPTZ '2026-08-13 02:00:00Z', 'SCHEDULED', %d)
+					ON CONFLICT (department_id, attendance_date) DO UPDATE
+					SET policy_version_id = EXCLUDED.policy_version_id,
+					    policy_schedule_id = EXCLUDED.policy_schedule_id,
+					    finalization_due_at = EXCLUDED.finalization_due_at,
+					    status = 'SCHEDULED',
+					    canceled_by_account_id = NULL,
+					    canceled_at = NULL,
+					    cancel_reason = NULL
+					WHERE public.attendance_day.status = 'CANCELED'
+					  AND public.attendance_day.policy_schedule_id = EXCLUDED.policy_schedule_id
+					RETURNING id
+					""".formatted(runtimeDepartmentId, runtimePolicyId,
+							runtimePolicyScheduleId, runtimeAccountId)))
+					.isEqualTo(restorableAttendanceDayId);
 		}
 
 		SqlSessionFactory runtimeMapperFactory = mapperFactory(runtimeDataSource);
