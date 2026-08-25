@@ -91,7 +91,13 @@ void pulse(byte pin, int count, unsigned long onMs, unsigned long offMs) {
 }
 
 void signalSuccess(const String &code) {
-  if (code == "ALREADY_CHECKED_IN") {
+  if (code == "LATE") {
+    // A late check-in is valid, but must be distinguishable from normal
+    // attendance at a glance.
+    setLeds(true, true);
+    delay(700);
+    setLeds(false, false);
+  } else if (code == "ALREADY_CHECKED_IN") {
     pulse(GREEN_LED_PIN, 2, 180, 120);
   } else {
     pulse(GREEN_LED_PIN, 1, 700, 0);
