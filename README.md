@@ -176,7 +176,9 @@ GitHub Actions는 테스트 외에도 세 실행 JAR, Docker·Compose, Caddy, sh
 
 현재 운영 모델은 **단일 애플리케이션 인스턴스**와 **애플리케이션을 통한 업무 DB 쓰기**를
 전제로 합니다. 여러 인스턴스를 사용할 때 필요한 분산 wake-up은 아직 지원하지 않습니다.
-상세 배포 조건은 [운영·파일럿 실행서](docs/M5_M6_OPERATIONS_RUNBOOK.md)에 있습니다.
+상세 배포 조건은
+[ARM64 Docker·Cloudflare·Arduino 배포 가이드](docs/ARM64_DOCKER_CLOUDFLARE_ARDUINO_DEPLOYMENT_GUIDE.md)에
+있습니다.
 
 <a id="documentation"></a>
 
@@ -184,10 +186,10 @@ GitHub Actions는 테스트 외에도 세 실행 JAR, Docker·Compose, Caddy, sh
 
 | 문서 | 내용 |
 |---|---|
+| [문서 안내](docs/README.md) | 현재 사용 문서와 설계·계획 기록 구분 |
 | [로컬 장치 API 시험](docs/LOCAL_HTTP_DEMO.md) | Docker 데모와 HTTP·Postman 시나리오 |
 | [장치 OpenAPI](docs/device-api.yaml) | NFC 장치 요청·응답 계약 |
-| [DB 설계](docs/DATABASE_DESIGN.md) | 데이터 모델과 무결성 규칙 |
-| [보안·권한 매트릭스](docs/SECURITY_MATRIX.md) | 인증, 인가와 개인정보 경계 |
-| [테스트 계획](docs/TEST_PLAN.md) | 위험 기반 테스트와 인수 조건 |
-| [운영·파일럿 실행서](docs/M5_M6_OPERATIONS_RUNBOOK.md) | 배포, 복구와 현장 검증 절차 |
+| [ARM64 배포 가이드](docs/ARM64_DOCKER_CLOUDFLARE_ARDUINO_DEPLOYMENT_GUIDE.md) | Docker·Cloudflare Tunnel·Arduino 배포와 검증 |
+| [Arduino 실기기 시험](docs/ARDUINO_CLOUDFLARE_TEST_GUIDE.md) | NFC 리더 연결과 현장 출석 시험 |
+| [설계·구현 계획 기록](docs/design-and-plans/README.md) | 프로젝트 정의, 아키텍처, DB·보안 설계와 완료된 계획 |
 | [NFC 펌웨어](firmware/attend-nfc/README.md) | 지원 보드, 설치와 LED 신호 |

@@ -10,7 +10,7 @@
 | 기준 시간대 | `Asia/Seoul` |
 | 대상 릴리스 | 현장 사용 가능한 1차 운영 버전(MVP) |
 | 기준 문서 | [PROJECT_DEFINITION.md](./PROJECT_DEFINITION.md), [ARCHITECTURE.md](./ARCHITECTURE.md), [DATABASE_DESIGN.md](./DATABASE_DESIGN.md) |
-| 관련 구현 문서 | [device-api.yaml](./device-api.yaml), [SECURITY_MATRIX.md](./SECURITY_MATRIX.md), [TEST_PLAN.md](./TEST_PLAN.md), [ATTENDANCE_DDL.sql](./ATTENDANCE_DDL.sql), [MIGRATION_PLAN.md](./MIGRATION_PLAN.md) |
+| 관련 구현 문서 | [device-api.yaml](../device-api.yaml), [SECURITY_MATRIX.md](./SECURITY_MATRIX.md), [TEST_PLAN.md](./TEST_PLAN.md), [Flyway migration](../../src/main/resources/db/migration), [MIGRATION_PLAN.md](./MIGRATION_PLAN.md) |
 
 ### 0.1 문서 목적
 

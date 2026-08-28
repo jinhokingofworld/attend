@@ -5,7 +5,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서 목적 | Attend MVP의 인증 주체, URL·화면·서비스·Mapper·DB 권한을 하나의 검증 가능한 보안 계약으로 정의 |
-| 기준·연계 문서 | [프로젝트 정의서](./PROJECT_DEFINITION.md), [시스템 아키텍처](./ARCHITECTURE.md), [데이터베이스 구조 설계](./DATABASE_DESIGN.md), [DB 전환 계획](./MIGRATION_PLAN.md), [장치 API 계약](./device-api.yaml), [관리자 UI 명세](./ADMIN_UI_SPEC.md), [테스트 계획](./TEST_PLAN.md) |
+| 기준·연계 문서 | [프로젝트 정의서](./PROJECT_DEFINITION.md), [시스템 아키텍처](./ARCHITECTURE.md), [데이터베이스 구조 설계](./DATABASE_DESIGN.md), [DB 전환 계획](./MIGRATION_PLAN.md), [장치 API 계약](../device-api.yaml), [관리자 UI 명세](./ADMIN_UI_SPEC.md), [테스트 계획](./TEST_PLAN.md) |
 | 적용 범위 | 관리자 웹, NFC 장치 API, Spring 스케줄러, 애플리케이션 runtime, Flyway·컷오버 주체 |
 | 적용 단계 | M3 관리자 인증·인가부터 M5 운영 전환까지 |
 | 시간 기준 | `Asia/Seoul`; 보안 로그 자체의 저장 시각은 `TIMESTAMPTZ` |
@@ -675,7 +675,7 @@ PRG(Post/Redirect/Get)를 사용하더라도 성공하지 않은 변경을 성�
 
 ### 13.2 장치 API
 
-장치 API의 정확한 schema·HTTP 상태는 [device-api.yaml](./device-api.yaml)을 따른다. Spring 예외명, SQL constraint 이름과 다른 부서·교사 상세를 응답에 넣지 않는다. `GlobalRestExceptionHandler`와 MVC handler의 적용 범위를 package 또는 marker annotation으로 분리한다.
+장치 API의 정확한 schema·HTTP 상태는 [device-api.yaml](../device-api.yaml)을 따른다. Spring 예외명, SQL constraint 이름과 다른 부서·교사 상세를 응답에 넣지 않는다. `GlobalRestExceptionHandler`와 MVC handler의 적용 범위를 package 또는 marker annotation으로 분리한다.
 
 ---
 

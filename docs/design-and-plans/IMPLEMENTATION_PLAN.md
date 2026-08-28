@@ -108,7 +108,7 @@
 - 보안 테스트는 두 filter chain, CSRF, session fixation, idle 30분·absolute 8시간, 다른 부서 IDOR, token 재사용·만료, 장치 상태·version 경합을 검증한다.
 - 계약 테스트는 OpenAPI의 모든 response example과 HTTP status/code 조합을 검증한다.
 - migration 테스트는 빈 DB, 정확한 레거시 DB, 알 수 없는 DB, 권한, importer dry-run과 백업 복원을 포함한다.
-- 각 단계는 [TEST_PLAN.md](./docs/TEST_PLAN.md)의 해당 안정 ID가 통과해야 다음 feature flag를 열 수 있으며, 최종적으로 AC-01~37을 모두 통과해야 한다.
+- 각 단계는 [TEST_PLAN.md](./TEST_PLAN.md)의 해당 안정 ID가 통과해야 다음 feature flag를 열 수 있으며, 최종적으로 AC-01~37을 모두 통과해야 한다.
 
 ## 4. 명시적 범위와 가정
 

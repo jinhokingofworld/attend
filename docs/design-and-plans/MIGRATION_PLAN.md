@@ -309,7 +309,8 @@ V001 preflight는 개수만 비교하지 않고 레거시 네 테이블 외의 �
 
 ## 6. 버전별 스키마 마이그레이션
 
-기준 DDL은 [ATTENDANCE_DDL.sql](./ATTENDANCE_DDL.sql)이다. 이 파일을 운영에서 직접 실행하지 않고 다음 Flyway 파일로 분리한다.
+초기 단일 DDL의 내용을 다음 Flyway 파일로 분리했다. 현재 물리 스키마의 기준은
+[Flyway migration 디렉터리](../../src/main/resources/db/migration)다.
 
 | 버전 | 파일 | 주요 내용 |
 |---|---|---|
@@ -672,7 +673,7 @@ cluster-global 역할 백업에는 비밀번호 해시가 포함될 수 있으�
 | `app_runtime` | 현재 애플리케이션 테이블의 최소 DML, 신규 identity sequence와 `member_id_seq`의 `USAGE`, `member` 허용 컬럼의 최소 SELECT·INSERT·UPDATE, schema 호환성 확인용 `flyway_schema_history` SELECT. DDL, history 변경, `member` DELETE와 세 레거시 테이블 DML 금지 |
 
 재현 가능한 역할 생성·migration 준비·runtime grant SQL과 실행 순서는
-[`ops/db/roles`](../ops/db/roles/README.md)에 둔다. SQL에는 비밀번호를 넣지 않으며
+[`ops/db/roles`](../../ops/db/roles/README.md)에 둔다. SQL에는 비밀번호를 넣지 않으며
 실제 credential 발급과 운영 적용은 최종 배포 단계에서 수행한다.
 
 - `PUBLIC`에 불필요한 테이블·sequence·함수 실행 권한을 주지 않는다.

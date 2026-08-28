@@ -1,7 +1,7 @@
 # Attend 시스템 아키텍처
 
 > 기준 문서: [PROJECT_DEFINITION.md](./PROJECT_DEFINITION.md), [DATABASE_DESIGN.md](./DATABASE_DESIGN.md), [MIGRATION_PLAN.md](./MIGRATION_PLAN.md)
-> 상세 계약: [device-api.yaml](./device-api.yaml), [SECURITY_MATRIX.md](./SECURITY_MATRIX.md), [ADMIN_UI_SPEC.md](./ADMIN_UI_SPEC.md), [TEST_PLAN.md](./TEST_PLAN.md)
+> 상세 계약: [device-api.yaml](../device-api.yaml), [SECURITY_MATRIX.md](./SECURITY_MATRIX.md), [ADMIN_UI_SPEC.md](./ADMIN_UI_SPEC.md), [TEST_PLAN.md](./TEST_PLAN.md)
 > 대상 릴리스: 현장 사용 가능한 MVP
 > 기술 기준: Java 21, Spring Boot 3.5.9, MyBatis, PostgreSQL, Arduino
 > 작성 기준일: 2026-07-31
@@ -46,9 +46,9 @@ Attend MVP는 **단일 Spring Boot 애플리케이션으로 배포하는 모듈�
 | [PROJECT_DEFINITION.md](./PROJECT_DEFINITION.md) | 사용자, 범위, 업무 규칙과 인수 기준 |
 | `ARCHITECTURE.md` | 구성 요소, 모듈 경계, 의존성, 런타임·보안·트랜잭션 구조 |
 | [DATABASE_DESIGN.md](./DATABASE_DESIGN.md) | 테이블, FK, 제약, 인덱스와 데이터 트랜잭션 기준 |
-| [ATTENDANCE_DDL.sql](./ATTENDANCE_DDL.sql) | 신규 DB 기준 물리 스키마 |
+| [Flyway migration](../../src/main/resources/db/migration) | 현재 DB 물리 스키마 |
 | [MIGRATION_PLAN.md](./MIGRATION_PLAN.md) | 기존 DB 안전화, Flyway, 컷오버와 롤백 |
-| [device-api.yaml](./device-api.yaml) | 장치 HTTP 요청·응답의 정확한 계약 |
+| [device-api.yaml](../device-api.yaml) | 장치 HTTP 요청·응답의 정확한 계약 |
 | [SECURITY_MATRIX.md](./SECURITY_MATRIX.md) | URL·기능·역할별 허용과 거부 조건 |
 | [ADMIN_UI_SPEC.md](./ADMIN_UI_SPEC.md) | 관리자 웹의 정보 구조, 화면·폼과 상호작용 계약 |
 | [TEST_PLAN.md](./TEST_PLAN.md) | 계층별 테스트와 인수 시나리오 |
@@ -1072,7 +1072,7 @@ DB 연결은 migration과 같은 `FLYWAY_DB_URL`, `FLYWAY_DB_USERNAME`, `FLYWAY_
 
 - `device`의 인증·check-in API slice
 - 장치 전용 filter chain
-- [device-api.yaml](./device-api.yaml) 준수 구현
+- [device-api.yaml](../device-api.yaml) 준수 구현
 - 실제 UID 전송과 응답 기반 펌웨어 신호
 - 중복·timeout·재시도 통합 시험
 
@@ -1133,7 +1133,7 @@ DB 연결은 migration과 같은 `FLYWAY_DB_URL`, `FLYWAY_DB_USERNAME`, `FLYWAY_
 3. LED·부저 상태 패턴
 4. 장치 credential 발급·교체의 운영 담당자
 
-UID 허용 길이, 오류별 HTTP·JSON code, `Retry-After`와 자동 재시도 규칙은 [device-api.yaml](./device-api.yaml)에서 확정됐다.
+UID 허용 길이, 오류별 HTTP·JSON code, `Retry-After`와 자동 재시도 규칙은 [device-api.yaml](../device-api.yaml)에서 확정됐다.
 
 ### 파일럿 부서 설정 전에 필요
 

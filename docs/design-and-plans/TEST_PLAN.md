@@ -1,6 +1,6 @@
 # Attend MVP 테스트 계획
 
-> 기준 문서: [PROJECT_DEFINITION.md](./PROJECT_DEFINITION.md), [ARCHITECTURE.md](./ARCHITECTURE.md), [DATABASE_DESIGN.md](./DATABASE_DESIGN.md), [ATTENDANCE_DDL.sql](./ATTENDANCE_DDL.sql), [MIGRATION_PLAN.md](./MIGRATION_PLAN.md), [device-api.yaml](./device-api.yaml), [SECURITY_MATRIX.md](./SECURITY_MATRIX.md), [ADMIN_UI_SPEC.md](./ADMIN_UI_SPEC.md)
+> 기준 문서: [PROJECT_DEFINITION.md](./PROJECT_DEFINITION.md), [ARCHITECTURE.md](./ARCHITECTURE.md), [DATABASE_DESIGN.md](./DATABASE_DESIGN.md), [Flyway migration](../../src/main/resources/db/migration), [MIGRATION_PLAN.md](./MIGRATION_PLAN.md), [device-api.yaml](../device-api.yaml), [SECURITY_MATRIX.md](./SECURITY_MATRIX.md), [ADMIN_UI_SPEC.md](./ADMIN_UI_SPEC.md)
 >
 > 대상 릴리스: 현장 사용 가능한 MVP
 >
@@ -37,13 +37,13 @@ Attend MVP는 화면이 열리고 NFC 요청 한 건이 성공하는 것만으�
 |---|---|
 | `PROJECT_DEFINITION.md` | BR·FR·NFR·AC 업무 요구와 완료 조건 |
 | `ARCHITECTURE.md` | 모듈 경계, 보안 chain, 시간·잠금·트랜잭션·배포 구조 |
-| `DATABASE_DESIGN.md`, `ATTENDANCE_DDL.sql` | 테이블, FK, CHECK, unique, 상태와 인덱스 |
+| `DATABASE_DESIGN.md`, Flyway migration | 테이블, FK, CHECK, unique, 상태와 인덱스 |
 | `device-api.yaml` | 장치가 관찰하는 정확한 HTTP 요청·응답 계약 |
 | `SECURITY_MATRIX.md` | 역할·부서·경로·서비스·DB 권한별 허용과 거부 |
 | `ADMIN_UI_SPEC.md` | 화면 필드, 동작, 오류, 접근성과 반응형 기준 |
 | `MIGRATION_PLAN.md` | DB 분류, Flyway, 이관, 컷오버, rollback과 복원 |
 
-충돌하면 업무 의미는 프로젝트 정의서, 외부 HTTP 형식은 OpenAPI, 물리 제약은 DDL을 우선한다. 테스트가 문서 간 충돌을 발견하면 기대값을 임의로 정하지 않고 문서를 먼저 수정한다.
+충돌하면 업무 의미는 프로젝트 정의서, 외부 HTTP 형식은 OpenAPI, 현재 물리 제약은 Flyway migration을 우선한다. 테스트가 문서 간 충돌을 발견하면 기대값을 임의로 정하지 않고 문서를 먼저 수정한다.
 
 ### 1.3 범위
 

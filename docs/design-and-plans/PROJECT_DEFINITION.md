@@ -17,7 +17,7 @@
 
 이 문서는 프로젝트의 배경, 목표, 범위, 사용자, 핵심 규칙, 요구사항 및 완료 기준을 합의하기 위한 기준 문서다. 상세 화면 설계, API 명세, DB 설계 및 테스트 계획은 이 문서를 기반으로 별도 작성한다.
 
-시스템 구성 요소, 모듈 경계와 런타임 구조는 [ARCHITECTURE.md](./ARCHITECTURE.md)를 기준으로 한다. 물리 데이터 구조는 [DATABASE_DESIGN.md](./DATABASE_DESIGN.md), 장치 HTTP 계약은 [device-api.yaml](./device-api.yaml), 관리자 화면은 [ADMIN_UI_SPEC.md](./ADMIN_UI_SPEC.md), 권한은 [SECURITY_MATRIX.md](./SECURITY_MATRIX.md), 검증 범위는 [TEST_PLAN.md](./TEST_PLAN.md)를 따른다.
+시스템 구성 요소, 모듈 경계와 런타임 구조는 [ARCHITECTURE.md](./ARCHITECTURE.md)를 기준으로 한다. 물리 데이터 구조는 [DATABASE_DESIGN.md](./DATABASE_DESIGN.md), 장치 HTTP 계약은 [device-api.yaml](../device-api.yaml), 관리자 화면은 [ADMIN_UI_SPEC.md](./ADMIN_UI_SPEC.md), 권한은 [SECURITY_MATRIX.md](./SECURITY_MATRIX.md), 검증 범위는 [TEST_PLAN.md](./TEST_PLAN.md)를 따른다.
 
 ### 0.2 핵심 전제
 
@@ -385,9 +385,9 @@ MVP에서는 플랫폼 운영자와 부서 관리자만 웹 계정을 사용한�
 
 ## 9. 장치 API 개요
 
-아래 내용은 업무 관점의 API 개요다. 정확한 요청·응답 schema, 오류 코드, 재시도와 rate limit 계약은 [device-api.yaml](./device-api.yaml)을 따른다.
+아래 내용은 업무 관점의 API 개요다. 정확한 요청·응답 schema, 오류 코드, 재시도와 rate limit 계약은 [device-api.yaml](../device-api.yaml)을 따른다.
 
-장치 credential 확인은 `POST /api/v1/device/credential-tests`로 분리한다. 이 경로는 `INACTIVE` 장치의 키 검증을 허용하지만 출석·태깅 event·교사 데이터를 만들거나 반환하지 않는다. 아래 요청·결과 표는 출석용 check-in endpoint의 업무 개요이며 정확한 외부 계약은 [device-api.yaml](./device-api.yaml)을 따른다.
+장치 credential 확인은 `POST /api/v1/device/credential-tests`로 분리한다. 이 경로는 `INACTIVE` 장치의 키 검증을 허용하지만 출석·태깅 event·교사 데이터를 만들거나 반환하지 않는다. 아래 요청·결과 표는 출석용 check-in endpoint의 업무 개요이며 정확한 외부 계약은 [device-api.yaml](../device-api.yaml)을 따른다.
 
 ### 9.1 요청 예시
 
@@ -599,7 +599,7 @@ MVP 완료는 화면이 존재하는 상태가 아니라 다음 전체 흐름이
 | M1. 개발 기반 안전화 | 환경 분리, 운영 DB 초기화 제거, 마이그레이션, 테스트 DB 구성 | [DB 전환 계획](./MIGRATION_PLAN.md), 환경설정, DB 마이그레이션, 기본 테스트 |
 | M2. 출석 도메인 구현 | 최소 인가 계약, 부서·정책 버전·출석 대상 날짜·대상자·일일 출석·자동 결석·통계와 멱등성 구현 | 서비스·DB 통합 테스트 |
 | M3. 인증·관리 웹 구현 | 실제 역할·부서 격리, 교사·정책·출석 대상 날짜·대시보드·정정 화면, 미등록 카드 등록함과 카드 orchestration | [관리자 UI 명세](./ADMIN_UI_SPEC.md), [보안 매트릭스](./SECURITY_MATRIX.md), 관리자 웹·보안 테스트 |
-| M4. 장치 API·펌웨어 통합 | 장치 인증, 실제 UID, HTTP 요청·응답, LED·재시도 구현 | [장치 API 명세](./device-api.yaml), Arduino 펌웨어, 통합 시험 결과 |
+| M4. 장치 API·펌웨어 통합 | 장치 인증, 실제 UID, HTTP 요청·응답, LED·재시도 구현 | [장치 API 명세](../device-api.yaml), Arduino 펌웨어, 통합 시험 결과 |
 | M5. 운영 준비 | 배포, 로그, 백업·복원, 운영 매뉴얼 | 배포·운영 문서, 복원 시험 기록 |
 | M6. 현장 파일럿 | 2개 이상의 부서 설정과 실제 교사 5~20명 규모 부서의 여러 출석 대상 날짜 운영 | 파일럿 결과, 발견 이슈와 보완 목록 |
 
@@ -608,9 +608,9 @@ MVP 완료는 화면이 존재하는 상태가 아니라 다음 전체 흐름이
 - Spring Boot 애플리케이션 소스 코드
 - Arduino NFC 단말기 펌웨어
 - [시스템 아키텍처](./ARCHITECTURE.md)
-- [DB 설계](./DATABASE_DESIGN.md)와 [기준 DDL](./ATTENDANCE_DDL.sql)
+- [DB 설계](./DATABASE_DESIGN.md)와 [Flyway migration](../../src/main/resources/db/migration)
 - [DB 전환 및 데이터 마이그레이션 계획](./MIGRATION_PLAN.md)
-- [장치 API 명세](./device-api.yaml)
+- [장치 API 명세](../device-api.yaml)
 - [보안·권한 매트릭스](./SECURITY_MATRIX.md)
 - [관리자 웹 UI 명세](./ADMIN_UI_SPEC.md)
 - [MVP 테스트 계획](./TEST_PLAN.md)
